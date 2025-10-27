@@ -12,6 +12,9 @@ import { GoogleLogo, MicrosoftLogo } from "@/components/ui/brand-logos"
 import { usePlan } from '@/contexts/plan-context'
 import { cleanEmailDisplay } from "@/utils/email-cleaner"
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 interface EmailAccount {
   id: string
   provider: string
