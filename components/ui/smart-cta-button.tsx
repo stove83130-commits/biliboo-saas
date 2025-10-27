@@ -103,8 +103,14 @@ export function SmartCTAButton({
     }
 
     if (!user) {
-      // Utilisateur non connecté -> rediriger vers l'onboarding
-      router.push('/onboarding')
+      // Utilisateur non connecté -> sauvegarder le plan et rediriger vers l'inscription
+      if (planName) {
+        // Sauvegarder le plan choisi dans localStorage
+        localStorage.setItem('selected_plan', planName.toLowerCase())
+        localStorage.setItem('plan_redirect', 'true')
+      }
+      // Rediriger vers la page d'inscription (pas onboarding)
+      router.push('/auth/signup')
     } else if (!onboardingCompleted) {
       // Utilisateur connecté mais onboarding non terminé -> rediriger vers l'onboarding
       router.push('/onboarding')

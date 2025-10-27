@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+
+  // Vérifier si un plan a été sélectionné avant la connexion
+  useEffect(() => {
+    const plan = localStorage.getItem('selected_plan');
+    const shouldRedirect = localStorage.getItem('plan_redirect');
+    if (plan && shouldRedirect === 'true') {
+      setSelectedPlan(plan);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,9 +41,47 @@ export default function LoginPage() {
         return;
       }
 
-      // Rediriger vers le dashboard
-      router.push('/dashboard');
-      router.refresh();
+      // Vérifier si un plan a été sélectionné
+      const selectedPlan = localStorage.getItem('selected_plan');
+      const shouldRedirect = localStorage.getItem('plan_redirect');
+      
+      if (selectedPlan && shouldRedirect === 'true') {
+        // Nettoyer le localStorage
+        localStorage.removeItem('selected_plan');
+        localStorage.removeItem('plan_redirect');
+        
+        // Rediriger vers le paiement du plan choisi
+        try {
+          const response = await fetch('/api/billing/checkout', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              planId: selectedPlan,
+              isAnnual: false,
+              source: 'login'
+            }),
+          });
+
+          if (response.ok) {
+            const { url } = await response.json();
+            window.location.href = url;
+          } else {
+            // En cas d'erreur, rediriger vers le dashboard
+            router.push('/dashboard');
+            router.refresh();
+          }
+        } catch (error) {
+          console.error('Erreur lors de la redirection vers le paiement:', error);
+          router.push('/dashboard');
+          router.refresh();
+        }
+      } else {
+        // Pas de plan sélectionné, rediriger vers le dashboard normalement
+        router.push('/dashboard');
+        router.refresh();
+      }
     } catch (err: any) {
       setError(err.message || 'Erreur de connexion');
     } finally {
@@ -43,11 +91,15 @@ export default function LoginPage() {
 
   const handleOAuthLogin = async (provider: 'google' | 'azure') => {
     try {
+      // Sauvegarder le plan dans localStorage avant la redirection OAuth
+      const plan = localStorage.getItem('selected_plan');
+      const shouldRedirect = localStorage.getItem('plan_redirect');
+      
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback${plan && shouldRedirect === 'true' ? `?plan=${plan}` : ''}`,
         },
       });
 

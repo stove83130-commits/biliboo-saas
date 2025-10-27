@@ -2,9 +2,12 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const plan = requestUrl.searchParams.get('plan')
   const origin = requestUrl.origin
 
   if (code) {
@@ -17,6 +20,11 @@ export async function GET(request: NextRequest) {
       console.error('Erreur lors de l\'échange du code:', error)
       return NextResponse.redirect(`${origin}/auth/login?error=auth_failed`)
     }
+  }
+
+  // Si un plan a été sélectionné, rediriger vers une page intermédiaire qui gérera le paiement
+  if (plan) {
+    return NextResponse.redirect(`${origin}/auth/plan-redirect?plan=${plan}`)
   }
 
   // Rediriger vers le dashboard après une connexion réussie
