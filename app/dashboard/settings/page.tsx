@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { RefreshCw, CheckCircle2, X } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter, useSearchParams } from "next/navigation"
 import { UpgradeModal } from "@/components/dashboard/upgrade-modal"
@@ -20,7 +20,7 @@ interface EmailAccount {
   last_sync_at: string | null
 }
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -352,3 +352,16 @@ export default function SettingsPage() {
   )
 }
 
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout>
+        <div className="flex items-center justify-center py-8">
+          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </DashboardLayout>
+    }>
+      <SettingsPageContent />
+    </Suspense>
+  )
+}

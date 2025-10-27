@@ -63,4 +63,14 @@ export function getEmailDomain(email: string): string {
   return parts.length > 1 ? parts[1] : '';
 }
 
+/**
+ * Extrait l'email propre depuis un profil Outlook/Microsoft
+ * @param profile - Le profil utilisateur Microsoft Graph
+ * @returns L'adresse email nettoyée
+ */
+export function extractCleanEmailFromProfile(profile: any): string {
+  // Microsoft Graph retourne soit userPrincipalName soit mail
+  const email = profile.mail || profile.userPrincipalName || '';
+  return cleanEmailDisplay(email);
+}
 
