@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
 
+
+export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET() {

@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server"
 import JSZip from "jszip"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 
+
+export const dynamic = 'force-dynamic'
 function formatPeriodLabel(period: string, customStart?: string, customEnd?: string) {
   if (period === 'this_month') return 'Ce mois'
   if (period === 'last_month') return 'Mois dernier'

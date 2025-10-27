@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
 
+
+export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   const supabase = createClient()
   
