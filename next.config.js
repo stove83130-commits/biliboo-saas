@@ -10,6 +10,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'logo.clearbit.com',
       },
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+      },
     ],
   },
   typescript: {
@@ -21,6 +25,12 @@ const nextConfig = {
     // Warning: This allows production builds to successfully complete even if
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
+  },
+  // Optimisations pour Vercel
+  swcMinify: true,
+  reactStrictMode: true,
+  experimental: {
+    isrMemoryCacheSize: 0,
   },
 }
 
