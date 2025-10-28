@@ -34,8 +34,16 @@ export async function GET(request: NextRequest) {
   const supabaseAfterAuth = createClient()
   const { data: { user } } = await supabaseAfterAuth.auth.getUser()
   
-  // Si c'est un nouvel utilisateur OAuth (pas d'onboarding), rediriger vers l'onboarding
-  const isNewOAuthUser = user && !user.user_metadata?.onboarding_completed
+  console.log('🔍 User après OAuth:', {
+    userId: user?.id,
+    email: user?.email,
+    metadata: user?.user_metadata,
+    identities: user?.identities
+  })
+  
+  // Si c'est un nouvel utilisateur OAuth (pas d'onboarding défini ou false), rediriger vers l'onboarding
+  // Par défaut, tous les nouveaux utilisateurs OAuth n'ont pas onboarding_completed
+  const isNewOAuthUser = user && user.user_metadata?.onboarding_completed !== true
   const redirectPath = isNewOAuthUser ? '/onboarding' : '/dashboard'
   
   console.log(`🔄 Redirection vers ${redirectPath} (nouveau OAuth: ${isNewOAuthUser})`)
