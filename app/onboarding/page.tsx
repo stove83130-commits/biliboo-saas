@@ -123,7 +123,10 @@ export default function OnboardingPage() {
   };
 
   const handleSubmit = async () => {
-    if (!consent) return;
+    if (!consent) {
+      console.error('Consentement non donné');
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -132,10 +135,12 @@ export default function OnboardingPage() {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
-        console.error('Utilisateur non authentifié');
-        router.push('/auth/login');
+        console.error('❌ Utilisateur non authentifié');
+        window.location.href = '/auth/login';
         return;
       }
+
+      console.log('✅ Utilisateur authentifié:', user.email);
 
       // Mettre à jour les métadonnées avec les réponses
       const { error } = await supabase.auth.updateUser({
@@ -150,15 +155,17 @@ export default function OnboardingPage() {
       });
 
       if (error) {
-        console.error('Erreur lors de la sauvegarde:', error);
+        console.error('❌ Erreur lors de la sauvegarde:', error);
         alert('Erreur lors de la sauvegarde. Veuillez réessayer.');
         return;
       }
 
+      console.log('✅ Onboarding complété, redirection vers dashboard');
+      
       // Rediriger vers le dashboard
-      router.push('/dashboard');
+      window.location.href = '/dashboard';
     } catch (error) {
-      console.error('Erreur:', error);
+      console.error('❌ Erreur:', error);
       alert('Une erreur est survenue. Veuillez réessayer.');
     } finally {
       setIsSubmitting(false);
