@@ -24,6 +24,12 @@ export default function SignupPage() {
     if (plan && shouldRedirect === 'true') {
       setSelectedPlan(plan);
     }
+    
+    // Vérifier s'il y a une erreur "no_email" dans l'URL
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('error') === 'no_email') {
+      setError('Votre compte OAuth n\'a pas d\'email associé. Veuillez créer un compte avec email et mot de passe.');
+    }
   }, []);
 
   const handleSignup = async (e: React.FormEvent) => {

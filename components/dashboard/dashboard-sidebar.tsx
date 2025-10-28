@@ -30,16 +30,35 @@ export function DashboardSidebar() {
   useEffect(() => {
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
+      
+      // Vérifier si l'utilisateur a un email valide
+      if (user && !user.email) {
+        console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
+        await supabase.auth.signOut()
+        router.push('/auth/signup?error=no_email')
+        return
+      }
+      
       setUser(user)
     }
     getUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const currentUser = session?.user
+      
+      // Vérifier si l'utilisateur a un email valide
+      if (currentUser && !currentUser.email) {
+        console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
+        await supabase.auth.signOut()
+        router.push('/auth/signup?error=no_email')
+        return
+      }
+      
+      setUser(currentUser ?? null)
     })
 
     return () => subscription.unsubscribe()
-  }, [supabase.auth])
+  }, [supabase.auth, router])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -57,7 +76,10 @@ export function DashboardSidebar() {
   }
 
   const getUserEmail = () => {
-    return user?.email || 'user@example.com'
+    if (!user?.email) {
+      console.error('❌ Aucun email disponible pour cet utilisateur')
+    }
+    return user?.email || 'Pas d\'email'
   }
 
   return (
