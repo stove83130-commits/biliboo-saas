@@ -132,7 +132,7 @@ export default function OnboardingPage() {
 
     try {
       const supabase = createClient();
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      let { data: { user }, error: userError } = await supabase.auth.getUser();
 
       if (!user || userError) {
         console.error('❌ Utilisateur non authentifié:', userError);
