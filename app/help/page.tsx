@@ -8,7 +8,7 @@ export default function HelpPage() {
         
         <div className="grid gap-6">
           <div className="bg-white p-6 rounded-lg border">
-            <h2 className="text-lg font-semibold mb-4">Comment utiliser Biliboo</h2>
+            <h2 className="text-lg font-semibold mb-4">Comment utiliser Bilibou</h2>
             <div className="space-y-4">
               <div>
                 <h3 className="font-medium mb-2">1. Connecter votre Gmail</h3>

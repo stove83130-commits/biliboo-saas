@@ -8,7 +8,7 @@ export default function OnboardingPage() {
         
         <div className="grid gap-6">
           <div className="bg-white p-6 rounded-lg border">
-            <h2 className="text-lg font-semibold mb-4">Bienvenue dans Biliboo ! 🎉</h2>
+            <h2 className="text-lg font-semibold mb-4">Bienvenue dans Bilibou ! 🎉</h2>
             <p className="text-sm text-gray-600 mb-6">
               Configurez votre compte pour commencer à extraire automatiquement vos factures.
             </p>

@@ -1,6 +1,6 @@
 /**
  * Gestion des plans et limites de facturation
- * Pour le système Biliboo
+ * Pour le système Bilibou
  */
 
 export interface Plan {

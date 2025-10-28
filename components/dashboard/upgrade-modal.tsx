@@ -75,7 +75,7 @@ export function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-center">
-            Choisissez votre plan Biliboo
+            Choisissez votre plan Bilibou
           </DialogTitle>
         </DialogHeader>
 

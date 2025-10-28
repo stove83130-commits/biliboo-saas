@@ -43,7 +43,7 @@ export async function GET() {
         currency: payment.currency,
         status: payment.status,
         created: new Date(payment.created * 1000).toISOString(),
-        description: payment.description || 'Paiement Biliboo',
+        description: payment.description || 'Paiement Bilibou',
         receipt_url: payment.charges?.data[0]?.receipt_url || null,
       })),
       ...invoices.data.map(invoice => ({

@@ -88,12 +88,12 @@ export default function PlansPage() {
           <Link href="/" className="flex items-center gap-2">
             <Image 
               src="/logos/logo%20off.png" 
-              alt="Biliboo Logo" 
+              alt="Bilibou Logo" 
               width={40} 
               height={40}
               className="h-10 w-auto"
             />
-            <span className="text-xl font-semibold text-foreground">Biliboo</span>
+            <span className="text-xl font-semibold text-foreground">Bilibou</span>
           </Link>
           <div className="flex items-center gap-4">
             <Link href="/auth/login">
@@ -328,7 +328,7 @@ export default function PlansPage() {
               <details className="group">
                 <summary className="flex justify-between items-center cursor-pointer list-none py-4 px-1 hover:text-foreground transition-colors">
                   <h3 className="text-base font-medium text-foreground">
-                    Puis-je essayer Biliboo gratuitement ?
+                    Puis-je essayer Bilibou gratuitement ?
                   </h3>
                   <svg className="w-5 h-5 text-muted-foreground group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -449,7 +449,7 @@ export default function PlansPage() {
                 Prêt à automatiser votre comptabilité ?
               </h2>
               <p className="text-muted-foreground mb-8 max-w-2xl mx-auto text-sm md:text-base">
-                Rejoignez des centaines d'entreprises qui font confiance à Biliboo
+                Rejoignez des centaines d'entreprises qui font confiance à Bilibou
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Link href="/auth/signup">

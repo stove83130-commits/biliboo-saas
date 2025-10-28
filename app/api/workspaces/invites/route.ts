@@ -59,7 +59,7 @@ export async function POST(req: Request) {
           html: `
             <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b">
               <h2 style="margin:0 0 12px 0">Vous avez été invité</h2>
-              <p style="margin:0 0 16px 0">Cliquez sur le bouton ci-dessous pour rejoindre l'organisation sur Biliboo.</p>
+              <p style="margin:0 0 16px 0">Cliquez sur le bouton ci-dessous pour rejoindre l'organisation sur Bilibou.</p>
               <p style="margin:0 0 24px 0">
                 <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">Rejoindre l'organisation</a>
               </p>

@@ -139,7 +139,7 @@ export default function SignupPage() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Inscription</CardTitle>
           <CardDescription className="text-center">
-            Créez votre compte Biliboo
+            Créez votre compte Bilibou
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -24,7 +24,7 @@ export default function DashboardPage({
                   Paiement réussi ! 🎉
                 </h3>
                 <div className="mt-2 text-sm text-green-700">
-                  <p>Votre essai gratuit de 7 jours a commencé. Bienvenue dans Biliboo !</p>
+                  <p>Votre essai gratuit de 7 jours a commencé. Bienvenue dans Bilibou !</p>
             </div>
           </div>
         </div>

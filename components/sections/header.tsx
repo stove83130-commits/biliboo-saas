@@ -42,12 +42,12 @@ export function Header() {
         <Link href="/" className="flex items-center space-x-2">
           <Image 
             src="/logos/logo%20off.png" 
-            alt="Biliboo Logo" 
+            alt="Bilibou Logo" 
             width={56} 
             height={56}
             className="h-14 w-auto"
           />
-          <span className="text-xl font-semibold text-foreground">Biliboo</span>
+          <span className="text-xl font-semibold text-foreground">Bilibou</span>
         </Link>
 
         {/* Navigation Desktop - Centrée et alignée avec le bouton principal */}

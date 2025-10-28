@@ -11,7 +11,7 @@ export function FooterSection() {
         <div className="flex gap-3 items-stretch justify-center">
           <img 
             src="/logos/logo%20off.png" 
-            alt="Biliboo Logo" 
+            alt="Bilibou Logo" 
             className="h-14 w-auto"
           />
         </div>

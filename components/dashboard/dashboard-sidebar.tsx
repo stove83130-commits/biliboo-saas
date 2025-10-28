@@ -237,12 +237,12 @@ export function DashboardSidebar() {
           <Link href="/" className="flex items-center gap-2">
             <Image 
               src="/logos/logo%20off.png" 
-              alt="Biliboo Logo" 
+              alt="Bilibou Logo" 
               width={48} 
               height={48}
               className="h-12 w-auto"
             />
-            <span className="text-base font-semibold text-black">Biliboo</span>
+            <span className="text-base font-semibold text-black">Bilibou</span>
           </Link>
         </div>
 

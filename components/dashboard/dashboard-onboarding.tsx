@@ -148,7 +148,7 @@ export function DashboardOnboarding() {
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground mb-2">
-          {allCompleted ? '🎉 Vous êtes prêt !' : 'Démarrez et réussissez avec Biliboo'}
+          {allCompleted ? '🎉 Vous êtes prêt !' : 'Démarrez et réussissez avec Bilibou'}
         </h2>
         <p className="text-sm text-muted-foreground">
           {allCompleted 

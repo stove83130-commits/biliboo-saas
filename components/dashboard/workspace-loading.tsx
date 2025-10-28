@@ -23,7 +23,7 @@ export function WorkspaceLoadingOverlay() {
     <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center">
       <div className="text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-        <p className="text-gray-600">Chargement de Biliboo...</p>
+        <p className="text-gray-600">Chargement de Bilibou...</p>
       </div>
     </div>
   )

@@ -12,7 +12,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Biliboo',
+  title: 'Bilibou',
   description: 'Gestion de factures',
 }
 

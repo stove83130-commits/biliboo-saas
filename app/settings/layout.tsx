@@ -26,12 +26,12 @@ export default function SettingsLayout({
           <Link href="/" className="flex items-center gap-2">
             <Image 
               src="/logos/logo%20off.png" 
-              alt="Biliboo Logo" 
+              alt="Bilibou Logo" 
               width={32} 
               height={32}
               className="h-8 w-auto"
             />
-            <span className="text-sm font-semibold text-foreground">Biliboo</span>
+            <span className="text-sm font-semibold text-foreground">Bilibou</span>
           </Link>
         </div>
       </header>

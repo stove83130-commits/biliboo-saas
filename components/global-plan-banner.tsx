@@ -40,7 +40,7 @@ export function GlobalPlanBanner() {
             </div>
             <div className="flex-1">
               <p className="text-sm font-medium">
-                🚀 <strong>Biliboo</strong> - Extraction automatique de factures
+                🚀 <strong>Bilibou</strong> - Extraction automatique de factures
               </p>
               <p className="text-xs opacity-90">
                 Connectez votre Gmail et commencez à extraire vos factures en quelques clics

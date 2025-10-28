@@ -117,7 +117,7 @@ export default function LoginPage() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Connexion</CardTitle>
           <CardDescription className="text-center">
-            Connectez-vous à votre compte Biliboo
+            Connectez-vous à votre compte Bilibou
           </CardDescription>
         </CardHeader>
         <CardContent>

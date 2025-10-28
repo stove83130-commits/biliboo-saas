@@ -9,7 +9,7 @@ export default function InvitePage() {
         <div className="bg-white p-6 rounded-lg border">
           <h2 className="text-lg font-semibold mb-4">Inviter votre équipe</h2>
           <p className="text-sm text-gray-600 mb-6">
-            Invitez des membres de votre équipe à rejoindre votre espace de travail Biliboo.
+            Invitez des membres de votre équipe à rejoindre votre espace de travail Bilibou.
           </p>
           
           <div className="space-y-4">
@@ -24,7 +24,7 @@ export default function InvitePage() {
             <div>
               <label className="block text-sm font-medium mb-2">Message (optionnel)</label>
               <textarea 
-                placeholder="Bonjour, je t'invite à rejoindre notre espace de travail Biliboo..."
+                placeholder="Bonjour, je t'invite à rejoindre notre espace de travail Bilibou..."
                 rows={3}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
