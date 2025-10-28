@@ -56,6 +56,11 @@ export default function SignupPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            onboarding_completed: false,
+          },
+        },
       });
 
       if (error) {
@@ -93,21 +98,21 @@ export default function SignupPage() {
               const { url } = await response.json();
               window.location.href = url;
             } else {
-              // En cas d'erreur, rediriger vers le dashboard
-              router.push('/dashboard');
+              // En cas d'erreur, rediriger vers l'onboarding
+              router.push('/onboarding');
               router.refresh();
             }
           } catch (error) {
             console.error('Erreur lors de la redirection vers le paiement:', error);
-            router.push('/dashboard');
+            router.push('/onboarding');
             router.refresh();
           }
         }, 2000);
       } else {
-        // Pas de plan sélectionné, rediriger vers le dashboard normalement
+        // Pas de plan sélectionné, rediriger vers l'onboarding normalement
         setTimeout(() => {
           // Utiliser window.location.href pour forcer une navigation complète
-          window.location.href = '/dashboard';
+          window.location.href = '/onboarding';
         }, 2000);
       }
     } catch (err: any) {

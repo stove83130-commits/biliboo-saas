@@ -30,9 +30,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/auth/plan-redirect?plan=${plan}`)
   }
 
-  // Rediriger vers le dashboard après une connexion réussie
-  console.log('🔄 Redirection vers le dashboard')
-  const redirectUrl = `${origin}/dashboard`
+  // Vérifier si c'est un nouvel utilisateur (OAuth) pour rediriger vers l'onboarding
+  const supabaseAfterAuth = createClient()
+  const { data: { user } } = await supabaseAfterAuth.auth.getUser()
+  
+  // Si c'est un nouvel utilisateur OAuth (pas d'onboarding), rediriger vers l'onboarding
+  const isNewOAuthUser = user && !user.user_metadata?.onboarding_completed
+  const redirectPath = isNewOAuthUser ? '/onboarding' : '/dashboard'
+  
+  console.log(`🔄 Redirection vers ${redirectPath} (nouveau OAuth: ${isNewOAuthUser})`)
+  const redirectUrl = `${origin}${redirectPath}`
   
   // Forcer la redirection avec status 302 (Found)
   return NextResponse.redirect(redirectUrl, { 
