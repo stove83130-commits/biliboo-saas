@@ -11,6 +11,11 @@ export interface Plan {
   monthlyInvoiceLimit: number
   pricePerExtraInvoice: number
   features: string[]
+  maxEmailAccounts: number
+  allowOrganizations: boolean
+  maxOrganizations: number
+  allowAutoExport: boolean
+  supportLevel: 'basic' | 'priority' | 'enterprise'
 }
 
 export const PLANS: Record<string, Plan> = {
@@ -21,6 +26,11 @@ export const PLANS: Record<string, Plan> = {
     currency: 'EUR',
     monthlyInvoiceLimit: 100,
     pricePerExtraInvoice: 0.15,
+    maxEmailAccounts: 1,
+    allowOrganizations: false,
+    maxOrganizations: 0,
+    allowAutoExport: false,
+    supportLevel: 'basic',
     features: [
       '100 factures/mois incluses',
       '1 compte e-mail connecté',
@@ -36,6 +46,11 @@ export const PLANS: Record<string, Plan> = {
     currency: 'EUR',
     monthlyInvoiceLimit: 300,
     pricePerExtraInvoice: 0.15,
+    maxEmailAccounts: 3,
+    allowOrganizations: true,
+    maxOrganizations: 1,
+    allowAutoExport: true,
+    supportLevel: 'basic',
     features: [
       '300 factures/mois incluses',
       '3 comptes e-mail',
@@ -52,6 +67,11 @@ export const PLANS: Record<string, Plan> = {
     currency: 'EUR',
     monthlyInvoiceLimit: 1200,
     pricePerExtraInvoice: 0.12,
+    maxEmailAccounts: 10,
+    allowOrganizations: true,
+    maxOrganizations: -1, // Illimité
+    allowAutoExport: true,
+    supportLevel: 'priority',
     features: [
       '1 200 factures/mois incluses',
       '10 comptes e-mail',
@@ -68,6 +88,11 @@ export const PLANS: Record<string, Plan> = {
     currency: 'EUR',
     monthlyInvoiceLimit: -1, // Illimité
     pricePerExtraInvoice: 0,
+    maxEmailAccounts: -1, // Illimité
+    allowOrganizations: true,
+    maxOrganizations: -1, // Illimité
+    allowAutoExport: true,
+    supportLevel: 'enterprise',
     features: [
       'Factures illimitées',
       'Infrastructure dédiée',
@@ -114,6 +139,38 @@ export function calculateExtraCost(planId: string, extraInvoices: number): numbe
   if (isUnlimitedPlan(planId)) return 0
   const pricePerExtra = getPricePerExtraInvoice(planId)
   return extraInvoices * pricePerExtra
+}
+
+// Fonctions de vérification des permissions
+export function canAddEmailAccount(planId: string | null, currentEmailCount: number): boolean {
+  if (!planId) return false
+  const plan = getPlan(planId)
+  if (!plan) return false
+  if (plan.maxEmailAccounts === -1) return true // Illimité
+  return currentEmailCount < plan.maxEmailAccounts
+}
+
+export function canCreateOrganization(planId: string | null, currentOrgCount: number): boolean {
+  if (!planId) return false
+  const plan = getPlan(planId)
+  if (!plan) return false
+  if (!plan.allowOrganizations) return false
+  if (plan.maxOrganizations === -1) return true // Illimité
+  return currentOrgCount < plan.maxOrganizations
+}
+
+export function canUseAutoExport(planId: string | null): boolean {
+  if (!planId) return false
+  const plan = getPlan(planId)
+  if (!plan) return false
+  return plan.allowAutoExport
+}
+
+export function getMaxInvoices(planId: string | null): number {
+  if (!planId) return 0
+  const plan = getPlan(planId)
+  if (!plan) return 0
+  return plan.monthlyInvoiceLimit
 }
 
 
