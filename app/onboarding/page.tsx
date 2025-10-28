@@ -13,13 +13,13 @@ const ONBOARDING_STEPS = [
     question: 'Quel est votre profil ?',
     subtitle: 'Choisissez celui qui vous correspond le mieux',
     options: [
-      { value: 'auto-entrepreneur', label: 'Auto-entrepreneur', icon: '👤' },
-      { value: 'ceo', label: 'CEO / Directeur général', icon: '💼' },
-      { value: 'daf', label: 'Directeur administratif et financier', icon: '📊' },
-      { value: 'comptable', label: 'Comptable / Expert-comptable', icon: '🔢' },
-      { value: 'assistant', label: 'Assistant(e) administratif(ve)', icon: '📋' },
-      { value: 'achats', label: 'Responsable des achats', icon: '🛒' },
-      { value: 'autre', label: 'Autre', icon: '❓' },
+      { value: 'auto-entrepreneur', label: 'Auto-entrepreneur' },
+      { value: 'ceo', label: 'CEO / Directeur général' },
+      { value: 'daf', label: 'Directeur administratif et financier' },
+      { value: 'comptable', label: 'Comptable / Expert-comptable' },
+      { value: 'assistant', label: 'Assistant(e) administratif(ve)' },
+      { value: 'achats', label: 'Responsable des achats' },
+      { value: 'autre', label: 'Autre' },
     ],
   },
   {
@@ -27,11 +27,11 @@ const ONBOARDING_STEPS = [
     question: 'Combien de factures recevez-vous par mois environ ?',
     subtitle: 'Cela nous aide à personnaliser votre expérience',
     options: [
-      { value: 'moins-100', label: 'Moins de 100 factures', icon: '📄' },
-      { value: '100-300', label: '100 à 300 factures', icon: '📑' },
-      { value: '300-1200', label: '300 à 1 200 factures', icon: '📚' },
-      { value: 'plus-1200', label: 'Plus de 1 200 factures', icon: '📦' },
-      { value: 'je-ne-sais-pas', label: 'Je ne sais pas encore', icon: '🤷' },
+      { value: 'moins-100', label: 'Moins de 100 factures' },
+      { value: '100-300', label: '100 à 300 factures' },
+      { value: '300-1200', label: '300 à 1 200 factures' },
+      { value: 'plus-1200', label: 'Plus de 1 200 factures' },
+      { value: 'je-ne-sais-pas', label: 'Je ne sais pas encore' },
     ],
   },
   {
@@ -39,11 +39,11 @@ const ONBOARDING_STEPS = [
     question: 'Comment gérez-vous vos factures aujourd\'hui ?',
     subtitle: 'Sélectionnez toutes les options qui s\'appliquent',
     options: [
-      { value: 'manuellement', label: 'Manuellement (emails, papier...)', icon: '✍️' },
-      { value: 'logiciel-comptable', label: 'Avec un logiciel comptable', icon: '💻' },
-      { value: 'excel', label: 'Avec Excel/Google Sheets', icon: '📊' },
-      { value: 'comptable', label: 'Mon comptable s\'en occupe', icon: '👔' },
-      { value: 'mix', label: 'Un mix de tout ça', icon: '🔄' },
+      { value: 'manuellement', label: 'Manuellement (emails, papier...)' },
+      { value: 'logiciel-comptable', label: 'Avec un logiciel comptable' },
+      { value: 'excel', label: 'Avec Excel/Google Sheets' },
+      { value: 'comptable', label: 'Mon comptable s\'en occupe' },
+      { value: 'mix', label: 'Un mix de tout ça' },
     ],
     multiple: true,
   },
@@ -52,13 +52,13 @@ const ONBOARDING_STEPS = [
     question: 'Comment avez-vous découvert Bilibou ?',
     subtitle: 'Cela nous aide à améliorer nos canaux',
     options: [
-      { value: 'google', label: 'Recherche Google', icon: '🔍' },
-      { value: 'recommandation', label: 'Recommandation d\'un ami/collègue', icon: '👥' },
-      { value: 'reseaux-sociaux', label: 'Réseaux sociaux', icon: '📱' },
-      { value: 'presse', label: 'Article de blog / Presse', icon: '📰' },
-      { value: 'publicite', label: 'Publicité en ligne', icon: '📢' },
-      { value: 'comptable-reco', label: 'Mon comptable m\'a recommandé', icon: '💡' },
-      { value: 'autre', label: 'Autre', icon: '❓' },
+      { value: 'google', label: 'Recherche Google' },
+      { value: 'recommandation', label: 'Recommandation d\'un ami/collègue' },
+      { value: 'reseaux-sociaux', label: 'Réseaux sociaux' },
+      { value: 'presse', label: 'Article de blog / Presse' },
+      { value: 'publicite', label: 'Publicité en ligne' },
+      { value: 'comptable-reco', label: 'Mon comptable m\'a recommandé' },
+      { value: 'autre', label: 'Autre' },
     ],
   },
 ];
@@ -87,6 +87,16 @@ export default function OnboardingPage() {
     }
   };
 
+  const handlePrevious = () => {
+    if (currentStep > 0) {
+      // Revenir à l'étape précédente
+      setCurrentStep(currentStep - 1);
+      // Restaurer les sélections de l'étape précédente
+      const previousStepId = ONBOARDING_STEPS[currentStep - 1]?.id;
+      setSelectedValues(answers[previousStepId] || []);
+    }
+  };
+
   const handleNext = async () => {
     if (currentStep < ONBOARDING_STEPS.length) {
       // Sauvegarder les réponses de l'étape actuelle
@@ -100,7 +110,7 @@ export default function OnboardingPage() {
       // Si ce n'est pas la dernière étape, passer à la suivante
       if (currentStep < ONBOARDING_STEPS.length - 1) {
         setCurrentStep(currentStep + 1);
-        setSelectedValues([]); // Reset pour la prochaine question
+        setSelectedValues(answers[ONBOARDING_STEPS[currentStep + 1].id] || []); // Restaurer les réponses existantes
       } else {
         // Passer à l'étape de consentement
         setCurrentStep(currentStep + 1);
@@ -157,57 +167,58 @@ export default function OnboardingPage() {
   const canProceed = selectedValues.length > 0 || (isConsentStep && consent);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Bienvenue sur Bilibou 👋
-          </h1>
-          <p className="text-gray-600">
-            Gagnez des heures sur la gestion des factures : la configuration ne prend que 2 minutes !
-          </p>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mb-8">
-          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-300 ease-out"
-              style={{ width: `${((currentStep + 1) / (ONBOARDING_STEPS.length + 1)) * 100}%` }}
-            />
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Header avec logo */}
+      <div className="border-b border-border px-6 py-4">
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-sm">B</span>
           </div>
-          <p className="text-sm text-gray-600 mt-2 text-center">
-            Étape {currentStep + 1} sur {ONBOARDING_STEPS.length + 1}
-          </p>
+          <span className="text-lg font-semibold text-foreground">Bilibou</span>
         </div>
+      </div>
+
+      {/* Contenu */}
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full">
+          {/* Progress bar minimal */}
+          <div className="mb-8">
+            <div className="h-0.5 bg-muted/50 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${((currentStep + 1) / (ONBOARDING_STEPS.length + 1)) * 100}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              Étape {currentStep + 1} sur {ONBOARDING_STEPS.length + 1}
+            </p>
+          </div>
 
         {/* Contenu */}
         <div className="min-h-[400px]">
           {!isConsentStep ? (
             <>
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">{step.question}</h2>
-                <p className="text-sm text-gray-600">{step.subtitle}</p>
+              <div className="mb-8">
+                <h2 className="text-lg font-medium text-foreground mb-1">{step.question}</h2>
+                <p className="text-sm text-muted-foreground">{step.subtitle}</p>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {step.options.map((option) => {
                   const isSelected = selectedValues.includes(option.value);
                   return (
                     <button
                       key={option.value}
                       onClick={() => handleOptionClick(option.value)}
-                      className={`w-full p-4 rounded-xl border-2 transition-all text-left flex items-center gap-4 ${
+                      className={`w-full p-3 rounded-lg border transition-all text-left flex items-center ${
                         isSelected
-                          ? 'border-blue-600 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                          ? 'border-primary bg-accent'
+                          : 'border-border hover:border-primary/50'
                       }`}
                     >
-                      <span className="text-2xl">{option.icon}</span>
-                      <span className="flex-1 font-medium text-gray-900">{option.label}</span>
+                      <span className="flex-1 text-sm text-foreground">{option.label}</span>
                       {isSelected && (
-                        <span className="text-blue-600">✓</span>
+                        <span className="text-primary ml-2">✓</span>
                       )}
                     </button>
                   );
@@ -216,25 +227,27 @@ export default function OnboardingPage() {
             </>
           ) : (
             <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Consentement et confidentialité</h2>
-              <p className="text-sm text-gray-600 mb-4">
-                Pour fonctionner, Bilibou a besoin d'accéder à vos emails de manière sécurisée pour extraire automatiquement vos factures.
-              </p>
+              <div>
+                <h2 className="text-lg font-medium text-foreground mb-1">Consentement et confidentialité</h2>
+                <p className="text-sm text-muted-foreground">
+                  Pour fonctionner, Bilibou a besoin d'accéder à vos emails de manière sécurisée pour extraire automatiquement vos factures.
+                </p>
+              </div>
 
-              <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
+              <div className="flex items-start gap-3 p-4 bg-accent rounded-lg border border-border">
                 <Checkbox
                   id="consent"
                   checked={consent}
                   onCheckedChange={(checked) => setConsent(checked === true)}
-                  className="mt-1"
+                  className="mt-0.5"
                 />
-                <label htmlFor="consent" className="flex-1 text-sm text-gray-700 leading-relaxed cursor-pointer">
+                <label htmlFor="consent" className="flex-1 text-sm text-muted-foreground leading-relaxed cursor-pointer">
                   J'autorise Bilibou à accéder à mes emails de manière sécurisée pour extraire automatiquement mes factures. Mes données ne sont jamais partagées avec des tiers et sont traitées conformément à notre{' '}
-                  <a href="/privacy" target="_blank" className="text-blue-600 hover:underline">
+                  <a href="/privacy" target="_blank" className="text-primary hover:underline">
                     Politique de confidentialité
                   </a>{' '}
                   et aux{' '}
-                  <a href="/terms" target="_blank" className="text-blue-600 hover:underline">
+                  <a href="/terms" target="_blank" className="text-primary hover:underline">
                     Conditions d'utilisation
                   </a>.
                 </label>
@@ -243,15 +256,25 @@ export default function OnboardingPage() {
           )}
         </div>
 
-        {/* Bouton continuer */}
-        <div className="mt-8 flex justify-end">
+        {/* Boutons navigation */}
+        <div className="mt-8 flex justify-between items-center">
+          <Button
+            onClick={handlePrevious}
+            disabled={currentStep === 0}
+            variant="ghost"
+            className="px-4"
+          >
+            ← Précédent
+          </Button>
+          
           <Button
             onClick={handleNext}
             disabled={!canProceed || isSubmitting}
-            className="px-8 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6"
           >
-            {isSubmitting ? 'Chargement...' : isConsentStep ? 'Terminer la configuration' : 'Continuer →'}
+            {isSubmitting ? 'Chargement...' : isConsentStep ? 'Terminer' : 'Continuer'}
           </Button>
+        </div>
         </div>
       </div>
     </div>
