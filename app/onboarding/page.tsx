@@ -132,12 +132,22 @@ export default function OnboardingPage() {
 
     try {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-      if (!user) {
-        console.error('❌ Utilisateur non authentifié');
-        window.location.href = '/auth/login';
-        return;
+      if (!user || userError) {
+        console.error('❌ Utilisateur non authentifié:', userError);
+        // Attendre 1 seconde et réessayer
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const { data: { user: retryUser }, error: retryError } = await supabase.auth.getUser();
+        
+        if (!retryUser || retryError) {
+          console.error('❌ Retry échoué:', retryError);
+          window.location.href = '/auth/login';
+          return;
+        }
+        
+        // Utiliser l'utilisateur du retry
+        user = retryUser;
       }
 
       console.log('✅ Utilisateur authentifié:', user.email);
