@@ -41,12 +41,28 @@ export async function GET(request: NextRequest) {
     identities: user?.identities
   })
   
-  // Si c'est un nouvel utilisateur OAuth (pas d'onboarding défini ou false), rediriger vers l'onboarding
-  // Par défaut, tous les nouveaux utilisateurs OAuth n'ont pas onboarding_completed
-  const isNewOAuthUser = user && !user.user_metadata?.onboarding_completed
-  const redirectPath = isNewOAuthUser ? '/onboarding' : '/dashboard'
+  // Vérifier si c'est un utilisateur existant ou nouveau via la table auth.users
+  let isNewUser = true;
+  if (user) {
+    // Vérifier si l'utilisateur vient de signer up ou de se connecter en regardant les métadonnées
+    // Si l'utilisateur n'a pas onboarding_completed, c'est un nouvel utilisateur
+    isNewUser = !user.user_metadata?.onboarding_completed;
+    
+    // Si c'est un nouveau user, mettre onboarding_completed à false pour forcer l'onboarding
+    if (isNewUser && !user.user_metadata?.onboarding_completed) {
+      // Initialiser les métadonnées pour forcer l'onboarding
+      await supabaseAfterAuth.auth.updateUser({
+        data: {
+          ...user.user_metadata,
+          onboarding_completed: false
+        }
+      });
+    }
+  }
   
-  console.log(`🔄 Redirection vers ${redirectPath} (nouveau OAuth: ${isNewOAuthUser})`)
+  const redirectPath = isNewUser ? '/onboarding' : '/dashboard'
+  
+  console.log(`🔄 Redirection vers ${redirectPath} (nouveau OAuth: ${isNewUser})`)
   const redirectUrl = `${origin}${redirectPath}`
   
   // Forcer la redirection avec status 302 (Found)
