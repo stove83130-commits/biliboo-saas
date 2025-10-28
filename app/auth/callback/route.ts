@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   
   // Si c'est un nouvel utilisateur OAuth (pas d'onboarding défini ou false), rediriger vers l'onboarding
   // Par défaut, tous les nouveaux utilisateurs OAuth n'ont pas onboarding_completed
-  const isNewOAuthUser = user && user.user_metadata?.onboarding_completed !== true
+  const isNewOAuthUser = user && !user.user_metadata?.onboarding_completed
   const redirectPath = isNewOAuthUser ? '/onboarding' : '/dashboard'
   
   console.log(`🔄 Redirection vers ${redirectPath} (nouveau OAuth: ${isNewOAuthUser})`)
