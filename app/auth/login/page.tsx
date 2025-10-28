@@ -79,8 +79,8 @@ export default function LoginPage() {
         }
       } else {
         // Pas de plan sélectionné, rediriger vers le dashboard normalement
-        router.push('/dashboard');
-        router.refresh();
+        // Utiliser window.location.href pour forcer une navigation complète
+        window.location.href = '/dashboard';
       }
     } catch (err: any) {
       setError(err.message || 'Erreur de connexion');

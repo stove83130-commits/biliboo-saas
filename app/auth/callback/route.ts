@@ -20,14 +20,26 @@ export async function GET(request: NextRequest) {
       console.error('Erreur lors de l\'échange du code:', error)
       return NextResponse.redirect(`${origin}/auth/login?error=auth_failed`)
     }
+
+    console.log('✅ Session créée avec succès après OAuth')
   }
 
   // Si un plan a été sélectionné, rediriger vers une page intermédiaire qui gérera le paiement
   if (plan) {
+    console.log(`🔄 Redirection vers plan-redirect avec plan: ${plan}`)
     return NextResponse.redirect(`${origin}/auth/plan-redirect?plan=${plan}`)
   }
 
   // Rediriger vers le dashboard après une connexion réussie
-  return NextResponse.redirect(`${origin}/dashboard`)
+  console.log('🔄 Redirection vers le dashboard')
+  const redirectUrl = `${origin}/dashboard`
+  
+  // Forcer la redirection avec status 302 (Found)
+  return NextResponse.redirect(redirectUrl, { 
+    status: 302,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+    }
+  })
 }
 

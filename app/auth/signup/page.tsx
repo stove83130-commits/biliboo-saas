@@ -100,8 +100,8 @@ export default function SignupPage() {
       } else {
         // Pas de plan sélectionné, rediriger vers le dashboard normalement
         setTimeout(() => {
-          router.push('/dashboard');
-          router.refresh();
+          // Utiliser window.location.href pour forcer une navigation complète
+          window.location.href = '/dashboard';
         }, 2000);
       }
     } catch (err: any) {
