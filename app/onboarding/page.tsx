@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import Image from 'next/image';
 
 const ONBOARDING_STEPS = [
   {
@@ -171,9 +172,13 @@ export default function OnboardingPage() {
       {/* Header avec logo */}
       <div className="border-b border-border px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">B</span>
-          </div>
+          <Image 
+            src="/logos/logo%20off.png" 
+            alt="Bilibou Logo" 
+            width={40} 
+            height={40}
+            className="h-10 w-auto"
+          />
           <span className="text-lg font-semibold text-foreground">Bilibou</span>
         </div>
       </div>
