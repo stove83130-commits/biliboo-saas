@@ -165,7 +165,9 @@ export default function OnboardingPage() {
     }
   };
 
-  const canProceed = selectedValues.length > 0 || (isConsentStep && consent);
+  const canProceed = 
+    (!isConsentStep && selectedValues.length > 0) || 
+    (isConsentStep && consent);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
