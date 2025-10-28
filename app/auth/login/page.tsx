@@ -100,6 +100,10 @@ export default function LoginPage() {
         provider: provider,
         options: {
           redirectTo: `${window.location.origin}/auth/callback${plan && shouldRedirect === 'true' ? `?plan=${plan}` : ''}`,
+          // Forcer la demande de consentement pour récupérer les nouvelles permissions
+          queryParams: provider === 'azure' ? {
+            prompt: 'consent'
+          } : undefined,
         },
       });
 
