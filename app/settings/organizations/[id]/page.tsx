@@ -32,6 +32,7 @@ export default function OrgDetailsPage() {
   const [tab, setTab] = useState<Tab>("info")
   const [orgName, setOrgName] = useState<string>("")
   const [members, setMembers] = useState<Member[]>([])
+  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; created_at: string; expires_at: string }>>([])
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState("member")
   const [loading, setLoading] = useState(true)
@@ -55,6 +56,15 @@ export default function OrgDetailsPage() {
       const { members } = await res.json()
       setMembers(members || [])
 
+      // Récupérer les invitations en attente
+      const invitesRes = await fetch(`/api/workspaces/invites?workspaceId=${orgId}`)
+      if (invitesRes.ok) {
+        const { invites } = await invitesRes.json()
+        // Filtrer uniquement les invitations en attente (pending)
+        const pending = (invites || []).filter((inv: any) => inv.status === 'pending')
+        setPendingInvites(pending)
+      }
+
       // Pré-calculer les permissions de suppression pour chaque membre
       if (!permissions.isLoading) {
         const removePermissions: Record<string, boolean> = {}
@@ -77,6 +87,41 @@ export default function OrgDetailsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, permissions.isLoading])
+
+  // Rafraîchir automatiquement toutes les 3 secondes pour voir les nouveaux membres qui acceptent
+  useEffect(() => {
+    if (!orgId || loading || permissions.isLoading) return
+    
+    const interval = setInterval(() => {
+      // Recharger sans afficher le loading pour ne pas bloquer l'interface
+      const refresh = async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (!user) return
+          
+          // Recharger les membres
+          const res = await fetch(`/api/workspaces/members?workspaceId=${orgId}`)
+          if (res.ok) {
+            const { members } = await res.json()
+            setMembers(members || [])
+          }
+          
+          // Recharger les invitations en attente
+          const invitesRes = await fetch(`/api/workspaces/invites?workspaceId=${orgId}`)
+          if (invitesRes.ok) {
+            const { invites } = await invitesRes.json()
+            const pending = (invites || []).filter((inv: any) => inv.status === 'pending')
+            setPendingInvites(pending)
+          }
+        } catch (error) {
+          console.error('Erreur rafraîchissement:', error)
+        }
+      }
+      refresh()
+    }, 3000) // Rafraîchir toutes les 3 secondes
+    
+    return () => clearInterval(interval)
+  }, [orgId, loading, permissions.isLoading, supabase])
 
   const invite = async () => {
     const email = inviteEmail.trim()
@@ -312,6 +357,68 @@ export default function OrgDetailsPage() {
                 </table>
               </div>
             </div>
+
+            {/* Tableau des invitations en attente */}
+            {pendingInvites.length > 0 && (
+              <div className="rounded-md border border-border bg-background overflow-hidden mt-6">
+                <div className="p-4 border-b border-border">
+                  <h2 className="text-base font-medium">Invitations en attente</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Ces personnes ont été invitées mais n'ont pas encore rejoint l'organisation.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted text-foreground">
+                        <th className="px-4 py-3 text-left font-medium">Email</th>
+                        <th className="px-4 py-3 text-left font-medium">Rôle</th>
+                        <th className="px-4 py-3 text-left font-medium">Invité le</th>
+                        <th className="px-4 py-3 text-left font-medium">Expire le</th>
+                        <th className="px-4 py-3 text-right font-medium">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingInvites.map((invite) => {
+                        const createdDate = new Date(invite.created_at)
+                        const expiresDate = new Date(invite.expires_at)
+                        const isExpired = expiresDate.getTime() < Date.now()
+                        
+                        return (
+                          <tr key={invite.id} className="border-t border-border hover:bg-muted/50">
+                            <td className="px-4 py-3">{invite.email}</td>
+                            <td className="px-4 py-3">{translateRole(invite.role)}</td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {createdDate.toLocaleDateString('fr-FR', { 
+                                day: 'numeric', 
+                                month: 'short', 
+                                year: 'numeric' 
+                              })}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {expiresDate.toLocaleDateString('fr-FR', { 
+                                day: 'numeric', 
+                                month: 'short', 
+                                year: 'numeric' 
+                              })}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                isExpired
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {isExpired ? 'Expirée' : 'En attente'}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </>
         )}
 
