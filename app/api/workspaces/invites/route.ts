@@ -117,8 +117,6 @@ export async function POST(req: Request) {
 
       // Si Resend n'est pas configuré ou a échoué, essayer SMTP
       if (!emailSent) {
-        const hasSMTPConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
-        
         if (!hasSMTPConfig) {
           console.warn('⚠️ Aucun service d\'email configuré (ni RESEND_API_KEY ni SMTP) - l\'email n\'a pas pu être envoyé')
           console.warn('Variables manquantes:', {
@@ -166,13 +164,26 @@ export async function POST(req: Request) {
 
     // Retourner le lien direct si l'email n'a pas pu être envoyé
     
-    const hasEmailConfig = process.env.RESEND_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+    // Vérifier pourquoi l'email n'a pas été envoyé pour le debug
+    if (!emailSent && RESEND_KEY) {
+      console.error('⚠️ Resend est configuré mais l\'email n\'a pas été envoyé. Vérifiez les logs ci-dessus.')
+    }
     
     return NextResponse.json({ 
       ok: true, 
       token: invite.token,
-      emailSent: emailSent && hasEmailConfig,
-      ...(emailSent ? {} : { directLink, message: "Email non envoyé - partagez ce lien manuellement : " + directLink })
+      emailSent: emailSent,
+      hasResendConfig: !!RESEND_KEY,
+      hasSMTPConfig: hasSMTPConfig,
+      ...(emailSent ? {} : { 
+        directLink, 
+        message: emailSent ? "" : "Email non envoyé - partagez ce lien manuellement : " + directLink,
+        reason: !RESEND_KEY && !hasSMTPConfig 
+          ? "Aucun service email configuré (ni Resend ni SMTP)"
+          : RESEND_KEY && !emailSent
+          ? "Erreur lors de l'envoi via Resend - vérifiez les logs"
+          : "Erreur lors de l'envoi email"
+      })
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })

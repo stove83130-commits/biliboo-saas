@@ -105,9 +105,22 @@ export default function OrgDetailsPage() {
       if (body.emailSent) {
         alert('✅ Invitation envoyée par email à ' + email)
       } else {
-        const message = body.directLink 
-          ? `⚠️ Email non configuré. Partagez ce lien manuellement :\n\n${body.directLink}\n\n(L'invitation a été créée mais l'email n'a pas pu être envoyé car SMTP n'est pas configuré)`
-          : '✅ Invitation créée (mais email non envoyé - SMTP non configuré)'
+        let message = '⚠️ L\'invitation a été créée mais l\'email n\'a pas pu être envoyé.\n\n'
+        
+        if (body.reason) {
+          message += 'Raison : ' + body.reason + '\n\n'
+        }
+        
+        if (!body.hasResendConfig && !body.hasSMTPConfig) {
+          message += 'Vérifiez que RESEND_API_KEY est configurée dans Vercel.\n\n'
+        } else if (body.hasResendConfig && !body.emailSent) {
+          message += 'Vérifiez les logs Vercel pour voir l\'erreur Resend.\n\n'
+        }
+        
+        if (body.directLink) {
+          message += `Partagez ce lien manuellement :\n${body.directLink}`
+        }
+        
         alert(message)
       }
       
