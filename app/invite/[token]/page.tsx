@@ -19,6 +19,7 @@ export default function InviteAcceptPage() {
     email: string
     workspace_id: string
     role: string
+    workspace_name?: string
   } | null>(null)
 
   useEffect(() => {
@@ -76,7 +77,8 @@ export default function InviteAcceptPage() {
         setInvite({
           email: inviteData.email,
           workspace_id: inviteData.workspace_id,
-          role: inviteData.role
+          role: inviteData.role,
+          workspace_name: workspaceName
         })
         setLoading(false)
       } catch (err: any) {
@@ -166,15 +168,20 @@ export default function InviteAcceptPage() {
             )}
             <div className="space-y-4 mb-6">
               <p className="text-sm text-muted-foreground">
-                Vous avez été invité à rejoindre une organisation sur Bilibou.
+                {invite?.workspace_name 
+                  ? `Vous avez été invité à rejoindre l'organisation "${invite.workspace_name}" sur Bilibou.`
+                  : "Vous avez été invité à rejoindre une organisation sur Bilibou."
+                }
               </p>
               {invite && (
                 <div className="bg-muted/50 rounded-md p-4">
-                  <div className="text-sm">
-                    <div className="mb-2">
-                      <span className="font-medium text-foreground">Email :</span> {invite.email}
-                    </div>
-                    <div className="mb-2">
+                  <div className="text-sm space-y-2">
+                    {invite.workspace_name && (
+                      <div>
+                        <span className="font-medium text-foreground">Organisation :</span> {invite.workspace_name}
+                      </div>
+                    )}
+                    <div>
                       <span className="font-medium text-foreground">Rôle :</span> {invite.role === 'owner' ? 'Propriétaire' : invite.role === 'admin' ? 'Administrateur' : 'Membre'}
                     </div>
                   </div>
