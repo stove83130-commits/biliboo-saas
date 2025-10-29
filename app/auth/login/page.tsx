@@ -42,20 +42,28 @@ export default function LoginPage() {
         return;
       }
 
-      // Attendre que la session soit bien établie avant de rediriger
+      // Attendre que la session soit bien établie et propagée
       // Vérifier plusieurs fois que l'utilisateur est bien authentifié
       let attempts = 0;
       let sessionEstablished = false;
       
-      while (attempts < 5 && !sessionEstablished) {
+      while (attempts < 10 && !sessionEstablished) {
         const { data: { user }, error: userError } = await supabase.auth.getUser();
         if (!userError && user) {
           sessionEstablished = true;
+          // Attendre encore un peu pour que les cookies soient bien propagés
+          await new Promise(resolve => setTimeout(resolve, 300));
         } else {
           // Attendre un peu avant de réessayer
           await new Promise(resolve => setTimeout(resolve, 200));
           attempts++;
         }
+      }
+
+      if (!sessionEstablished) {
+        setError('La session n\'a pas pu être établie. Veuillez réessayer.');
+        setLoading(false);
+        return;
       }
 
       // Vérifier si un plan a été sélectionné
@@ -85,17 +93,31 @@ export default function LoginPage() {
             const { url } = await response.json();
             window.location.href = url;
           } else {
-            // En cas d'erreur, rediriger vers le dashboard
-            window.location.href = '/dashboard';
+            // En cas d'erreur, forcer un rechargement complet après redirection
+            router.push('/dashboard');
+            setTimeout(() => {
+              window.location.reload();
+            }, 100);
           }
         } catch (error) {
           console.error('Erreur lors de la redirection vers le paiement:', error);
-          window.location.href = '/dashboard';
+          router.push('/dashboard');
+          setTimeout(() => {
+            window.location.reload();
+          }, 100);
         }
       } else {
-        // Pas de plan sélectionné, rediriger vers le dashboard normalement
-        // Utiliser window.location.href pour forcer une navigation complète
-        window.location.href = '/dashboard';
+        // Pas de plan sélectionné, rediriger vers le dashboard
+        // Utiliser router.refresh() d'abord pour synchroniser la session avec le serveur
+        router.refresh();
+        // Puis naviguer vers le dashboard après un court délai
+        setTimeout(() => {
+          router.push('/dashboard');
+          // Forcer un reload complet après la navigation pour s'assurer que tout est synchronisé
+          setTimeout(() => {
+            window.location.reload();
+          }, 200);
+        }, 300);
       }
     } catch (err: any) {
       setError(err.message || 'Erreur de connexion');
