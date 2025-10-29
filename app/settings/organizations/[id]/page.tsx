@@ -81,16 +81,31 @@ export default function OrgDetailsPage() {
   const invite = async () => {
     const email = inviteEmail.trim()
     if (!email) return
+    
+    // Vérifier d'abord les permissions côté client
+    if (!permissions.canInviteMembers) {
+      alert('❌ Vous n\'avez pas la permission d\'inviter des membres')
+      return
+    }
+    
     try {
-      const res = await fetch('/api/workspaces/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId: orgId, email, role: inviteRole }) })
+      // Toujours utiliser la route d'invitation qui envoie un email
+      const res = await fetch('/api/workspaces/invites', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ workspaceId: orgId, email, role: inviteRole }) 
+      })
       const body = await res.json()
+      
       if (!res.ok) throw new Error(body.error || 'Erreur')
+      
       setInviteEmail('')
       setInviteRole('member')
+      alert('✅ Invitation envoyée par email à ' + email)
       await load()
-    } catch (e) {
-      console.error(e)
-      alert('❌ Invitation impossible')
+    } catch (e: any) {
+      console.error('Erreur invitation:', e)
+      alert('❌ Erreur : ' + (e.message || 'Invitation impossible'))
     }
   }
 

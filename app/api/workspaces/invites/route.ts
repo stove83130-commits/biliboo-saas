@@ -64,18 +64,32 @@ export async function POST(req: Request) {
           },
         })
 
+        // Récupérer le nom de l'organisation
+        const { data: workspace } = await supabase
+          .from("workspaces")
+          .select("name")
+          .eq("id", workspaceId)
+          .single()
+        
+        const workspaceName = workspace?.name || "une organisation"
+        
         await transporter.sendMail({
-          from: process.env.SMTP_FROM || 'noreply@tradia.app',
+          from: process.env.SMTP_FROM || 'noreply@bilibou.com',
           to: email,
-          subject: 'Invitation à rejoindre une organisation',
+          subject: `Invitation à rejoindre ${workspaceName} sur Bilibou`,
           html: `
-            <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b">
-              <h2 style="margin:0 0 12px 0">Vous avez été invité</h2>
-              <p style="margin:0 0 16px 0">Cliquez sur le bouton ci-dessous pour rejoindre l'organisation sur Bilibou.</p>
-              <p style="margin:0 0 24px 0">
-                <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">Rejoindre l'organisation</a>
+            <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b;max-width:600px;margin:0 auto">
+              <h2 style="margin:0 0 12px 0;color:#0b0b0b">Vous avez été invité à rejoindre ${workspaceName}</h2>
+              <p style="margin:0 0 16px 0;color:#374151">Vous avez été invité à rejoindre l'organisation <strong>${workspaceName}</strong> sur Bilibou.</p>
+              <p style="margin:0 0 8px 0;color:#374151"><strong>Rôle :</strong> ${role === 'owner' ? 'Propriétaire' : role === 'admin' ? 'Administrateur' : 'Membre'}</p>
+              <p style="margin:0 0 24px 0;color:#374151">Cliquez sur le bouton ci-dessous pour accepter l'invitation et accéder à votre organisation.</p>
+              <p style="margin:0 0 24px 0;text-align:center">
+                <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:500">Rejoindre l'organisation</a>
               </p>
-              <p style="margin:0;color:#6b7280;font-size:12px">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur:<br/>${magicLink.properties.action_link}</p>
+              <p style="margin:0 0 16px 0;color:#6b7280;font-size:12px">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :</p>
+              <p style="margin:0;color:#6b7280;font-size:12px;word-break:break-all">${magicLink.properties.action_link}</p>
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0" />
+              <p style="margin:0;color:#9ca3af;font-size:11px">Cet email a été envoyé automatiquement. Si vous n'avez pas demandé cette invitation, vous pouvez l'ignorer.</p>
             </div>
           `,
         })
