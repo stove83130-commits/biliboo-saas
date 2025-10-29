@@ -62,16 +62,12 @@ export default function SettingsLayout({
               >
                 Organisations
               </Link>
-              <Link 
-                href="/help" 
-                className={`block rounded-lg px-3 py-2 text-sm ${
-                  pathname === '/help' 
-                    ? 'bg-primary/10 font-medium text-primary' 
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
+              <a 
+                href="mailto:contact@bilibou.com" 
+                className="block rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 Aide
-              </Link>
+              </a>
               <Link 
                 href="/settings/billing" 
                 className={`block rounded-lg px-3 py-2 text-sm ${

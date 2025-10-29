@@ -318,10 +318,10 @@ export function DashboardSidebar() {
                   <User2 className="h-4 w-4 text-black/60" strokeWidth={1.8} />
                   <span>Paramètres personnels</span>
                 </Link>
-                <Link href="/help" className="block px-3 py-2 text-sm hover:bg-black/5 flex items-center gap-2 text-black">
+                <a href="mailto:contact@bilibou.com" className="block px-3 py-2 text-sm hover:bg-black/5 flex items-center gap-2 text-black">
                   <HelpCircle className="h-4 w-4 text-black/60" strokeWidth={1.8} />
                   <span>Aide</span>
-                </Link>
+                </a>
                 <Link href="/settings/billing" className="block px-3 py-2 text-sm hover:bg-black/5 flex items-center gap-2 text-black">
                   <CreditCard className="h-4 w-4 text-black/60" strokeWidth={1.8} />
                   <span>Facturation</span>
