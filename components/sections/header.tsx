@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Menu } from "lucide-react"
@@ -12,6 +13,7 @@ import type { User } from "@supabase/supabase-js"
 export function Header() {
   const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
+  const pathname = usePathname()
 
   useEffect(() => {
     let mounted = true
@@ -28,10 +30,17 @@ export function Header() {
       subscription.unsubscribe()
     }
   }, [supabase.auth])
+  
   const scrollToSection = (sectionId: string) => {
-    const element = document.getElementById(sectionId)
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth' })
+    // Si on est sur la page d'accueil, on scroll directement
+    if (pathname === '/') {
+      const element = document.getElementById(sectionId)
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' })
+      }
+    } else {
+      // Sinon, on redirige vers la page d'accueil avec le hash
+      window.location.href = `/#${sectionId}`
     }
   }
 
