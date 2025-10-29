@@ -42,6 +42,8 @@ export async function POST(req: Request) {
     const directLink = `${origin}/invite/${invite.token}`
 
     let emailSent = false
+    const RESEND_KEY = process.env.RESEND_API_KEY
+    const hasSMTPConfig = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
 
     try {
       // Générer un magic link qui redirige vers l'acceptation d'invitation
@@ -83,7 +85,6 @@ export async function POST(req: Request) {
       const emailSubject = `Invitation à rejoindre ${workspaceName} sur Bilibou`
 
       // Essayer Resend d'abord (plus fiable)
-      const RESEND_KEY = process.env.RESEND_API_KEY
       const FROM_EMAIL = process.env.INVITES_FROM_EMAIL || process.env.EXPORTS_FROM_EMAIL || 'noreply@bilibou.com'
 
       if (RESEND_KEY) {
