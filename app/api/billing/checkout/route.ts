@@ -119,6 +119,25 @@ export async function POST(request: NextRequest) {
     // Calcul du nombre de jours d'essai à accorder (0 si déjà consommé)
     const trialDaysToGrant = trialAlreadyConsumed ? 0 : (plan.trialDays || 0)
 
+    // Vérifier si l'utilisateur a déjà complété l'onboarding
+    const hasCompletedOnboarding = user.user_metadata?.onboarding_completed === true
+
+    // Déterminer l'URL de retour en cas d'annulation
+    // Si l'utilisateur a complété l'onboarding, retourner au dashboard ou à la page d'accueil selon la source
+    // Sinon, retourner à l'onboarding
+    let cancelUrl: string
+    if (hasCompletedOnboarding) {
+      // Utilisateur expérimenté : retourner au dashboard ou à la page d'accueil selon d'où il vient
+      if (source === 'homepage') {
+        cancelUrl = `http://localhost:3001/`
+      } else {
+        cancelUrl = `http://localhost:3001/dashboard`
+      }
+    } else {
+      // Nouvel utilisateur : retourner à l'onboarding
+      cancelUrl = `http://localhost:3001/onboarding?preview=1`
+    }
+
     // Créer la session de checkout avec essai gratuit si disponible
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -138,9 +157,7 @@ export async function POST(request: NextRequest) {
         },
       },
       success_url: `http://localhost:3001/dashboard?success=true`,
-      cancel_url: source === 'upgrade' 
-        ? `http://localhost:3001/dashboard` 
-        : `http://localhost:3001/onboarding?preview=1`,
+      cancel_url: cancelUrl,
       metadata: {
         plan_id: planId,
         supabase_user_id: user.id,
