@@ -102,6 +102,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erreur lors de la création' }, { status: 500 })
     }
 
+    // Pour les organisations, ajouter automatiquement le créateur en tant que membre "owner"
+    if (type === 'organization') {
+      const { error: memberError } = await supabase
+        .from('workspace_members')
+        .insert({
+          workspace_id: workspace.id,
+          user_id: user.id,
+          role: 'owner',
+          status: 'active'
+        })
+
+      if (memberError) {
+        console.error('Erreur lors de l\'ajout du créateur comme membre:', memberError)
+        // Ne pas échouer la création du workspace si l'ajout du membre échoue
+        // mais loguer l'erreur pour debug
+      }
+    }
+
     return NextResponse.json({ 
       workspace: {
         id: workspace.id,
