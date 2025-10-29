@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 
 type Member = { user_id: string; email: string; role: string; status: string }
 
@@ -27,16 +28,14 @@ export default function OrgDetailsPage() {
   const router = useRouter()
   const supabase = createClient()
   const orgId = params.id as string
+  const permissions = useWorkspacePermissions(orgId)
   const [tab, setTab] = useState<Tab>("info")
   const [orgName, setOrgName] = useState<string>("")
   const [members, setMembers] = useState<Member[]>([])
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState("member")
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    load()
-  }, [orgId])
+  const [canRemoveMap, setCanRemoveMap] = useState<Record<string, boolean>>({})
 
   const load = async () => {
     setLoading(true)
@@ -55,6 +54,15 @@ export default function OrgDetailsPage() {
       if (!res.ok) throw new Error('Erreur lors de la récupération des membres')
       const { members } = await res.json()
       setMembers(members || [])
+
+      // Pré-calculer les permissions de suppression pour chaque membre
+      if (!permissions.isLoading) {
+        const removePermissions: Record<string, boolean> = {}
+        for (const member of (members || [])) {
+          removePermissions[member.user_id] = await permissions.canRemoveMember(member.user_id)
+        }
+        setCanRemoveMap(removePermissions)
+      }
     } catch (error) {
       console.error('Erreur lors du chargement des membres:', error)
       setMembers([])
@@ -62,6 +70,13 @@ export default function OrgDetailsPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!permissions.isLoading && orgId) {
+      load()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, permissions.isLoading])
 
   const invite = async () => {
     const email = inviteEmail.trim()
@@ -183,27 +198,29 @@ export default function OrgDetailsPage() {
 
         {tab === 'members' && (
           <>
-            <div className="rounded-md border border-border bg-background p-4">
-              <h2 className="text-base font-medium mb-4">Inviter un membre</h2>
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="email@exemple.com" 
-                  value={inviteEmail} 
-                  onChange={(e) => setInviteEmail(e.target.value)} 
-                  className="flex-1"
-                />
-                <select 
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={inviteRole} 
-                  onChange={(e) => setInviteRole(e.target.value)}
-                >
-                  <option value="manager">Gérant</option>
-                  <option value="admin">Administrateur</option>
-                  <option value="member">Membre</option>
-                </select>
-                <Button onClick={invite}>Inviter</Button>
+            {permissions.canInviteMembers && (
+              <div className="rounded-md border border-border bg-background p-4">
+                <h2 className="text-base font-medium mb-4">Inviter un membre</h2>
+                <div className="flex gap-2">
+                  <Input 
+                    placeholder="email@exemple.com" 
+                    value={inviteEmail} 
+                    onChange={(e) => setInviteEmail(e.target.value)} 
+                    className="flex-1"
+                  />
+                  <select 
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={inviteRole} 
+                    onChange={(e) => setInviteRole(e.target.value)}
+                  >
+                    {permissions.isOwner && <option value="owner">Propriétaire</option>}
+                    <option value="admin">Administrateur</option>
+                    <option value="member">Membre</option>
+                  </select>
+                  <Button onClick={invite}>Inviter</Button>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="rounded-md border border-border bg-background overflow-hidden">
               <div className="p-4 border-b border-border">
@@ -241,13 +258,15 @@ export default function OrgDetailsPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => removeMember(m.user_id)}
-                            >
-                              Retirer
-                            </Button>
+                            {canRemoveMap[m.user_id] && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => removeMember(m.user_id)}
+                              >
+                                Retirer
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       ))
@@ -259,7 +278,7 @@ export default function OrgDetailsPage() {
           </>
         )}
 
-        {tab === 'danger' && (
+        {tab === 'danger' && permissions.canDeleteOrganization && (
           <div className="rounded-md border border-red-200 bg-red-50 p-4">
             <h2 className="text-base font-medium text-red-800 mb-4">Supprimer l'organisation</h2>
             <div className="space-y-4">
@@ -283,6 +302,13 @@ export default function OrgDetailsPage() {
                 Supprimer définitivement l'organisation
               </Button>
             </div>
+          </div>
+        )}
+        {tab === 'danger' && !permissions.canDeleteOrganization && (
+          <div className="rounded-md border border-border bg-background p-4">
+            <p className="text-sm text-muted-foreground">
+              Seul le propriétaire peut supprimer l'organisation.
+            </p>
           </div>
         )}
       </div>

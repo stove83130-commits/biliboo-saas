@@ -11,6 +11,7 @@ import { UpgradeModal } from "@/components/dashboard/upgrade-modal"
 import { GoogleLogo, MicrosoftLogo } from "@/components/ui/brand-logos"
 import { usePlan } from '@/contexts/plan-context'
 import { cleanEmailDisplay } from "@/utils/email-cleaner"
+import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -28,6 +29,15 @@ function SettingsPageContent() {
   const searchParams = useSearchParams()
   const supabase = createClient()
   const { hasActivePlan } = usePlan()
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const permissions = useWorkspacePermissions(activeWorkspaceId)
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const workspaceId = localStorage.getItem('active_workspace_id')
+      setActiveWorkspaceId(workspaceId)
+    }
+  }, [])
   
   const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([])
   const [loading, setLoading] = useState(true)
@@ -201,14 +211,16 @@ function SettingsPageContent() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleDisconnectAccount(gmailAccount.id)}
-                className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              {(permissions.canManageEmailConnections || !activeWorkspaceId || activeWorkspaceId === 'personal') && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleDisconnectAccount(gmailAccount.id)}
+                  className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           ) : (
             <div className="flex items-center justify-between">
@@ -221,15 +233,20 @@ function SettingsPageContent() {
                   <p className="text-xs text-muted-foreground">Non connecté</p>
                 </div>
               </div>
-              <Button
-                onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={!hasActivePlan}
-              >
-                Connecter
-              </Button>
+              {(permissions.canManageEmailConnections || !activeWorkspaceId || activeWorkspaceId === 'personal') && (
+                <Button
+                  onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!hasActivePlan}
+                >
+                  Connecter
+                </Button>
+              )}
+              {!permissions.canManageEmailConnections && activeWorkspaceId && activeWorkspaceId !== 'personal' && (
+                <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
+              )}
             </div>
           )}
         </Card>
@@ -258,14 +275,16 @@ function SettingsPageContent() {
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleDisconnectAccount(outlookAccount.id)}
-                className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              {(permissions.canManageEmailConnections || !activeWorkspaceId || activeWorkspaceId === 'personal') && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleDisconnectAccount(outlookAccount.id)}
+                  className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           ) : (
             <div className="flex items-center justify-between">
@@ -278,15 +297,20 @@ function SettingsPageContent() {
                   <p className="text-xs text-muted-foreground">Non connecté</p>
                 </div>
               </div>
-              <Button
-                onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={!hasActivePlan}
-              >
-                Connecter
-              </Button>
+              {(permissions.canManageEmailConnections || !activeWorkspaceId || activeWorkspaceId === 'personal') && (
+                <Button
+                  onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!hasActivePlan}
+                >
+                  Connecter
+                </Button>
+              )}
+              {!permissions.canManageEmailConnections && activeWorkspaceId && activeWorkspaceId !== 'personal' && (
+                <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
+              )}
             </div>
           )}
         </Card>
@@ -310,7 +334,9 @@ function SettingsPageContent() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" onClick={() => handleDisconnectAccount(acc.id)} className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"><X className="h-4 w-4" /></Button>
+                  {(permissions.canManageEmailConnections || !activeWorkspaceId || activeWorkspaceId === 'personal') && (
+                    <Button variant="ghost" size="icon" onClick={() => handleDisconnectAccount(acc.id)} className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"><X className="h-4 w-4" /></Button>
+                  )}
                 </div>
               </div>
             ))}
@@ -336,7 +362,9 @@ function SettingsPageContent() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" onClick={() => handleDisconnectAccount(acc.id)} className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"><X className="h-4 w-4" /></Button>
+                  {(permissions.canManageEmailConnections || !activeWorkspaceId || activeWorkspaceId === 'personal') && (
+                    <Button variant="ghost" size="icon" onClick={() => handleDisconnectAccount(acc.id)} className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"><X className="h-4 w-4" /></Button>
+                  )}
                 </div>
               </div>
             ))}

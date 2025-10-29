@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { hasWorkspaceAccess } from "@/lib/workspaces/permissions"
 
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,11 @@ export async function GET(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ error: "workspaceId requis" }, { status: 400 })
 
     // Vérifier que l'utilisateur a accès au workspace
+    const hasAccess = await hasWorkspaceAccess(supabase, workspaceId, user.id)
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Vous n'avez pas accès à ce workspace" }, { status: 403 })
+    }
+
     const { data: ws } = await supabase.from('workspaces').select('owner_id').eq('id', workspaceId).single()
     if (!ws) return NextResponse.json({ error: "Workspace introuvable" }, { status: 404 })
 
@@ -84,8 +90,12 @@ export async function DELETE(request: Request) {
     const { workspaceId, userId } = await request.json()
     if (!workspaceId || !userId) return NextResponse.json({ error: "Paramètres manquants" }, { status: 400 })
 
-    const { data: ws } = await supabase.from('workspaces').select('owner_id').eq('id', workspaceId).single()
-    if (!ws || ws.owner_id !== user.id) return NextResponse.json({ error: "forbidden" }, { status: 403 })
+    // Vérifier les permissions avec le nouveau système
+    const { canRemoveMember } = await import('@/lib/workspaces/permissions')
+    const canRemove = await canRemoveMember(supabase, workspaceId, user.id, userId)
+    if (!canRemove) {
+      return NextResponse.json({ error: "Vous n'avez pas la permission de supprimer ce membre" }, { status: 403 })
+    }
 
     const { error } = await supabase.from('workspace_members').delete().eq('workspace_id', workspaceId).eq('user_id', userId)
     if (error) throw error

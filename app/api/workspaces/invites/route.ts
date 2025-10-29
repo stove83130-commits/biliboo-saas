@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import nodemailer from "nodemailer"
+import { canInviteMembers } from "@/lib/workspaces/permissions"
 
 
 export const dynamic = 'force-dynamic'
@@ -13,8 +14,19 @@ export async function POST(req: Request) {
     const { workspaceId, email, role } = await req.json()
     if (!workspaceId || !email) return NextResponse.json({ error: "Paramètres manquants" }, { status: 400 })
 
+    // Vérifier les permissions
+    const canInvite = await canInviteMembers(supabase, workspaceId, user.id)
+    if (!canInvite) {
+      return NextResponse.json({ error: "Vous n'avez pas la permission d'inviter des membres" }, { status: 403 })
+    }
+
     const { data: ws } = await supabase.from("workspaces").select("owner_id").eq("id", workspaceId).single()
-    if (!ws || ws.owner_id !== user.id) return NextResponse.json({ error: "forbidden" }, { status: 403 })
+    if (!ws) return NextResponse.json({ error: "Workspace introuvable" }, { status: 404 })
+
+    // Empêcher l'invitation avec le rôle 'owner' sauf si c'est le propriétaire actuel
+    if (role === 'owner' && ws.owner_id !== user.id) {
+      return NextResponse.json({ error: "Seul le propriétaire peut créer d'autres propriétaires" }, { status: 403 })
+    }
 
     const { data: invite, error } = await supabase
       .from("workspace_invites")
