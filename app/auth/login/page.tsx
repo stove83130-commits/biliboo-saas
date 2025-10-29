@@ -38,7 +38,24 @@ export default function LoginPage() {
 
       if (error) {
         setError(error.message);
+        setLoading(false);
         return;
+      }
+
+      // Attendre que la session soit bien établie avant de rediriger
+      // Vérifier plusieurs fois que l'utilisateur est bien authentifié
+      let attempts = 0;
+      let sessionEstablished = false;
+      
+      while (attempts < 5 && !sessionEstablished) {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (!userError && user) {
+          sessionEstablished = true;
+        } else {
+          // Attendre un peu avant de réessayer
+          await new Promise(resolve => setTimeout(resolve, 200));
+          attempts++;
+        }
       }
 
       // Vérifier si un plan a été sélectionné
@@ -69,13 +86,11 @@ export default function LoginPage() {
             window.location.href = url;
           } else {
             // En cas d'erreur, rediriger vers le dashboard
-            router.push('/dashboard');
-            router.refresh();
+            window.location.href = '/dashboard';
           }
         } catch (error) {
           console.error('Erreur lors de la redirection vers le paiement:', error);
-          router.push('/dashboard');
-          router.refresh();
+          window.location.href = '/dashboard';
         }
       } else {
         // Pas de plan sélectionné, rediriger vers le dashboard normalement
