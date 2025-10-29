@@ -2,7 +2,6 @@
 
 import React, { type ReactNode } from "react"
 import { DashboardSidebar } from "./dashboard-sidebar"
-import { GlobalPlanBanner } from "@/components/global-plan-banner"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Bell } from "lucide-react"
@@ -231,11 +230,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Bell className="h-4 w-4" strokeWidth={1.5} />
               </Button>
             </div>
-          </div>
-          
-          {/* Bannière globale pour les utilisateurs sans plan */}
-          <div className="px-6 pt-3">
-            <GlobalPlanBanner />
           </div>
           
           {/* Contenu principal */}

@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { WorkspaceLoadingOverlay } from '@/components/dashboard/workspace-loading'
 import { PlanProvider } from '@/contexts/plan-context'
-import { GlobalPlanBanner } from '@/components/global-plan-banner'
 import { Inter } from 'next/font/google'
 
 const inter = Inter({ 
@@ -25,7 +24,6 @@ export default function RootLayout({
     <html lang="fr" className={inter.variable}>
       <body className="min-h-screen bg-background text-foreground">
         <PlanProvider>
-          <GlobalPlanBanner />
           <WorkspaceLoadingOverlay />
           {children}
         </PlanProvider>
