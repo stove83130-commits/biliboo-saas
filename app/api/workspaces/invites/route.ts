@@ -39,6 +39,7 @@ export async function POST(req: Request) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || "http://localhost:3001"
     const origin = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`
     const redirectUrl = `${origin}/invite/${invite.token}`
+    const directLink = `${origin}/invite/${invite.token}`
 
     let emailSent = false
 
@@ -164,9 +165,6 @@ export async function POST(req: Request) {
     }
 
     // Retourner le lien direct si l'email n'a pas pu être envoyé
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || "http://localhost:3001"
-    const origin = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`
-    const directLink = `${origin}/invite/${invite.token}`
     
     const hasEmailConfig = process.env.RESEND_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
     
