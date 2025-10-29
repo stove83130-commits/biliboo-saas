@@ -40,6 +40,8 @@ export async function POST(req: Request) {
     const origin = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`
     const redirectUrl = `${origin}/invite/${invite.token}`
 
+    let emailSent = false
+
     try {
       // Générer un magic link qui redirige vers l'acceptation d'invitation
       const { data: magicLink, error: linkError } = await supabase.auth.admin.generateLink({
@@ -61,62 +63,99 @@ export async function POST(req: Request) {
       
       const workspaceName = workspace?.name || "une organisation"
 
-      // Envoi email via SMTP (configuré sur ton site)
-      const hasSMTPConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
-      
-      if (!hasSMTPConfig) {
-        console.warn('⚠️ SMTP non configuré - l\'email d\'invitation n\'a pas pu être envoyé')
-        console.warn('Variables manquantes:', {
-          SMTP_HOST: !!process.env.SMTP_HOST,
-          SMTP_USER: !!process.env.SMTP_USER,
-          SMTP_PASS: !!process.env.SMTP_PASS
-        })
-        // On continue quand même pour créer l'invitation, mais on log l'avertissement
-        // L'utilisateur pourra partager le lien manuellement
-      } else {
+      // Préparer le contenu de l'email
+      const emailHtml = `
+        <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b;max-width:600px;margin:0 auto">
+          <h2 style="margin:0 0 12px 0;color:#0b0b0b">Vous avez été invité à rejoindre ${workspaceName}</h2>
+          <p style="margin:0 0 16px 0;color:#374151">Vous avez été invité à rejoindre l'organisation <strong>${workspaceName}</strong> sur Bilibou.</p>
+          <p style="margin:0 0 8px 0;color:#374151"><strong>Rôle :</strong> ${role === 'owner' ? 'Propriétaire' : role === 'admin' ? 'Administrateur' : 'Membre'}</p>
+          <p style="margin:0 0 24px 0;color:#374151">Cliquez sur le bouton ci-dessous pour accepter l'invitation et accéder à votre organisation.</p>
+          <p style="margin:0 0 24px 0;text-align:center">
+            <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:500">Rejoindre l'organisation</a>
+          </p>
+          <p style="margin:0 0 16px 0;color:#6b7280;font-size:12px">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :</p>
+          <p style="margin:0;color:#6b7280;font-size:12px;word-break:break-all">${magicLink.properties.action_link}</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0" />
+          <p style="margin:0;color:#9ca3af;font-size:11px">Cet email a été envoyé automatiquement. Si vous n'avez pas demandé cette invitation, vous pouvez l'ignorer.</p>
+        </div>
+      `
+      const emailSubject = `Invitation à rejoindre ${workspaceName} sur Bilibou`
+
+      // Essayer Resend d'abord (plus fiable)
+      const RESEND_KEY = process.env.RESEND_API_KEY
+      const FROM_EMAIL = process.env.INVITES_FROM_EMAIL || process.env.EXPORTS_FROM_EMAIL || 'noreply@bilibou.com'
+
+      if (RESEND_KEY) {
         try {
-          const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port: Number(process.env.SMTP_PORT || 587),
-            secure: process.env.SMTP_SECURE === 'true',
-            auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASS,
+          const resendRes = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${RESEND_KEY}`,
+              'Content-Type': 'application/json',
             },
+            body: JSON.stringify({
+              from: FROM_EMAIL,
+              to: [email],
+              subject: emailSubject,
+              html: emailHtml,
+            }),
           })
 
-          const emailResult = await transporter.sendMail({
-            from: process.env.SMTP_FROM || 'noreply@bilibou.com',
-            to: email,
-            subject: `Invitation à rejoindre ${workspaceName} sur Bilibou`,
-            html: `
-              <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b;max-width:600px;margin:0 auto">
-                <h2 style="margin:0 0 12px 0;color:#0b0b0b">Vous avez été invité à rejoindre ${workspaceName}</h2>
-                <p style="margin:0 0 16px 0;color:#374151">Vous avez été invité à rejoindre l'organisation <strong>${workspaceName}</strong> sur Bilibou.</p>
-                <p style="margin:0 0 8px 0;color:#374151"><strong>Rôle :</strong> ${role === 'owner' ? 'Propriétaire' : role === 'admin' ? 'Administrateur' : 'Membre'}</p>
-                <p style="margin:0 0 24px 0;color:#374151">Cliquez sur le bouton ci-dessous pour accepter l'invitation et accéder à votre organisation.</p>
-                <p style="margin:0 0 24px 0;text-align:center">
-                  <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:500">Rejoindre l'organisation</a>
-                </p>
-                <p style="margin:0 0 16px 0;color:#6b7280;font-size:12px">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :</p>
-                <p style="margin:0;color:#6b7280;font-size:12px;word-break:break-all">${magicLink.properties.action_link}</p>
-                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0" />
-                <p style="margin:0;color:#9ca3af;font-size:11px">Cet email a été envoyé automatiquement. Si vous n'avez pas demandé cette invitation, vous pouvez l'ignorer.</p>
-              </div>
-            `,
-          })
+          if (resendRes.ok) {
+            const resendBody = await resendRes.json()
+            console.log('✅ Email d\'invitation envoyé via Resend à', email, 'ID:', resendBody.id)
+            emailSent = true
+          } else {
+            const resendError = await resendRes.text()
+            console.error('❌ Erreur Resend:', resendError)
+          }
+        } catch (resendError: any) {
+          console.error('❌ Erreur lors de l\'envoi via Resend:', resendError.message)
+        }
+      }
 
-          console.log('✅ Email d\'invitation envoyé avec succès à', email, 'Message ID:', emailResult.messageId)
-        } catch (emailError: any) {
-          console.error('❌ Erreur lors de l\'envoi de l\'email d\'invitation:', emailError)
-          console.error('Détails:', {
-            message: emailError.message,
-            code: emailError.code,
-            command: emailError.command,
-            response: emailError.response
+      // Si Resend n'est pas configuré ou a échoué, essayer SMTP
+      if (!emailSent) {
+        const hasSMTPConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+        
+        if (!hasSMTPConfig) {
+          console.warn('⚠️ Aucun service d\'email configuré (ni RESEND_API_KEY ni SMTP) - l\'email n\'a pas pu être envoyé')
+          console.warn('Variables manquantes:', {
+            RESEND_API_KEY: !!RESEND_KEY,
+            SMTP_HOST: !!process.env.SMTP_HOST,
+            SMTP_USER: !!process.env.SMTP_USER,
+            SMTP_PASS: !!process.env.SMTP_PASS
           })
-          // On ne fait pas échouer la création d'invitation même si l'email échoue
-          // Le lien peut être partagé manuellement
+        } else {
+          try {
+            const transporter = nodemailer.createTransport({
+              host: process.env.SMTP_HOST,
+              port: Number(process.env.SMTP_PORT || 587),
+              secure: process.env.SMTP_SECURE === 'true',
+              auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS,
+              },
+            })
+
+            const emailResult = await transporter.sendMail({
+              from: process.env.SMTP_FROM || FROM_EMAIL,
+              to: email,
+              subject: emailSubject,
+              html: emailHtml,
+            })
+
+            console.log('✅ Email d\'invitation envoyé via SMTP à', email, 'Message ID:', emailResult.messageId)
+            emailSent = true
+          } catch (emailError: any) {
+            console.error('❌ Erreur lors de l\'envoi de l\'email via SMTP:', emailError)
+            console.error('Détails:', {
+              message: emailError.message,
+              code: emailError.code,
+              command: emailError.command,
+              response: emailError.response
+            })
+          }
         }
       }
     } catch (e) {
@@ -124,18 +163,18 @@ export async function POST(req: Request) {
       // Ne pas faire échouer l'invitation, on peut toujours partager le lien directement
     }
 
-    // Retourner le lien direct si SMTP n'est pas configuré pour permettre le partage manuel
+    // Retourner le lien direct si l'email n'a pas pu être envoyé
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || "http://localhost:3001"
     const origin = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`
     const directLink = `${origin}/invite/${invite.token}`
     
-    const hasSMTPConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+    const hasEmailConfig = process.env.RESEND_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
     
     return NextResponse.json({ 
       ok: true, 
       token: invite.token,
-      emailSent: hasSMTPConfig,
-      ...(hasSMTPConfig ? {} : { directLink, message: "SMTP non configuré - partagez ce lien manuellement : " + directLink })
+      emailSent: emailSent && hasEmailConfig,
+      ...(emailSent ? {} : { directLink, message: "Email non envoyé - partagez ce lien manuellement : " + directLink })
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
