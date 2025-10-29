@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { createClient as createAdminClient } from "@supabase/supabase-js"
 import nodemailer from "nodemailer"
 import { canInviteMembers } from "@/lib/workspaces/permissions"
 
@@ -46,8 +47,14 @@ export async function POST(req: Request) {
     const hasSMTPConfig = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
 
     try {
+      // Créer un client admin pour générer le magic link (nécessite service role key)
+      const supabaseAdmin = createAdminClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '',
+        process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+      )
+
       // Générer un magic link qui redirige vers l'acceptation d'invitation
-      const { data: magicLink, error: linkError } = await supabase.auth.admin.generateLink({
+      const { data: magicLink, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
         type: 'magiclink',
         email: email,
         options: {
