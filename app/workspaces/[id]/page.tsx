@@ -12,6 +12,16 @@ import { ArrowLeft } from "lucide-react"
 type Member = { user_id: string; email: string; role: string; status: string }
 type Tab = "org" | "members" | "general"
 
+const translateRole = (role: string): string => {
+  const roleMap: Record<string, string> = {
+    'owner': 'Propriétaire',
+    'admin': 'Administrateur',
+    'manager': 'Gérant',
+    'member': 'Membre'
+  }
+  return roleMap[role.toLowerCase()] || role
+}
+
 export default function WorkspaceDashboardPage() {
   const params = useParams()
   const router = useRouter()
@@ -232,7 +242,7 @@ export default function WorkspaceDashboardPage() {
                         <tr key={m.user_id} className="border-t border-border">
                           <td className="px-3 py-2">—</td>
                           <td className="px-3 py-2">{m.email}</td>
-                          <td className="px-3 py-2 capitalize">{m.role}</td>
+                          <td className="px-3 py-2">{translateRole(m.role)}</td>
                           <td className="px-3 py-2">{m.status}</td>
                           <td className="px-3 py-2 text-right">
                             <Button variant="outline" onClick={()=>removeMember(m.user_id)}>Retirer</Button>

@@ -12,6 +12,16 @@ type Member = { user_id: string; email: string; role: string; status: string }
 
 type Tab = "info" | "members" | "danger"
 
+const translateRole = (role: string): string => {
+  const roleMap: Record<string, string> = {
+    'owner': 'Propriétaire',
+    'admin': 'Administrateur',
+    'manager': 'Gérant',
+    'member': 'Membre'
+  }
+  return roleMap[role.toLowerCase()] || role
+}
+
 export default function OrgDetailsPage() {
   const params = useParams()
   const router = useRouter()
@@ -220,7 +230,7 @@ export default function OrgDetailsPage() {
                       members.map((m) => (
                         <tr key={m.user_id} className="border-t border-border hover:bg-muted/50">
                           <td className="px-4 py-3">{m.email}</td>
-                          <td className="px-4 py-3 capitalize">{m.role}</td>
+                          <td className="px-4 py-3">{translateRole(m.role)}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                               m.status === 'active' 
