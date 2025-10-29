@@ -40,12 +40,14 @@ export default function OrgDetailsPage() {
         .single()
       setOrgName(ws?.name || "Organisation")
 
-      const { data } = await supabase
-        .from('workspace_members')
-        .select('user_id, role, status, profiles:profiles!inner(email)')
-        .eq('workspace_id', orgId)
-      const rows: Member[] = (data || []).map((r: any) => ({ user_id: r.user_id, email: r.profiles?.email || '-', role: r.role, status: r.status }))
-      setMembers(rows)
+      // Utiliser l'API pour récupérer les membres avec leurs emails
+      const res = await fetch(`/api/workspaces/members?workspaceId=${orgId}`)
+      if (!res.ok) throw new Error('Erreur lors de la récupération des membres')
+      const { members } = await res.json()
+      setMembers(members || [])
+    } catch (error) {
+      console.error('Erreur lors du chargement des membres:', error)
+      setMembers([])
     } finally {
       setLoading(false)
     }
