@@ -101,7 +101,16 @@ export default function OrgDetailsPage() {
       
       setInviteEmail('')
       setInviteRole('member')
-      alert('✅ Invitation envoyée par email à ' + email)
+      
+      if (body.emailSent) {
+        alert('✅ Invitation envoyée par email à ' + email)
+      } else {
+        const message = body.directLink 
+          ? `⚠️ Email non configuré. Partagez ce lien manuellement :\n\n${body.directLink}\n\n(L'invitation a été créée mais l'email n'a pas pu être envoyé car SMTP n'est pas configuré)`
+          : '✅ Invitation créée (mais email non envoyé - SMTP non configuré)'
+        alert(message)
+      }
+      
       await load()
     } catch (e: any) {
       console.error('Erreur invitation:', e)

@@ -52,53 +52,91 @@ export async function POST(req: Request) {
 
       if (linkError) throw linkError
 
-      // Envoi email via SMTP (configuré sur ton site)
-      if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT || 587),
-          secure: process.env.SMTP_SECURE === 'true',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        })
+      // Récupérer le nom de l'organisation
+      const { data: workspace } = await supabase
+        .from("workspaces")
+        .select("name")
+        .eq("id", workspaceId)
+        .single()
+      
+      const workspaceName = workspace?.name || "une organisation"
 
-        // Récupérer le nom de l'organisation
-        const { data: workspace } = await supabase
-          .from("workspaces")
-          .select("name")
-          .eq("id", workspaceId)
-          .single()
-        
-        const workspaceName = workspace?.name || "une organisation"
-        
-        await transporter.sendMail({
-          from: process.env.SMTP_FROM || 'noreply@bilibou.com',
-          to: email,
-          subject: `Invitation à rejoindre ${workspaceName} sur Bilibou`,
-          html: `
-            <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b;max-width:600px;margin:0 auto">
-              <h2 style="margin:0 0 12px 0;color:#0b0b0b">Vous avez été invité à rejoindre ${workspaceName}</h2>
-              <p style="margin:0 0 16px 0;color:#374151">Vous avez été invité à rejoindre l'organisation <strong>${workspaceName}</strong> sur Bilibou.</p>
-              <p style="margin:0 0 8px 0;color:#374151"><strong>Rôle :</strong> ${role === 'owner' ? 'Propriétaire' : role === 'admin' ? 'Administrateur' : 'Membre'}</p>
-              <p style="margin:0 0 24px 0;color:#374151">Cliquez sur le bouton ci-dessous pour accepter l'invitation et accéder à votre organisation.</p>
-              <p style="margin:0 0 24px 0;text-align:center">
-                <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:500">Rejoindre l'organisation</a>
-              </p>
-              <p style="margin:0 0 16px 0;color:#6b7280;font-size:12px">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :</p>
-              <p style="margin:0;color:#6b7280;font-size:12px;word-break:break-all">${magicLink.properties.action_link}</p>
-              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0" />
-              <p style="margin:0;color:#9ca3af;font-size:11px">Cet email a été envoyé automatiquement. Si vous n'avez pas demandé cette invitation, vous pouvez l'ignorer.</p>
-            </div>
-          `,
+      // Envoi email via SMTP (configuré sur ton site)
+      const hasSMTPConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+      
+      if (!hasSMTPConfig) {
+        console.warn('⚠️ SMTP non configuré - l\'email d\'invitation n\'a pas pu être envoyé')
+        console.warn('Variables manquantes:', {
+          SMTP_HOST: !!process.env.SMTP_HOST,
+          SMTP_USER: !!process.env.SMTP_USER,
+          SMTP_PASS: !!process.env.SMTP_PASS
         })
+        // On continue quand même pour créer l'invitation, mais on log l'avertissement
+        // L'utilisateur pourra partager le lien manuellement
+      } else {
+        try {
+          const transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: Number(process.env.SMTP_PORT || 587),
+            secure: process.env.SMTP_SECURE === 'true',
+            auth: {
+              user: process.env.SMTP_USER,
+              pass: process.env.SMTP_PASS,
+            },
+          })
+
+          const emailResult = await transporter.sendMail({
+            from: process.env.SMTP_FROM || 'noreply@bilibou.com',
+            to: email,
+            subject: `Invitation à rejoindre ${workspaceName} sur Bilibou`,
+            html: `
+              <div style="font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;color:#0b0b0b;max-width:600px;margin:0 auto">
+                <h2 style="margin:0 0 12px 0;color:#0b0b0b">Vous avez été invité à rejoindre ${workspaceName}</h2>
+                <p style="margin:0 0 16px 0;color:#374151">Vous avez été invité à rejoindre l'organisation <strong>${workspaceName}</strong> sur Bilibou.</p>
+                <p style="margin:0 0 8px 0;color:#374151"><strong>Rôle :</strong> ${role === 'owner' ? 'Propriétaire' : role === 'admin' ? 'Administrateur' : 'Membre'}</p>
+                <p style="margin:0 0 24px 0;color:#374151">Cliquez sur le bouton ci-dessous pour accepter l'invitation et accéder à votre organisation.</p>
+                <p style="margin:0 0 24px 0;text-align:center">
+                  <a href="${magicLink.properties.action_link}" style="display:inline-block;background:#10b981;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:500">Rejoindre l'organisation</a>
+                </p>
+                <p style="margin:0 0 16px 0;color:#6b7280;font-size:12px">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :</p>
+                <p style="margin:0;color:#6b7280;font-size:12px;word-break:break-all">${magicLink.properties.action_link}</p>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0" />
+                <p style="margin:0;color:#9ca3af;font-size:11px">Cet email a été envoyé automatiquement. Si vous n'avez pas demandé cette invitation, vous pouvez l'ignorer.</p>
+              </div>
+            `,
+          })
+
+          console.log('✅ Email d\'invitation envoyé avec succès à', email, 'Message ID:', emailResult.messageId)
+        } catch (emailError: any) {
+          console.error('❌ Erreur lors de l\'envoi de l\'email d\'invitation:', emailError)
+          console.error('Détails:', {
+            message: emailError.message,
+            code: emailError.code,
+            command: emailError.command,
+            response: emailError.response
+          })
+          // On ne fait pas échouer la création d'invitation même si l'email échoue
+          // Le lien peut être partagé manuellement
+        }
       }
     } catch (e) {
-      console.warn('Magic link generation or email send failed:', e)
+      console.error('❌ Erreur lors de la génération du magic link:', e)
+      // Ne pas faire échouer l'invitation, on peut toujours partager le lien directement
     }
 
-    return NextResponse.json({ ok: true, token: invite.token })
+    // Retourner le lien direct si SMTP n'est pas configuré pour permettre le partage manuel
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || "http://localhost:3001"
+    const origin = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`
+    const directLink = `${origin}/invite/${invite.token}`
+    
+    const hasSMTPConfig = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+    
+    return NextResponse.json({ 
+      ok: true, 
+      token: invite.token,
+      emailSent: hasSMTPConfig,
+      ...(hasSMTPConfig ? {} : { directLink, message: "SMTP non configuré - partagez ce lien manuellement : " + directLink })
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
