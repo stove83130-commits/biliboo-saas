@@ -88,37 +88,39 @@ export default function OrgDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, permissions.isLoading])
 
-  // Rafraîchir automatiquement toutes les 3 secondes pour voir les nouveaux membres qui acceptent
+  // Rafraîchir automatiquement toutes les 2 secondes pour voir les nouveaux membres qui acceptent
   useEffect(() => {
     if (!orgId || loading || permissions.isLoading) return
     
-    const interval = setInterval(() => {
-      // Recharger sans afficher le loading pour ne pas bloquer l'interface
-      const refresh = async () => {
-        try {
-          const { data: { user } } = await supabase.auth.getUser()
-          if (!user) return
-          
-          // Recharger les membres
-          const res = await fetch(`/api/workspaces/members?workspaceId=${orgId}`)
-          if (res.ok) {
-            const { members } = await res.json()
-            setMembers(members || [])
-          }
-          
-          // Recharger les invitations en attente
-          const invitesRes = await fetch(`/api/workspaces/invites?workspaceId=${orgId}`)
-          if (invitesRes.ok) {
-            const { invites } = await invitesRes.json()
-            const pending = (invites || []).filter((inv: any) => inv.status === 'pending')
-            setPendingInvites(pending)
-          }
-        } catch (error) {
-          console.error('Erreur rafraîchissement:', error)
+    const refresh = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        
+        // Recharger les membres
+        const res = await fetch(`/api/workspaces/members?workspaceId=${orgId}`)
+        if (res.ok) {
+          const { members } = await res.json()
+          setMembers(members || [])
         }
+        
+        // Recharger les invitations en attente
+        const invitesRes = await fetch(`/api/workspaces/invites?workspaceId=${orgId}`)
+        if (invitesRes.ok) {
+          const { invites } = await invitesRes.json()
+          const pending = (invites || []).filter((inv: any) => inv.status === 'pending')
+          setPendingInvites(pending)
+        }
+      } catch (error) {
+        console.error('Erreur rafraîchissement:', error)
       }
-      refresh()
-    }, 3000) // Rafraîchir toutes les 3 secondes
+    }
+    
+    // Rafraîchir immédiatement
+    refresh()
+    
+    // Puis rafraîchir toutes les 2 secondes
+    const interval = setInterval(refresh, 2000)
     
     return () => clearInterval(interval)
   }, [orgId, loading, permissions.isLoading, supabase])
@@ -169,6 +171,7 @@ export default function OrgDetailsPage() {
         alert(message)
       }
       
+      // Forcer le rechargement immédiat pour mettre à jour les invitations en attente
       await load()
     } catch (e: any) {
       console.error('Erreur invitation:', e)
