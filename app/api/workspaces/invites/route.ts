@@ -252,13 +252,20 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Seules les invitations en attente peuvent être révoquées" }, { status: 400 })
     }
 
-    // Suppression simple (plus sûre si le statut 'revoked' n'existe pas dans le schéma)
-    const { error: delError } = await supabase
+    // Marquer l'invitation comme révoquée pour qu'elle disparaisse des "pending"
+    const { data: updated, error: updError } = await supabase
       .from('workspace_invites')
-      .delete()
+      .update({ status: 'revoked' })
       .eq('id', inviteId)
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'pending')
+      .select('id')
 
-    if (delError) throw delError
+    if (updError) throw updError
+
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: "Aucune invitation en attente à révoquer" }, { status: 404 })
+    }
 
     return NextResponse.json({ ok: true })
   } catch (e: any) {
