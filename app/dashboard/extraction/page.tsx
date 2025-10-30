@@ -22,6 +22,9 @@ export default function ExtractionPage() {
   const [selectedConfig, setSelectedConfig] = useState<string>('')
   const [searchSince, setSearchSince] = useState<string>('')
   const [searchUntil, setSearchUntil] = useState<string>('')
+  const [monthSelect, setMonthSelect] = useState<string>('') // format MM
+  const [yearSelect, setYearSelect] = useState<string>('')
+  const [yearOnly, setYearOnly] = useState<string>('') // sélection d'une année entière
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<string | null>(null)
@@ -36,6 +39,11 @@ export default function ExtractionPage() {
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
     setSearchSince(ninetyDaysAgo.toISOString().split('T')[0])
     setSearchUntil(new Date().toISOString().split('T')[0])
+    // valeurs par défaut pour sélecteurs
+    const now = new Date()
+    setMonthSelect(String(now.getMonth() + 1).padStart(2, '0'))
+    setYearSelect(String(now.getFullYear()))
+    setYearOnly('')
   }, [])
 
   // Fonction pour définir une période prédéfinie
@@ -362,7 +370,82 @@ export default function ExtractionPage() {
                 </div>
               </div>
 
-              {/* Sélection manuelle des dates */}
+              {/* Sélecteurs simples: Mois et Année, ou Année entière */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Sélectionner un mois précis</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <select
+                      value={monthSelect}
+                      onChange={(e) => {
+                        const m = e.target.value
+                        setMonthSelect(m)
+                        // calculer since/until pour ce mois
+                        const y = Number(yearSelect || new Date().getFullYear())
+                        const first = new Date(y, Number(m) - 1, 1)
+                        const last = new Date(y, Number(m), 0)
+                        setSearchSince(first.toISOString().split('T')[0])
+                        setSearchUntil(last.toISOString().split('T')[0])
+                        setYearOnly('')
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={String(m).padStart(2, '0')}>
+                          {new Date(2000, m - 1, 1).toLocaleString('fr-FR', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={yearSelect}
+                      onChange={(e) => {
+                        const y = e.target.value
+                        setYearSelect(y)
+                        if (monthSelect) {
+                          const first = new Date(Number(y), Number(monthSelect) - 1, 1)
+                          const last = new Date(Number(y), Number(monthSelect), 0)
+                          setSearchSince(first.toISOString().split('T')[0])
+                          setSearchUntil(last.toISOString().split('T')[0])
+                          setYearOnly('')
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">Choisissez un mois et une année pour remplir automatiquement la période.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Ou sélectionner une année entière</label>
+                  <div className="grid grid-cols-1">
+                    <select
+                      value={yearOnly}
+                      onChange={(e) => {
+                        const y = e.target.value
+                        setYearOnly(y)
+                        if (y) {
+                          const first = new Date(Number(y), 0, 1)
+                          const last = new Date(Number(y), 12, 0)
+                          setSearchSince(first.toISOString().split('T')[0])
+                          setSearchUntil(last.toISOString().split('T')[0])
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">— Choisir une année —</option>
+                      {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sélection manuelle des dates (optionnelle) */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
