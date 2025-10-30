@@ -10,67 +10,84 @@ export async function GET(request: NextRequest) {
   const plan = requestUrl.searchParams.get('plan')
   const origin = requestUrl.origin
 
+  // Préparer une réponse de redirection finale que l'on enrichira avec les cookies
+  const buildRedirectResponse = (url: string) =>
+    NextResponse.redirect(url, {
+      status: 302,
+      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+    })
+
   if (code) {
-    const supabase = createClient()
-    
-    // Échanger le code contre une session
+    // Créer un client SSR lié à une réponse pour que les cookies soient bien écrits AVANT la redirection
+    let response = NextResponse.next()
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        get(name) {
+          return request.cookies.get(name)?.value
+        },
+        set(name, value, options) {
+          // Écrire sur la réponse locale
+          response.cookies.set({ name, value, ...options })
+        },
+        remove(name, options) {
+          response.cookies.set({ name, value: '', ...options })
+        },
+      },
+    })
+
     const { error } = await supabase.auth.exchangeCodeForSession(code)
-    
     if (error) {
       console.error('Erreur lors de l\'échange du code:', error)
       return NextResponse.redirect(`${origin}/auth/login?error=auth_failed`)
     }
 
-    console.log('✅ Session créée avec succès après OAuth')
+    // Assurer l\'écriture effective des cookies en forçant une lecture de session
+    await supabase.auth.getUser()
+
+    // Continuer le flux normalement, mais en utilisant la même réponse pour conserver les cookies
+    // On choisira la destination plus bas, après avoir lu l\'utilisateur
+    // NB: on ne retourne pas encore, on récupère juste les cookies écrits dans `response`
+
+    // Recréer un client basé sur les cookies désormais présents dans `response`
+    const supabaseAfterAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        get(name) {
+          return response.cookies.get(name)?.value || request.cookies.get(name)?.value
+        },
+        set() {},
+        remove() {},
+      },
+    })
+
+    const { data: { user } } = await supabaseAfterAuth.auth.getUser()
+
+    let isNewUser = true
+    if (user) {
+      isNewUser = !user.user_metadata?.onboarding_completed
+      if (isNewUser && !user.user_metadata?.onboarding_completed) {
+        await supabaseAfterAuth.auth.updateUser({
+          data: { ...user.user_metadata, onboarding_completed: false },
+        })
+      }
+    }
+
+    const redirectPath = plan
+      ? `/auth/plan-redirect?plan=${plan}`
+      : (isNewUser ? '/onboarding' : '/dashboard')
+    const redirectResponse = buildRedirectResponse(`${origin}${redirectPath}`)
+
+    // Copier les cookies accumulés sur la réponse finale
+    response.cookies.getAll().forEach((c) => {
+      redirectResponse.cookies.set(c)
+    })
+
+    return redirectResponse
   }
 
-  // Si un plan a été sélectionné, rediriger vers une page intermédiaire qui gérera le paiement
-  if (plan) {
-    console.log(`🔄 Redirection vers plan-redirect avec plan: ${plan}`)
-    return NextResponse.redirect(`${origin}/auth/plan-redirect?plan=${plan}`)
-  }
-
-  // Vérifier si c'est un nouvel utilisateur (OAuth) pour rediriger vers l'onboarding
-  const supabaseAfterAuth = createClient()
-  const { data: { user } } = await supabaseAfterAuth.auth.getUser()
-  
-  console.log('🔍 User après OAuth:', {
-    userId: user?.id,
-    email: user?.email,
-    metadata: user?.user_metadata,
-    identities: user?.identities
-  })
-  
-  // Vérifier si c'est un utilisateur existant ou nouveau via la table auth.users
-  let isNewUser = true;
-  if (user) {
-    // Vérifier si l'utilisateur vient de signer up ou de se connecter en regardant les métadonnées
-    // Si l'utilisateur n'a pas onboarding_completed, c'est un nouvel utilisateur
-    isNewUser = !user.user_metadata?.onboarding_completed;
-    
-    // Si c'est un nouveau user, mettre onboarding_completed à false pour forcer l'onboarding
-    if (isNewUser && !user.user_metadata?.onboarding_completed) {
-      // Initialiser les métadonnées pour forcer l'onboarding
-      await supabaseAfterAuth.auth.updateUser({
-        data: {
-          ...user.user_metadata,
-          onboarding_completed: false
-        }
-      });
-    }
-  }
-  
-  const redirectPath = isNewUser ? '/onboarding' : '/dashboard'
-  
-  console.log(`🔄 Redirection vers ${redirectPath} (nouveau OAuth: ${isNewUser})`)
-  const redirectUrl = `${origin}${redirectPath}`
-  
-  // Forcer la redirection avec status 302 (Found)
-  return NextResponse.redirect(redirectUrl, { 
-    status: 302,
-    headers: {
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-    }
-  })
+  // Si pas de code (cas rare), fallback vers le login
+  return buildRedirectResponse(`${origin}/auth/login`)
 }
 
