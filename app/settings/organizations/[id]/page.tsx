@@ -203,6 +203,28 @@ export default function OrgDetailsPage() {
     }
   }
 
+  const revokeInvite = async (inviteId: string) => {
+    if (!permissions.canInviteMembers) {
+      alert('❌ Vous n\'avez pas la permission de révoquer des invitations')
+      return
+    }
+    const ok = confirm("Confirmez-vous la révocation de cette invitation ?\n\nLa personne ne pourra plus l'utiliser pour rejoindre l'organisation.")
+    if (!ok) return
+    try {
+      const res = await fetch('/api/workspaces/invites', { 
+        method: 'DELETE', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ inviteId, workspaceId: orgId })
+      })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error || 'Erreur')
+      await load()
+    } catch (e: any) {
+      console.error('Erreur révocation:', e)
+      alert('❌ Révocation impossible : ' + (e.message || 'Erreur inconnue'))
+    }
+  }
+
   if (loading) {
     return (
       <div>
@@ -379,6 +401,9 @@ export default function OrgDetailsPage() {
                         <th className="px-4 py-3 text-left font-medium">Invité le</th>
                         <th className="px-4 py-3 text-left font-medium">Expire le</th>
                         <th className="px-4 py-3 text-right font-medium">Statut</th>
+                        {permissions.canInviteMembers && (
+                          <th className="px-4 py-3 text-right font-medium">Actions</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -414,6 +439,17 @@ export default function OrgDetailsPage() {
                                 {isExpired ? 'Expirée' : 'En attente'}
                               </span>
                             </td>
+                            {permissions.canInviteMembers && (
+                              <td className="px-4 py-3 text-right">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => revokeInvite(invite.id)}
+                                >
+                                  Révoquer
+                                </Button>
+                              </td>
+                            )}
                           </tr>
                         )
                       })}

@@ -219,3 +219,49 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+
+    const { inviteId, workspaceId } = await req.json()
+    if (!inviteId || !workspaceId) {
+      return NextResponse.json({ error: "Paramètres manquants" }, { status: 400 })
+    }
+
+    // Vérifier les permissions
+    const canInvite = await canInviteMembers(supabase, workspaceId, user.id)
+    if (!canInvite) {
+      return NextResponse.json({ error: "Vous n'avez pas la permission de gérer les invitations" }, { status: 403 })
+    }
+
+    // Vérifier que l'invitation appartient bien à ce workspace et qu'elle est encore en attente
+    const { data: invite } = await supabase
+      .from('workspace_invites')
+      .select('id,status,workspace_id')
+      .eq('id', inviteId)
+      .single()
+
+    if (!invite || invite.workspace_id !== workspaceId) {
+      return NextResponse.json({ error: "Invitation introuvable" }, { status: 404 })
+    }
+
+    if (invite.status && invite.status !== 'pending') {
+      return NextResponse.json({ error: "Seules les invitations en attente peuvent être révoquées" }, { status: 400 })
+    }
+
+    // Suppression simple (plus sûre si le statut 'revoked' n'existe pas dans le schéma)
+    const { error: delError } = await supabase
+      .from('workspace_invites')
+      .delete()
+      .eq('id', inviteId)
+
+    if (delError) throw delError
+
+    return NextResponse.json({ ok: true })
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 })
+  }
+}
