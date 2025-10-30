@@ -1,10 +1,14 @@
 "use client"
 
+import { Header } from "@/components/sections/header"
 import { FooterSection } from "@/components/sections/footer-section"
 
 export default function CGUPage() {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col">
+      <div className="w-full max-w-[1320px] mx-auto px-4 lg:px-6 pt-4">
+        <Header />
+      </div>
       <main className="flex-1">
         <div className="max-w-4xl mx-auto px-4 py-12">
           <h1 className="text-3xl md:text-4xl font-semibold mb-2">Conditions Générales d'Utilisation</h1>
