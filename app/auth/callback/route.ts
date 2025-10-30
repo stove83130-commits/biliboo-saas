@@ -65,10 +65,20 @@ export async function GET(request: NextRequest) {
 
     const { data: { user } } = await supabaseAfterAuth.auth.getUser()
 
-    // Rediriger systématiquement vers le dashboard (sauf si un plan explicite est passé)
+    // Restaurer la logique: nouvel utilisateur -> onboarding, sinon -> dashboard (plan prioritaire)
+    let isNewUser = true
+    if (user) {
+      isNewUser = !user.user_metadata?.onboarding_completed
+      if (isNewUser && !user.user_metadata?.onboarding_completed) {
+        await supabaseAfterAuth.auth.updateUser({
+          data: { ...user.user_metadata, onboarding_completed: false },
+        })
+      }
+    }
+
     const redirectPath = plan
       ? `/auth/plan-redirect?plan=${plan}`
-      : '/dashboard'
+      : (isNewUser ? '/onboarding' : '/dashboard')
     const redirectResponse = buildRedirectResponse(`${origin}${redirectPath}`)
 
     // Copier les cookies accumulés sur la réponse finale
