@@ -46,6 +46,9 @@ export function FooterSection() {
           <div className="flex flex-col justify-start items-start gap-2">
             <h3 className="text-muted-foreground text-sm font-medium leading-5">Légal</h3>
             <div className="flex flex-col items-start gap-2">
+              <a href="/cgu" className="text-foreground text-sm font-normal leading-5 hover:underline">
+                Conditions Générales d'Utilisation
+              </a>
               <a href="/cgv" className="text-foreground text-sm font-normal leading-5 hover:underline">
                 Conditions Générales de Vente
               </a>
