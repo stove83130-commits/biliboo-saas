@@ -246,114 +246,81 @@ export default function ExtractionPage() {
 
               {/* Périodes prédéfinies supprimées */}
 
-              {/* Sélection du type de période */}
+              {/* Sélection par onglets */}
               <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-2">Type de période à extraire</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodType('month')
-                        // recalculer pour mois en cours si nécessaire
-                        const y = Number(yearSelect || new Date().getFullYear())
-                        const m = Number(monthSelect || String(new Date().getMonth() + 1).padStart(2, '0'))
-                        const first = new Date(y, m - 1, 1)
-                        const last = new Date(y, m, 0)
-                        setSearchSince(first.toISOString().split('T')[0])
-                        setSearchUntil(last.toISOString().split('T')[0])
-                        setYearOnly('')
-                      }}
-                      className={`h-9 rounded-md border text-sm ${periodType==='month' ? 'border-primary text-primary bg-primary/5' : 'border-border text-foreground bg-background'}`}
-                    >
-                      Mois spécifique
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodType('year')
-                        const y = Number(yearOnly || yearSelect || new Date().getFullYear())
-                        const first = new Date(y, 0, 1)
-                        const last = new Date(y, 12, 0)
-                        setYearOnly(String(y))
-                        setSearchSince(first.toISOString().split('T')[0])
-                        setSearchUntil(last.toISOString().split('T')[0])
-                      }}
-                      className={`h-9 rounded-md border text-sm ${periodType==='year' ? 'border-primary text-primary bg-primary/5' : 'border-border text-foreground bg-background'}`}
-                    >
-                      Année complète
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodType('custom')
-                        // garder les dates actuelles, sinon mettre une période courte
-                        if (!searchSince || !searchUntil) {
-                          const today = new Date()
-                          const start = new Date()
-                          start.setDate(today.getDate() - 7)
-                          setSearchSince(start.toISOString().split('T')[0])
-                          setSearchUntil(today.toISOString().split('T')[0])
-                        }
-                      }}
-                      className={`h-9 rounded-md border text-sm ${periodType==='custom' ? 'border-primary text-primary bg-primary/5' : 'border-border text-foreground bg-background'}`}
-                    >
-                      Période personnalisée
-                    </button>
-                  </div>
+                <div className="border-b border-border">
+                  <nav className="flex gap-6">
+                    {([
+                      { key: 'month', label: 'Mois spécifique' },
+                      { key: 'year', label: 'Année complète' },
+                      { key: 'custom', label: 'Période personnalisée' },
+                    ] as const).map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setPeriodType(t.key)}
+                        className={`pb-2 text-sm font-medium border-b-2 -mb-px ${
+                          periodType === t.key
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </nav>
                 </div>
 
-                {/* Contrôles dépendants du type */}
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-2">Mois et année</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <select
-                      value={monthSelect}
-                      onChange={(e) => {
-                        const m = e.target.value
-                        setMonthSelect(m)
-                        // calculer since/until pour ce mois
-                        const y = Number(yearSelect || new Date().getFullYear())
-                        const first = new Date(y, Number(m) - 1, 1)
-                        const last = new Date(y, Number(m), 0)
-                        setSearchSince(first.toISOString().split('T')[0])
-                        setSearchUntil(last.toISOString().split('T')[0])
-                        setYearOnly('')
-                      }}
-                      className={`w-full h-9 px-3 py-2 border border-border rounded-md bg-background ${periodType!=='month' ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                        <option key={m} value={String(m).padStart(2, '0')}>
-                          {new Date(2000, m - 1, 1).toLocaleString('fr-FR', { month: 'long' })}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={yearSelect}
-                      onChange={(e) => {
-                        const y = e.target.value
-                        setYearSelect(y)
-                        if (monthSelect) {
-                          const first = new Date(Number(y), Number(monthSelect) - 1, 1)
-                          const last = new Date(Number(y), Number(monthSelect), 0)
+                {periodType === 'month' && (
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-2">Mois et année</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <select
+                        value={monthSelect}
+                        onChange={(e) => {
+                          const m = e.target.value
+                          setMonthSelect(m)
+                          const y = Number(yearSelect || new Date().getFullYear())
+                          const first = new Date(y, Number(m) - 1, 1)
+                          const last = new Date(y, Number(m), 0)
                           setSearchSince(first.toISOString().split('T')[0])
                           setSearchUntil(last.toISOString().split('T')[0])
                           setYearOnly('')
-                        }
-                      }}
-                      className={`w-full h-9 px-3 py-2 border border-border rounded-md bg-background ${periodType!=='month' ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
-                      {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
+                        }}
+                        className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                          <option key={m} value={String(m).padStart(2, '0')}>
+                            {new Date(2000, m - 1, 1).toLocaleString('fr-FR', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={yearSelect}
+                        onChange={(e) => {
+                          const y = e.target.value
+                          setYearSelect(y)
+                          if (monthSelect) {
+                            const first = new Date(Number(y), Number(monthSelect) - 1, 1)
+                            const last = new Date(Number(y), Number(monthSelect), 0)
+                            setSearchSince(first.toISOString().split('T')[0])
+                            setSearchUntil(last.toISOString().split('T')[0])
+                            setYearOnly('')
+                          }
+                        }}
+                        className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
+                      >
+                        {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">Choisissez un mois et une année pour remplir automatiquement la période.</p>
-                </div>
+                )}
 
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-2">Ou une année entière</label>
-                  <div className="grid grid-cols-1">
+                {periodType === 'year' && (
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-2">Année</label>
                     <select
                       value={yearOnly}
                       onChange={(e) => {
@@ -366,7 +333,7 @@ export default function ExtractionPage() {
                           setSearchUntil(last.toISOString().split('T')[0])
                         }
                       }}
-                      className={`w-full h-9 px-3 py-2 border border-border rounded-md bg-background ${periodType!=='year' ? 'opacity-50 pointer-events-none' : ''}`}
+                      className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background max-w-xs"
                     >
                       <option value="">— Choisir une année —</option>
                       {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
@@ -374,34 +341,32 @@ export default function ExtractionPage() {
                       ))}
                     </select>
                   </div>
-                </div>
+                )}
               </div>
 
-              {/* Sélection manuelle des dates (période personnalisée) */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-2">
-                    Date de début
-                  </label>
-                  <input
-                    type="date"
-                    value={searchSince}
-                    onChange={(e) => { setSearchSince(e.target.value); setYearOnly(''); setPeriodType('custom') }}
-                    className={`w-full h-9 px-3 py-2 border border-border rounded-md bg-background ${periodType!=='custom' ? 'opacity-50 pointer-events-none' : ''}`}
-                  />
+              {/* Période personnalisée */}
+              {periodType === 'custom' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-2">Date de début</label>
+                    <input
+                      type="date"
+                      value={searchSince}
+                      onChange={(e) => { setSearchSince(e.target.value); setYearOnly('') }}
+                      className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-2">Date de fin</label>
+                    <input
+                      type="date"
+                      value={searchUntil}
+                      onChange={(e) => { setSearchUntil(e.target.value); setYearOnly('') }}
+                      className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-2">
-                    Date de fin
-                  </label>
-                  <input
-                    type="date"
-                    value={searchUntil}
-                    onChange={(e) => { setSearchUntil(e.target.value); setYearOnly(''); setPeriodType('custom') }}
-                    className={`w-full h-9 px-3 py-2 border border-border rounded-md bg-background ${periodType!=='custom' ? 'opacity-50 pointer-events-none' : ''}`}
-                  />
-                </div>
-              </div>
+              )}
               <p className="text-xs text-gray-500 -mt-2">
                 💡 Utilisez les boutons ci-dessus pour sélectionner rapidement une période, ou modifiez les dates manuellement.
               </p>
