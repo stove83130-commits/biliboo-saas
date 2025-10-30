@@ -34,7 +34,7 @@ export default function CGUPage() {
               </div>
               <div>
                 <dt className="font-medium">Statut juridique</dt>
-                <dd>[Auto-entrepreneur / Micro-entreprise / SASU / EURL - à compléter]</dd>
+                <dd>Micro-entreprise</dd>
               </div>
               <div>
                 <dt className="font-medium">SIRET</dt>
