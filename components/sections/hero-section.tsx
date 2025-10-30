@@ -8,7 +8,7 @@ export function HeroSection() {
   return (
     <section
       className="flex flex-col items-center text-center relative mx-auto rounded-2xl overflow-hidden mt-0 mb-6
-         w-full h-[400px] md:h-[600px] lg:h-[810px] px-4 md:px-0"
+         w-full min-h-[520px] md:h-[600px] lg:h-[810px] px-4 md:px-0"
     >
       <div className="absolute inset-0 z-0">
         <svg
@@ -437,7 +437,7 @@ export function HeroSection() {
         <Header />
       </div>
 
-      <div className="relative z-10 space-y-4 md:space-y-5 lg:space-y-6 mb-6 md:mb-7 lg:mb-9 max-w-lg md:max-w-2xl lg:max-w-4xl mt-20 md:mt-[140px] lg:mt-[180px] px-4">
+      <div className="relative z-10 space-y-4 md:space-y-5 lg:space-y-6 mb-4 md:mb-7 lg:mb-9 max-w-lg md:max-w-2xl lg:max-w-4xl mt-24 md:mt-[140px] lg:mt-[180px] px-4">
         <h1 className="text-foreground text-3xl md:text-4xl lg:text-6xl font-semibold leading-tight text-balance">
           Libérez la puissance de l&apos;IA comptable
         </h1>
@@ -446,14 +446,16 @@ export function HeroSection() {
         </p>
       </div>
 
-      <SmartCTAButton 
-        className="relative z-10 text-white hover:opacity-90 px-8 py-3 rounded-full font-medium text-base shadow-lg transition-all duration-200"
-        style={{
-          background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
-        }}
-      >
-        Commencer gratuitement maintenant
-      </SmartCTAButton>
+      <div className="relative z-10 mt-2 md:mt-0">
+        <SmartCTAButton 
+          className="text-white hover:opacity-90 px-8 py-3 rounded-full font-medium text-base shadow-lg transition-all duration-200"
+          style={{
+            background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
+          }}
+        >
+          Commencer gratuitement maintenant
+        </SmartCTAButton>
+      </div>
     </section>
   )
 }
