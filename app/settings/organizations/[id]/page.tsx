@@ -84,6 +84,19 @@ export default function OrgDetailsPage() {
     }
   }
 
+  const reloadInvites = async () => {
+    try {
+      const invitesRes = await fetch(`/api/workspaces/invites?workspaceId=${orgId}`)
+      if (invitesRes.ok) {
+        const { invites } = await invitesRes.json()
+        const pending = (invites || []).filter((inv: any) => inv.status === 'pending')
+        setPendingInvites(pending)
+      }
+    } catch (e) {
+      // silencieux pour une mise à jour discrète
+    }
+  }
+
   useEffect(() => {
     if (!permissions.isLoading && orgId) {
       load()
@@ -218,6 +231,10 @@ export default function OrgDetailsPage() {
   const confirmRevokeInvite = async () => {
     if (!inviteToRevoke) return
     try {
+      // Mise à jour optimiste
+      const prev = pendingInvites
+      setPendingInvites(prev.filter(i => i.id !== inviteToRevoke.id))
+
       const res = await fetch('/api/workspaces/invites', { 
         method: 'DELETE', 
         headers: { 'Content-Type': 'application/json' }, 
@@ -227,10 +244,13 @@ export default function OrgDetailsPage() {
       if (!res.ok) throw new Error(body.error || 'Erreur')
       setIsRevokeOpen(false)
       setInviteToRevoke(null)
-      await load()
+      // Rafraîchissement ciblé, sans toggle du loading global
+      await reloadInvites()
     } catch (e: any) {
       console.error('Erreur révocation:', e)
       alert('❌ Révocation impossible : ' + (e.message || 'Erreur inconnue'))
+      // rollback si erreur
+      await reloadInvites()
     }
   }
 
