@@ -46,57 +46,7 @@ export default function ExtractionPage() {
     setYearOnly('')
   }, [])
 
-  // Fonction pour définir une période prédéfinie
-  const setDatePreset = (preset: string) => {
-    const today = new Date()
-    const year = today.getFullYear()
-    const month = today.getMonth()
-
-    switch (preset) {
-      case 'current_month':
-        setSearchSince(new Date(year, month, 1).toISOString().split('T')[0])
-        setSearchUntil(today.toISOString().split('T')[0])
-        break
-      case 'last_month':
-        setSearchSince(new Date(year, month - 1, 1).toISOString().split('T')[0])
-        setSearchUntil(new Date(year, month, 0).toISOString().split('T')[0])
-        break
-      case 'july':
-        setSearchSince(new Date(year, 6, 1).toISOString().split('T')[0]) // Juillet = mois 6
-        setSearchUntil(new Date(year, 6, 31).toISOString().split('T')[0])
-        break
-      case 'august':
-        setSearchSince(new Date(year, 7, 1).toISOString().split('T')[0])
-        setSearchUntil(new Date(year, 7, 31).toISOString().split('T')[0])
-        break
-      case 'september':
-        setSearchSince(new Date(year, 8, 1).toISOString().split('T')[0])
-        setSearchUntil(new Date(year, 8, 30).toISOString().split('T')[0])
-        break
-      case 'october':
-        setSearchSince(new Date(year, 9, 1).toISOString().split('T')[0])
-        setSearchUntil(new Date(year, 9, 31).toISOString().split('T')[0])
-        break
-      case 'last_7_days':
-        const sevenDaysAgo = new Date()
-        sevenDaysAgo.setDate(today.getDate() - 7)
-        setSearchSince(sevenDaysAgo.toISOString().split('T')[0])
-        setSearchUntil(today.toISOString().split('T')[0])
-        break
-      case 'last_30_days':
-        const thirtyDaysAgo = new Date()
-        thirtyDaysAgo.setDate(today.getDate() - 30)
-        setSearchSince(thirtyDaysAgo.toISOString().split('T')[0])
-        setSearchUntil(today.toISOString().split('T')[0])
-        break
-      case 'last_90_days':
-        const ninetyDaysAgo = new Date()
-        ninetyDaysAgo.setDate(today.getDate() - 90)
-        setSearchSince(ninetyDaysAgo.toISOString().split('T')[0])
-        setSearchUntil(today.toISOString().split('T')[0])
-        break
-    }
-  }
+  // (Périodes prédéfinies supprimées pour un flux minimaliste)
 
   // Polling du statut du job en cours
   useEffect(() => {
@@ -288,93 +238,13 @@ export default function ExtractionPage() {
                 )}
               </div>
 
-              {/* Presets de dates */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <Calendar className="h-4 w-4 inline mr-1" />
-                  Période prédéfinie
-                </label>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('last_7_days')}
-                    className="text-xs"
-                  >
-                    7 derniers jours
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('last_30_days')}
-                    className="text-xs"
-                  >
-                    30 derniers jours
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('current_month')}
-                    className="text-xs"
-                  >
-                    Mois en cours
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('last_month')}
-                    className="text-xs"
-                  >
-                    Mois dernier
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('july')}
-                    className="text-xs bg-blue-50 hover:bg-blue-100"
-                  >
-                    🌞 Juillet 2025
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('august')}
-                    className="text-xs"
-                  >
-                    Août 2025
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('september')}
-                    className="text-xs"
-                  >
-                    Septembre 2025
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDatePreset('october')}
-                    className="text-xs"
-                  >
-                    Octobre 2025
-                  </Button>
-                </div>
-              </div>
+              {/* Périodes prédéfinies supprimées */}
 
-              {/* Sélecteurs simples: Mois et Année, ou Année entière */}
+              {/* Sélection minimaliste de période */}
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sélectionner un mois précis</label>
-                  <div className="grid grid-cols-2 gap-4">
+                  <label className="block text-xs font-medium text-muted-foreground mb-2">Mois et année</label>
+                  <div className="grid grid-cols-2 gap-3">
                     <select
                       value={monthSelect}
                       onChange={(e) => {
@@ -388,7 +258,7 @@ export default function ExtractionPage() {
                         setSearchUntil(last.toISOString().split('T')[0])
                         setYearOnly('')
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
                     >
                       {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                         <option key={m} value={String(m).padStart(2, '0')}>
@@ -409,18 +279,18 @@ export default function ExtractionPage() {
                           setYearOnly('')
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
                     >
                       {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
                         <option key={y} value={y}>{y}</option>
                       ))}
                     </select>
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">Choisissez un mois et une année pour remplir automatiquement la période.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Choisissez un mois et une année pour remplir automatiquement la période.</p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Ou sélectionner une année entière</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-2">Ou une année entière</label>
                   <div className="grid grid-cols-1">
                     <select
                       value={yearOnly}
@@ -434,7 +304,7 @@ export default function ExtractionPage() {
                           setSearchUntil(last.toISOString().split('T')[0])
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
                     >
                       <option value="">— Choisir une année —</option>
                       {Array.from({ length: 7 }, (_, i) => new Date().getFullYear() - i).map((y) => (
@@ -446,27 +316,27 @@ export default function ExtractionPage() {
               </div>
 
               {/* Sélection manuelle des dates (optionnelle) */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-muted-foreground mb-2">
                     Date de début
                   </label>
                   <input
                     type="date"
                     value={searchSince}
-                    onChange={(e) => setSearchSince(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onChange={(e) => { setSearchSince(e.target.value); setYearOnly('') }}
+                    className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-muted-foreground mb-2">
                     Date de fin
                   </label>
                   <input
                     type="date"
                     value={searchUntil}
-                    onChange={(e) => setSearchUntil(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onChange={(e) => { setSearchUntil(e.target.value); setYearOnly('') }}
+                    className="w-full h-9 px-3 py-2 border border-border rounded-md bg-background"
                   />
                 </div>
               </div>
