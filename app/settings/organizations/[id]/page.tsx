@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { ArrowLeft } from "lucide-react"
@@ -37,6 +38,8 @@ export default function OrgDetailsPage() {
   const [inviteRole, setInviteRole] = useState("member")
   const [loading, setLoading] = useState(true)
   const [canRemoveMap, setCanRemoveMap] = useState<Record<string, boolean>>({})
+  const [isRevokeOpen, setIsRevokeOpen] = useState(false)
+  const [inviteToRevoke, setInviteToRevoke] = useState<{ id: string; email: string } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -203,21 +206,27 @@ export default function OrgDetailsPage() {
     }
   }
 
-  const revokeInvite = async (inviteId: string) => {
+  const openRevokeInvite = (invite: { id: string; email: string }) => {
     if (!permissions.canInviteMembers) {
       alert('❌ Vous n\'avez pas la permission de révoquer des invitations')
       return
     }
-    const ok = confirm("Confirmez-vous la révocation de cette invitation ?\n\nLa personne ne pourra plus l'utiliser pour rejoindre l'organisation.")
-    if (!ok) return
+    setInviteToRevoke({ id: invite.id, email: invite.email })
+    setIsRevokeOpen(true)
+  }
+
+  const confirmRevokeInvite = async () => {
+    if (!inviteToRevoke) return
     try {
       const res = await fetch('/api/workspaces/invites', { 
         method: 'DELETE', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ inviteId, workspaceId: orgId })
+        body: JSON.stringify({ inviteId: inviteToRevoke.id, workspaceId: orgId })
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error || 'Erreur')
+      setIsRevokeOpen(false)
+      setInviteToRevoke(null)
       await load()
     } catch (e: any) {
       console.error('Erreur révocation:', e)
@@ -444,7 +453,7 @@ export default function OrgDetailsPage() {
                                 <Button 
                                   variant="outline" 
                                   size="sm"
-                                  onClick={() => revokeInvite(invite.id)}
+                                  onClick={() => openRevokeInvite({ id: invite.id, email: invite.email })}
                                 >
                                   Révoquer
                                 </Button>
@@ -458,6 +467,27 @@ export default function OrgDetailsPage() {
                 </div>
               </div>
             )}
+
+            {/* Modale de confirmation de révocation */}
+            <Dialog open={isRevokeOpen} onOpenChange={setIsRevokeOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Révoquer l'invitation</DialogTitle>
+                </DialogHeader>
+                <div className="text-sm text-muted-foreground">
+                  {inviteToRevoke?.email
+                    ? `Voulez-vous vraiment révoquer l'invitation envoyée à ${inviteToRevoke.email} ?`
+                    : `Voulez-vous vraiment révoquer cette invitation ?`}
+                  <div className="mt-2">
+                    Cette action empêchera la personne d'utiliser le lien pour rejoindre l'organisation.
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button variant="outline" onClick={() => { setIsRevokeOpen(false); setInviteToRevoke(null) }}>Annuler</Button>
+                  <Button variant="destructive" onClick={confirmRevokeInvite}>Révoquer</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </>
         )}
 
