@@ -13,6 +13,7 @@ export default function PersonalSettingsPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -212,22 +213,43 @@ export default function PersonalSettingsPage() {
               </Dialog>
 
               {/* Deuxième modale de confirmation finale */}
-              <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+              <Dialog open={isConfirmDialogOpen} onOpenChange={(open) => {
+                setIsConfirmDialogOpen(open)
+                if (!open) setConfirmText('') // Réinitialiser si fermée
+              }}>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle className="text-red-600">DERNIÈRE CONFIRMATION</DialogTitle>
-                    <DialogDescription className="pt-4">
-                      <p>Pour confirmer la suppression définitive de votre compte, tapez <strong>"SUPPRIMER"</strong> dans votre tête et cliquez sur le bouton ci-dessous.</p>
+                    <DialogDescription className="pt-4 space-y-4">
+                      <p>Pour confirmer la suppression définitive de votre compte, vous devez taper <strong>"SUPPRIMER"</strong> exactement comme indiqué ci-dessous.</p>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          Tapez "SUPPRIMER" pour confirmer :
+                        </label>
+                        <input
+                          type="text"
+                          value={confirmText}
+                          onChange={(e) => setConfirmText(e.target.value)}
+                          placeholder="SUPPRIMER"
+                          className="w-full px-3 py-2 border border-border rounded-md bg-background"
+                          autoFocus
+                        />
+                      </div>
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex justify-end gap-2 mt-4">
-                    <Button variant="outline" onClick={() => setIsConfirmDialogOpen(false)}>
+                    <Button variant="outline" onClick={() => {
+                      setIsConfirmDialogOpen(false)
+                      setConfirmText('')
+                    }}>
                       Annuler
                     </Button>
                     <Button 
                       variant="destructive" 
-                      disabled={isDeleting}
+                      disabled={isDeleting || confirmText !== 'SUPPRIMER'}
                       onClick={async () => {
+                        if (confirmText !== 'SUPPRIMER') return
+                        
                         setIsDeleting(true)
                         try {
                           const response = await fetch('/api/user/delete', {
@@ -238,6 +260,7 @@ export default function PersonalSettingsPage() {
                           
                           if (response.ok) {
                             setIsConfirmDialogOpen(false)
+                            setConfirmText('')
                             alert('✅ Votre compte et toutes vos données ont été supprimés avec succès. Vous allez être redirigé.')
                             setTimeout(() => {
                               window.location.href = '/auth/login'
