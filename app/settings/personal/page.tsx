@@ -167,13 +167,14 @@ export default function PersonalSettingsPage() {
               </p>
               <button 
                 className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 transition-colors"
-                onClick={() => {
+                onClick={async () => {
                   const confirmed = confirm(
                     '⚠️ ATTENTION ⚠️\n\n' +
                     'Vous êtes sur le point de supprimer définitivement votre compte.\n\n' +
                     'Cette action supprimera :\n' +
                     '• Toutes vos factures\n' +
                     '• Vos comptes e-mail connectés\n' +
+                    '• Vos organisations (si vous en êtes propriétaire)\n' +
                     '• Vos paramètres et préférences\n' +
                     '• Votre abonnement\n\n' +
                     'Cette action est IRRÉVERSIBLE.\n\n' +
@@ -185,7 +186,26 @@ export default function PersonalSettingsPage() {
                       'Tapez "SUPPRIMER" dans votre tête et cliquez OK pour confirmer la suppression définitive de votre compte.'
                     )
                     if (doubleConfirmed) {
-                      alert('Fonctionnalité de suppression à implémenter côté backend')
+                      try {
+                        const response = await fetch('/api/user/delete', {
+                          method: 'DELETE',
+                          headers: { 'Content-Type': 'application/json' }
+                        })
+                        const result = await response.json()
+                        
+                        if (response.ok) {
+                          alert('✅ Votre compte et toutes vos données ont été supprimés avec succès. Vous allez être redirigé.')
+                          // Rediriger vers la page de login après 2 secondes
+                          setTimeout(() => {
+                            window.location.href = '/auth/login'
+                          }, 2000)
+                        } else {
+                          alert('❌ Erreur : ' + (result.error || 'Impossible de supprimer le compte'))
+                        }
+                      } catch (error: any) {
+                        console.error('Erreur suppression:', error)
+                        alert('❌ Erreur lors de la suppression : ' + (error.message || 'Erreur inconnue'))
+                      }
                     }
                   }
                 }}
