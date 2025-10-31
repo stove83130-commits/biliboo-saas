@@ -1,14 +1,63 @@
 "use client"
 
-import { useState } from "react"
-import { Check } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Check, ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SmartCTAButton } from "@/components/ui/smart-cta-button"
 import Link from "next/link"
 import Image from "next/image"
+import { createClient } from "@/lib/supabase/client"
+import { useRouter } from "next/navigation"
+import type { User } from "@supabase/supabase-js"
 
 export default function PlansPage() {
   const [isAnnual, setIsAnnual] = useState(true)
+  const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const supabase = createClient()
+  const router = useRouter()
+
+  useEffect(() => {
+    const checkUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        setUser(user)
+      } catch (error) {
+        console.error('Erreur vérification utilisateur:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    checkUser()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase.auth])
+
+  const handleGoBack = () => {
+    if (typeof window !== 'undefined') {
+      // Vérifier si on a un historique (si on peut revenir en arrière)
+      if (window.history.length > 1) {
+        // Vérifier si le referrer existe et que ce n'est pas la même page
+        const referrer = document.referrer
+        if (referrer && referrer !== window.location.href && !referrer.includes(window.location.origin + '/plans')) {
+          router.back()
+        } else {
+          // Sinon, aller à la page d'accueil
+          router.push('/')
+        }
+      } else {
+        // Pas d'historique, aller à la page d'accueil
+        router.push('/')
+      }
+    }
+  }
 
   const pricingPlans = [
     {
@@ -85,24 +134,47 @@ export default function PlansPage() {
       {/* Header */}
       <header className="border-b border-border bg-background">
         <div className="flex h-16 items-center justify-between px-6 max-w-7xl mx-auto">
-          <Link href="/" className="flex items-center gap-2">
-            <Image 
-              src="/logos/logo%20off.png" 
-              alt="Bilibou Logo" 
-              width={40} 
-              height={40}
-              className="h-10 w-auto"
-            />
-            <span className="text-xl font-semibold text-foreground">Bilibou</span>
-          </Link>
           <div className="flex items-center gap-4">
-            <Link href="/auth/login">
-              <Button variant="ghost">Connexion</Button>
-            </Link>
-            <Link href="/auth/signup">
-              <Button>Commencer gratuitement</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleGoBack}
+              className="gap-2 text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Retour
+            </Button>
+            <Link href="/" className="flex items-center gap-2">
+              <Image 
+                src="/logos/logo%20off.png" 
+                alt="Bilibou Logo" 
+                width={40} 
+                height={40}
+                className="h-10 w-auto"
+              />
+              <span className="text-xl font-semibold text-foreground">Bilibou</span>
             </Link>
           </div>
+          {!isLoading && (
+            <div className="flex items-center gap-4">
+              {user ? (
+                <Link href="/dashboard">
+                  <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+                    Tableau de bord
+                  </Button>
+                </Link>
+              ) : (
+                <>
+                  <Link href="/auth/login">
+                    <Button variant="ghost">Connexion</Button>
+                  </Link>
+                  <Link href="/auth/signup">
+                    <Button>Commencer gratuitement</Button>
+                  </Link>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
