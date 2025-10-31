@@ -52,7 +52,7 @@ export async function POST() {
 
     // Déterminer le plan basé sur le price_id
     const priceId = activeSubscription.items.data[0]?.price?.id
-    let planId = 'starter'
+    let planId: string | null = null
     
     if (priceId === process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_STARTER_ANNUAL_PRICE_ID) {
       planId = 'starter'
@@ -60,6 +60,12 @@ export async function POST() {
       planId = 'pro'
     } else if (priceId === process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID) {
       planId = 'business'
+    }
+    
+    // Si on ne peut pas identifier le plan, ne pas assigner de plan par défaut
+    if (!planId) {
+      console.warn('⚠️ Impossible d\'identifier le plan pour price_id:', priceId)
+      return NextResponse.json({ error: 'Plan non identifié dans Stripe' }, { status: 400 })
     }
 
     console.log('🎯 Plan détecté:', planId, 'Price ID:', priceId)
