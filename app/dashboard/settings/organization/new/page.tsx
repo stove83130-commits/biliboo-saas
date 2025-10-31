@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { AuthGuard } from "@/components/auth-guard"
 import { Card } from "@/components/ui/card"
@@ -11,6 +11,7 @@ import { Building2, ArrowLeft, Loader2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { usePlanPermissions } from "@/hooks/use-plan-permissions"
 
 export default function NewOrganizationPage() {
   const [name, setName] = useState("")
@@ -18,6 +19,13 @@ export default function NewOrganizationPage() {
   const [error, setError] = useState("")
   const supabase = createClient()
   const router = useRouter()
+  const { canCreateOrg, isLoading: isLoadingPermissions } = usePlanPermissions()
+
+  useEffect(() => {
+    if (!isLoadingPermissions && !canCreateOrg) {
+      setError('Vous devez avoir un plan actif pour créer des organisations. Veuillez choisir un plan dans les paramètres de facturation.')
+    }
+  }, [canCreateOrg, isLoadingPermissions])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -127,8 +135,8 @@ export default function NewOrganizationPage() {
               <div className="flex gap-3 pt-4">
                 <Button
                   type="submit"
-                  disabled={loading || !name.trim()}
-                  className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={loading || !name.trim() || !canCreateOrg || isLoadingPermissions}
+                  className="bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <>

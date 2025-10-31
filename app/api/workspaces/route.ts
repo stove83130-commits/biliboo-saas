@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { canCreateOrganization } from '@/lib/billing/plans'
 
 
 export const dynamic = 'force-dynamic'
@@ -83,6 +84,33 @@ export async function POST(request: NextRequest) {
 
     if (type !== 'organization' && type !== 'personal') {
       return NextResponse.json({ error: 'Type invalide' }, { status: 400 })
+    }
+
+    // Pour les organisations, vérifier que l'utilisateur a un plan actif qui permet les organisations
+    if (type === 'organization') {
+      const planId = user.user_metadata?.selected_plan || null
+      
+      // Compter les organisations existantes de l'utilisateur
+      const { count: orgCount = 0 } = await supabase
+        .from('workspaces')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', user.id)
+        .eq('type', 'organization')
+
+      // Vérifier les permissions basées sur le plan
+      const canCreate = canCreateOrganization(planId, orgCount || 0)
+      
+      if (!canCreate) {
+        if (!planId) {
+          return NextResponse.json({ 
+            error: 'Vous devez avoir un plan actif pour créer des organisations. Veuillez choisir un plan dans les paramètres de facturation.' 
+          }, { status: 403 })
+        } else {
+          return NextResponse.json({ 
+            error: 'Votre plan actuel ne permet pas de créer d\'organisations supplémentaires.' 
+          }, { status: 403 })
+        }
+      }
     }
 
     // Créer le workspace

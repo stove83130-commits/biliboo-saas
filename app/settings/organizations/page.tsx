@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Building2, Plus, Settings, Trash2, Users } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { usePlanPermissions } from "@/hooks/use-plan-permissions"
 
 interface Organization {
   id: string
@@ -18,6 +19,7 @@ export default function OrganizationsSettingsPage() {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const supabase = createClient()
+  const { canCreateOrg, isLoading: isLoadingPermissions } = usePlanPermissions()
 
   useEffect(() => {
     loadOrganizations()
@@ -62,6 +64,11 @@ export default function OrganizationsSettingsPage() {
   }
 
   const handleCreateOrganization = () => {
+    if (!canCreateOrg) {
+      alert('Vous devez avoir un plan actif pour créer des organisations. Veuillez choisir un plan dans les paramètres de facturation.')
+      router.push('/settings/billing')
+      return
+    }
     router.push('/dashboard/settings/organization/new')
   }
 
@@ -121,7 +128,8 @@ export default function OrganizationsSettingsPage() {
         </div>
         <Button 
           onClick={handleCreateOrganization} 
-          className="gap-2 text-white hover:opacity-90 transition-all"
+          disabled={isLoadingPermissions || !canCreateOrg}
+          className="gap-2 text-white hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
           }}
@@ -140,7 +148,8 @@ export default function OrganizationsSettingsPage() {
           </p>
           <Button 
             onClick={handleCreateOrganization} 
-            className="gap-2 text-white hover:opacity-90 transition-all"
+            disabled={isLoadingPermissions || !canCreateOrg}
+            className="gap-2 text-white hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
             }}
