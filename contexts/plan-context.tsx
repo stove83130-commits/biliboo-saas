@@ -23,17 +23,19 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkPlanStatus = async () => {
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        
-        if (user) {
-          // Simuler une vérification de plan
-          // En production, vous feriez un appel API pour vérifier le plan de l'utilisateur
-          setHasActivePlan(true)
-          setCurrentPlan('freight')
+        const response = await fetch('/api/billing/plan', { credentials: 'include' })
+        if (response.ok) {
+          const data = await response.json()
+          setHasActivePlan(data.hasActivePlan || false)
+          setCurrentPlan(data.planKey || null)
+        } else {
+          setHasActivePlan(false)
+          setCurrentPlan(null)
         }
       } catch (error) {
         console.error('Erreur vérification plan:', error)
+        setHasActivePlan(false)
+        setCurrentPlan(null)
       } finally {
         setIsLoading(false)
       }

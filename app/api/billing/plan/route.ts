@@ -16,17 +16,18 @@ export async function GET() {
     user_id: user.id
   })
 
-  const planKey = (user.user_metadata?.selected_plan as string) || 'starter'
-  const plan = getPlan(planKey)
+  // Ne pas assigner de plan par défaut - l'utilisateur doit choisir un plan
+  const planKey = (user.user_metadata?.selected_plan as string) || null
+  const plan = planKey ? getPlan(planKey) : null
 
-  const limit = getMonthlyInvoiceLimit(planKey)
-  const priceExtra = getPricePerExtraInvoice(planKey)
+  const limit = planKey ? getMonthlyInvoiceLimit(planKey) : 0
+  const priceExtra = planKey ? getPricePerExtraInvoice(planKey) : 0
   
   // Vérifier si l'utilisateur a un plan actif
   const subscriptionStatus = user.user_metadata?.subscription_status || null
   const isTrial = Boolean(user.user_metadata?.is_trial)
   const trialEndsAt = user.user_metadata?.trial_ends_at ?? null
-  const hasActive = hasActivePlan(planKey, subscriptionStatus, isTrial, trialEndsAt)
+  const hasActive = planKey ? hasActivePlan(planKey) : false
   
   // Vérifier si l'utilisateur a déjà eu un plan (même expiré/annulé)
   const hasEverHadPlan = Boolean(
@@ -36,11 +37,11 @@ export async function GET() {
     user.user_metadata?.subscription_status
   )
   
-  // Vérifier si l'utilisateur peut accéder au dashboard
-  const canAccess = canAccessDashboard(planKey, subscriptionStatus, isTrial, trialEndsAt, hasEverHadPlan)
+  // Vérifier si l'utilisateur peut accéder au dashboard (permettre l'accès même sans plan pour voir la page de sélection)
+  const canAccess = planKey ? canAccessDashboard(planKey) : true
 
   return NextResponse.json({
-    planKey,
+    planKey: planKey || null,
     plan,
     subscription_status: subscriptionStatus,
     subscription_ends_at: user.user_metadata?.subscription_ends_at || null,
@@ -50,8 +51,8 @@ export async function GET() {
     limits: {
       monthlyInvoicesIncluded: limit,
       pricePerExtraInvoiceEur: priceExtra,
-      emailAccounts: plan?.emailAccounts ?? 0,
-      unlimited: plan?.unlimited ?? false,
+      emailAccounts: plan?.maxEmailAccounts ?? 0,
+      unlimited: plan?.monthlyInvoiceLimit === -1 || false,
     },
     usage: user.user_metadata?.usage || {},
     allowOverage: Boolean(user.user_metadata?.allow_overage),
