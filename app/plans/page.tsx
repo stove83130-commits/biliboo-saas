@@ -42,18 +42,19 @@ export default function PlansPage() {
 
   const handleGoBack = () => {
     if (typeof window !== 'undefined') {
-      // Vérifier si on a un historique (si on peut revenir en arrière)
-      if (window.history.length > 1) {
-        // Vérifier si le referrer existe et que ce n'est pas la même page
-        const referrer = document.referrer
-        if (referrer && referrer !== window.location.href && !referrer.includes(window.location.origin + '/plans')) {
-          router.back()
-        } else {
-          // Sinon, aller à la page d'accueil
-          router.push('/')
-        }
+      const referrer = document.referrer
+      const currentOrigin = window.location.origin
+      
+      // Vérifier si le referrer existe et qu'il est sur le même domaine (éviter localhost)
+      if (referrer && referrer.startsWith(currentOrigin) && referrer !== window.location.href && !referrer.includes('/plans')) {
+        // Le referrer est valide et sur le même domaine, on peut revenir en arrière
+        router.back()
+      } else if (referrer && !referrer.startsWith(currentOrigin)) {
+        // Le referrer est d'un autre domaine (ex: Stripe), ne pas l'utiliser
+        // Aller directement à la page d'accueil
+        router.push('/')
       } else {
-        // Pas d'historique, aller à la page d'accueil
+        // Pas de referrer valide ou referrer invalide, aller à la page d'accueil
         router.push('/')
       }
     }

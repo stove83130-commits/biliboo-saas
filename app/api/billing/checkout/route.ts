@@ -84,8 +84,10 @@ export async function POST(request: NextRequest) {
 
     // Pour le plan Entreprise, rediriger vers contact (pas de Stripe)
     if (plan.isCustom) {
+      const origin = request.headers.get('origin') || request.nextUrl.origin
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
       return NextResponse.json({ 
-        url: `http://localhost:3001/contact?plan=entreprise&trial=7days` 
+        url: `${baseUrl}/contact?plan=entreprise&trial=7days` 
       })
     }
 
@@ -122,6 +124,10 @@ export async function POST(request: NextRequest) {
     // Vérifier si l'utilisateur a déjà complété l'onboarding
     const hasCompletedOnboarding = user.user_metadata?.onboarding_completed === true
 
+    // Obtenir l'URL de base (production ou local)
+    const origin = request.headers.get('origin') || request.nextUrl.origin
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+
     // Déterminer l'URL de retour en cas d'annulation
     // Si l'utilisateur a complété l'onboarding, retourner au dashboard ou à la page d'accueil selon la source
     // Sinon, retourner à l'onboarding
@@ -129,13 +135,13 @@ export async function POST(request: NextRequest) {
     if (hasCompletedOnboarding) {
       // Utilisateur expérimenté : retourner au dashboard ou à la page d'accueil selon d'où il vient
       if (source === 'homepage') {
-        cancelUrl = `http://localhost:3001/`
+        cancelUrl = `${baseUrl}/`
       } else {
-        cancelUrl = `http://localhost:3001/dashboard`
+        cancelUrl = `${baseUrl}/dashboard`
       }
     } else {
       // Nouvel utilisateur : retourner à l'onboarding
-      cancelUrl = `http://localhost:3001/onboarding?preview=1`
+      cancelUrl = `${baseUrl}/onboarding?preview=1`
     }
 
     // Créer la session de checkout avec essai gratuit si disponible
@@ -156,7 +162,7 @@ export async function POST(request: NextRequest) {
           supabase_user_id: user.id,
         },
       },
-      success_url: `http://localhost:3001/dashboard?success=true`,
+      success_url: `${baseUrl}/dashboard?success=true`,
       cancel_url: cancelUrl,
       metadata: {
         plan_id: planId,
