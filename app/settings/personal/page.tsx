@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Check, Edit3 } from "lucide-react"
 
 export default function PersonalSettingsPage() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -165,53 +169,95 @@ export default function PersonalSettingsPage() {
               <p className="text-sm text-red-700 mt-1 mb-3">
                 Cette action est irréversible. Toutes vos données, factures et paramètres seront définitivement supprimés.
               </p>
-              <button 
-                className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 transition-colors"
-                onClick={async () => {
-                  const confirmed = confirm(
-                    '⚠️ ATTENTION ⚠️\n\n' +
-                    'Vous êtes sur le point de supprimer définitivement votre compte.\n\n' +
-                    'Cette action supprimera :\n' +
-                    '• Toutes vos factures\n' +
-                    '• Vos comptes e-mail connectés\n' +
-                    '• Vos organisations (si vous en êtes propriétaire)\n' +
-                    '• Vos paramètres et préférences\n' +
-                    '• Votre abonnement\n\n' +
-                    'Cette action est IRRÉVERSIBLE.\n\n' +
-                    'Êtes-vous absolument certain de vouloir continuer ?'
-                  )
-                  if (confirmed) {
-                    const doubleConfirmed = confirm(
-                      'DERNIÈRE CONFIRMATION\n\n' +
-                      'Tapez "SUPPRIMER" dans votre tête et cliquez OK pour confirmer la suppression définitive de votre compte.'
-                    )
-                    if (doubleConfirmed) {
-                      try {
-                        const response = await fetch('/api/user/delete', {
-                          method: 'DELETE',
-                          headers: { 'Content-Type': 'application/json' }
-                        })
-                        const result = await response.json()
-                        
-                        if (response.ok) {
-                          alert('✅ Votre compte et toutes vos données ont été supprimés avec succès. Vous allez être redirigé.')
-                          // Rediriger vers la page de login après 2 secondes
-                          setTimeout(() => {
-                            window.location.href = '/auth/login'
-                          }, 2000)
-                        } else {
-                          alert('❌ Erreur : ' + (result.error || 'Impossible de supprimer le compte'))
-                        }
-                      } catch (error: any) {
-                        console.error('Erreur suppression:', error)
-                        alert('❌ Erreur lors de la suppression : ' + (error.message || 'Erreur inconnue'))
-                      }
-                    }
-                  }
-                }}
+              <Button 
+                variant="destructive"
+                onClick={() => setIsDeleteDialogOpen(true)}
               >
                 Supprimer mon compte
-              </button>
+              </Button>
+              
+              {/* Première modale de confirmation */}
+              <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="text-red-600">⚠️ ATTENTION ⚠️</DialogTitle>
+                    <DialogDescription className="pt-4 space-y-3">
+                      <p className="font-medium">Vous êtes sur le point de supprimer définitivement votre compte.</p>
+                      <p>Cette action supprimera :</p>
+                      <ul className="list-disc list-inside space-y-1 text-sm ml-2">
+                        <li>Toutes vos factures</li>
+                        <li>Vos comptes e-mail connectés</li>
+                        <li>Vos organisations (si vous en êtes propriétaire)</li>
+                        <li>Vos paramètres et préférences</li>
+                        <li>Votre abonnement</li>
+                      </ul>
+                      <p className="font-semibold text-red-600">Cette action est IRRÉVERSIBLE.</p>
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                      Annuler
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      onClick={() => {
+                        setIsDeleteDialogOpen(false)
+                        setIsConfirmDialogOpen(true)
+                      }}
+                    >
+                      Je comprends, continuer
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* Deuxième modale de confirmation finale */}
+              <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="text-red-600">DERNIÈRE CONFIRMATION</DialogTitle>
+                    <DialogDescription className="pt-4">
+                      <p>Pour confirmer la suppression définitive de votre compte, tapez <strong>"SUPPRIMER"</strong> dans votre tête et cliquez sur le bouton ci-dessous.</p>
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <Button variant="outline" onClick={() => setIsConfirmDialogOpen(false)}>
+                      Annuler
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      disabled={isDeleting}
+                      onClick={async () => {
+                        setIsDeleting(true)
+                        try {
+                          const response = await fetch('/api/user/delete', {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' }
+                          })
+                          const result = await response.json()
+                          
+                          if (response.ok) {
+                            setIsConfirmDialogOpen(false)
+                            alert('✅ Votre compte et toutes vos données ont été supprimés avec succès. Vous allez être redirigé.')
+                            setTimeout(() => {
+                              window.location.href = '/auth/login'
+                            }, 2000)
+                          } else {
+                            setIsDeleting(false)
+                            alert('❌ Erreur : ' + (result.error || 'Impossible de supprimer le compte'))
+                          }
+                        } catch (error: any) {
+                          console.error('Erreur suppression:', error)
+                          setIsDeleting(false)
+                          alert('❌ Erreur lors de la suppression : ' + (error.message || 'Erreur inconnue'))
+                        }
+                      }}
+                    >
+                      {isDeleting ? 'Suppression en cours...' : 'Supprimer définitivement mon compte'}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
         </div>
