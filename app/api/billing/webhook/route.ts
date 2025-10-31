@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
               
               // Déterminer le plan basé sur le price_id de l'abonnement
               const priceId = subscription.items.data[0]?.price?.id
-              let planId = userData.user.user_metadata?.selected_plan || 'starter'
+              let planId = userData.user.user_metadata?.selected_plan || null
               
               if (priceId === process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_STARTER_ANNUAL_PRICE_ID) {
                 planId = 'starter'

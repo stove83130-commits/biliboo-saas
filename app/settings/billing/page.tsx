@@ -59,15 +59,21 @@ export default function BillingPage() {
       if (!user) return
 
       // Récupérer les données du plan depuis user_metadata
-      const planKey = user.user_metadata?.selected_plan || 'starter'
+      const planKey = user.user_metadata?.selected_plan || null
       
       // Déterminer le statut : si l'utilisateur a un plan, on considère qu'il est actif
       // sauf si le statut est explicitement 'canceled', 'expired', etc.
       let subscriptionStatus = user.user_metadata?.subscription_status
       
       // Si pas de statut mais qu'il a un plan, on met 'active' par défaut
+      // MAIS seulement s'il a vraiment un plan choisi
       if (!subscriptionStatus && planKey) {
         subscriptionStatus = 'active'
+      }
+      
+      // Si pas de plan, le statut ne peut pas être actif
+      if (!planKey) {
+        subscriptionStatus = null
       }
       
       // Si le statut est 'trialing', on le considère comme actif
@@ -147,11 +153,13 @@ export default function BillingPage() {
   }
 
   // Récupérer les noms et prix depuis PLANS
-  const getPlanName = (planKey: string) => {
+  const getPlanName = (planKey: string | null) => {
+    if (!planKey) return 'Aucun plan'
     return PLANS[planKey]?.name || 'Gratuit'
   }
 
-  const getPlanPrice = (planKey: string) => {
+  const getPlanPrice = (planKey: string | null) => {
+    if (!planKey) return '-'
     if (planKey === 'enterprise') return 'Sur devis'
     
     // Prix mensuels et annuels
@@ -190,11 +198,11 @@ export default function BillingPage() {
             <div>
               <p className="text-xs text-muted-foreground mb-2">Plan</p>
               <div className="flex items-center gap-2">
-                <Badge className="bg-green-50 text-green-700 border-0 text-sm px-2.5 py-1 font-medium">
-                  {getPlanName(subscription?.plan || 'free')}
+                <Badge className={`${subscription?.plan ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} border-0 text-sm px-2.5 py-1 font-medium`}>
+                  {getPlanName(subscription?.plan || null)}
                 </Badge>
                 <span className="text-lg font-semibold text-foreground">
-                  {getPlanPrice(subscription?.plan || 'free')}
+                  {getPlanPrice(subscription?.plan || null)}
                 </span>
               </div>
             </div>
@@ -203,15 +211,17 @@ export default function BillingPage() {
             <div>
               <p className="text-xs text-muted-foreground mb-2">Statut</p>
               <div className="flex items-center gap-2">
-                {subscription?.status === 'active' ? (
+                {subscription?.plan && subscription?.status === 'active' ? (
                   <>
                     <CheckCircle className="h-4 w-4 text-green-600" />
                     <span className="text-sm font-medium text-foreground">Actif</span>
                   </>
                 ) : (
                   <>
-                    <XCircle className="h-4 w-4 text-red-600" />
-                    <span className="text-sm font-medium text-foreground">Inactif</span>
+                    <XCircle className="h-4 w-4 text-gray-400" />
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {subscription?.plan ? 'Inactif' : 'Aucun plan'}
+                    </span>
                   </>
                 )}
               </div>

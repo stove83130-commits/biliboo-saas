@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Déterminer les limites du plan
-    const planKey = metadata.selected_plan || 'starter'
+    const planKey = metadata.selected_plan || null
     const planLimits = {
       starter: 30,
       pro: 200,
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       enterprise: null // Illimité
     }
     
-    const limit = planLimits[planKey as keyof typeof planLimits]
+    const limit = planKey ? planLimits[planKey as keyof typeof planLimits] : 0
     const remaining = limit ? Math.max(0, limit - currentUsage[currentPeriod].count) : null
 
     return NextResponse.json({
