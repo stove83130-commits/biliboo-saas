@@ -327,6 +327,18 @@ export default function SignupPage() {
                 {loading ? 'Inscription...' : 'S\'inscrire'}
               </Button>
 
+              {/* Terms and Privacy */}
+              <p className="text-center text-xs text-muted-foreground">
+                En vous inscrivant, vous acceptez les{' '}
+                <a href="/cgu" target="_blank" className="text-primary hover:underline transition-colors">
+                  Conditions d'utilisation
+                </a>{' '}
+                et la{' '}
+                <a href="/politique-confidentialite" target="_blank" className="text-primary hover:underline transition-colors">
+                  Politique de confidentialité
+                </a>.
+              </p>
+
               {/* Login Link */}
               <p className="text-center text-xs text-muted-foreground">
                 Déjà un compte ?{" "}
