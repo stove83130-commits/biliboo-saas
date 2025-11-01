@@ -64,7 +64,12 @@ export async function POST(request: NextRequest) {
 
     // Pour le plan Pro mensuel, utiliser le Payment Link Stripe directement
     if (planId === 'pro' && !isAnnual) {
-      const paymentLinkUrl = 'https://buy.stripe.com/fZu5kDdgA0B8eCF8p1fQI03'
+      // Obtenir l'URL de base pour la redirection après paiement
+      const origin = request.headers.get('origin') || request.nextUrl.origin
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+      
+      // Ajouter l'URL de succès au Payment Link
+      const paymentLinkUrl = `https://buy.stripe.com/fZu5kDdgA0B8eCF8p1fQI03?success_url=${encodeURIComponent(`${baseUrl}/dashboard?success=true&payment=success`)}`
       return NextResponse.json({ url: paymentLinkUrl })
     }
 
