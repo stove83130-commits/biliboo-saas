@@ -14,6 +14,7 @@ interface SmartCTAButtonProps {
   target?: string
   rel?: string
   planName?: string // Pour identifier le plan dans la section pricing
+  isAnnual?: boolean // Pour savoir si c'est un abonnement annuel ou mensuel
 }
 
 export function SmartCTAButton({ 
@@ -24,7 +25,8 @@ export function SmartCTAButton({
   href,
   target,
   rel,
-  planName
+  planName,
+  isAnnual = false
 }: SmartCTAButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -126,7 +128,7 @@ export function SmartCTAButton({
             },
             body: JSON.stringify({
               planId: planName.toLowerCase(),
-              isAnnual: false, // Par défaut mensuel depuis la homepage
+              isAnnual: isAnnual,
               source: 'homepage'
             }),
           })

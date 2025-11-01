@@ -62,6 +62,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 })
     }
 
+    // Pour le plan Pro mensuel, utiliser le Payment Link Stripe directement
+    if (planId === 'pro' && !isAnnual) {
+      const paymentLinkUrl = 'https://buy.stripe.com/fZu5kDdgA0B8eCF8p1fQI03'
+      return NextResponse.json({ url: paymentLinkUrl })
+    }
+
     // Créer ou récupérer le customer Stripe
     let customerId = user.user_metadata?.stripe_customer_id
     
