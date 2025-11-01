@@ -267,11 +267,11 @@ export default function OnboardingPage() {
                 />
                 <label htmlFor="consent" className="flex-1 text-sm text-muted-foreground leading-relaxed cursor-pointer">
                   J'autorise Bilibou à accéder à mes emails de manière sécurisée pour extraire automatiquement mes factures. Mes données ne sont jamais partagées avec des tiers et sont traitées conformément à notre{' '}
-                  <a href="/privacy" target="_blank" className="text-primary hover:underline">
+                  <a href="/politique-confidentialite" target="_blank" className="text-primary hover:underline">
                     Politique de confidentialité
                   </a>{' '}
                   et aux{' '}
-                  <a href="/terms" target="_blank" className="text-primary hover:underline">
+                  <a href="/cgu" target="_blank" className="text-primary hover:underline">
                     Conditions d'utilisation
                   </a>.
                 </label>
