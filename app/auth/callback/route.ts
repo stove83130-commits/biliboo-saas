@@ -8,8 +8,12 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const type = requestUrl.searchParams.get('type') // recovery, signup, etc.
   const plan = requestUrl.searchParams.get('plan')
   const origin = requestUrl.origin
+
+  // Log pour debug
+  console.log('Auth callback - code:', code ? 'present' : 'missing', 'type:', type || 'none', 'plan:', plan || 'none')
 
   // Préparer une réponse de redirection finale que l'on enrichira avec les cookies
   const buildRedirectResponse = (url: string) =>
@@ -18,7 +22,57 @@ export async function GET(request: NextRequest) {
       headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
     })
 
-  if (code) {
+  // Gérer la réinitialisation de mot de passe
+  // IMPORTANT: Pour reset password, on NE PASSE PAS par exchangeCodeForSession ici
+  // Le code sera échangé côté client dans la page reset-password
+  if (code && type === 'recovery') {
+    console.log('Password reset detected, redirecting to reset-password page')
+    // Rediriger vers la page de réinitialisation avec le code ET le type
+    return buildRedirectResponse(`${origin}/auth/reset-password?code=${code}&type=recovery`)
+  }
+  
+  // Fallback: si pas de type mais qu'on vient d'un email reset, vérifier dans les logs
+  // Mais normalement Supabase devrait toujours envoyer type=recovery pour reset password
+
+  // Gérer la confirmation d'email
+  if (code && type === 'signup') {
+    console.log('Email confirmation detected')
+    // Créer un client SSR pour échanger le code et confirmer l'email
+    let response = NextResponse.next()
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        get(name) {
+          return request.cookies.get(name)?.value
+        },
+        set(name, value, options) {
+          response.cookies.set({ name, value, ...options })
+        },
+        remove(name, options) {
+          response.cookies.set({ name, value: '', ...options })
+        },
+      },
+    })
+
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (error) {
+      console.error('Erreur lors de la confirmation email:', error)
+      return buildRedirectResponse(`${origin}/auth/login?error=confirmation_failed`)
+    }
+
+    // IMPORTANT: Supprimer la session après confirmation pour éviter les redirections automatiques
+    // L'utilisateur devra se connecter manuellement après confirmation
+    await supabase.auth.signOut()
+
+    // Rediriger vers la page de connexion avec un message de succès
+    return buildRedirectResponse(`${origin}/auth/login?confirmed=true`)
+  }
+
+  // Gérer les codes d'authentification standard (OAuth, etc.) - mais PAS recovery/signup qui sont gérés plus haut
+  if (code && type !== 'recovery' && type !== 'signup') {
+    console.log('Standard auth flow (OAuth, etc.)')
     // Créer un client SSR lié à une réponse pour que les cookies soient bien écrits AVANT la redirection
     let response = NextResponse.next()
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''

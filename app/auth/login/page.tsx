@@ -24,6 +24,17 @@ export default function LoginPage() {
     if (plan && shouldRedirect === 'true') {
       setSelectedPlan(plan);
     }
+
+    // Vérifier si l'email vient d'être confirmé
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('confirmed') === 'true') {
+      // Afficher un message de succès temporairement
+      const timeout = setTimeout(() => {
+        // Nettoyer l'URL
+        window.history.replaceState({}, '', '/auth/login');
+      }, 5000);
+      return () => clearTimeout(timeout);
+    }
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -165,6 +176,12 @@ export default function LoginPage() {
           <p className="text-xs text-muted-foreground">Connectez-vous à votre compte</p>
         </div>
 
+        {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('confirmed') === 'true' && (
+          <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm">
+            ✅ Email confirmé avec succès ! Vous pouvez maintenant vous connecter.
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
             {error}
@@ -279,7 +296,11 @@ export default function LoginPage() {
 
           {/* Forgot Password Links */}
           <div className="flex items-center justify-end text-xs">
-            <button type="button" className="text-muted-foreground hover:text-primary transition-colors">
+            <button 
+              type="button" 
+              onClick={() => router.push('/auth/forgot-password')}
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
               Mot de passe oublié
             </button>
           </div>
