@@ -3,6 +3,7 @@ import './globals.css'
 import { WorkspaceLoadingOverlay } from '@/components/dashboard/workspace-loading'
 import { PlanProvider } from '@/contexts/plan-context'
 import { Inter } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -27,6 +28,7 @@ export default function RootLayout({
           <WorkspaceLoadingOverlay />
           {children}
         </PlanProvider>
+        <Analytics />
       </body>
     </html>
   )
