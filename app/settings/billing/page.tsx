@@ -428,22 +428,6 @@ export default function BillingPage() {
             </div>
           )}
         </Card>
-
-        {/* Info box */}
-        <div className="flex gap-3 p-4 bg-blue-50/50 rounded-lg border-0">
-          <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-blue-900">
-              Besoin d'aide ?
-            </p>
-            <p className="text-xs text-blue-700/80 mt-0.5">
-              Contactez-nous à{' '}
-              <a href="mailto:support@biliboo.fr" className="underline font-medium hover:text-blue-900 transition-colors">
-                support@biliboo.fr
-              </a>
-            </p>
-          </div>
-        </div>
       </div>
     </div>
   )
