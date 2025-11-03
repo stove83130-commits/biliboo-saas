@@ -248,27 +248,39 @@ export async function POST(request: NextRequest) {
     const hasCompletedOnboarding = user.user_metadata?.onboarding_completed === true
 
     // Obtenir l'URL de base (production ou local)
-    // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL > nextUrl.origin
-    // IMPORTANT: On privilégie les headers car ils contiennent le vrai host/port
+    // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL (si pas localhost) > nextUrl.origin
+    // IMPORTANT: On privilégie les headers car ils contiennent toujours le bon domaine
     const origin = request.headers.get('origin')
     const referer = request.headers.get('referer')
+    const envAppUrl = process.env.NEXT_PUBLIC_APP_URL
     
     let baseUrl: string
     
     if (origin) {
-      // Le header origin contient toujours le bon host et port
+      // Le header origin contient toujours le bon host (production ou local)
       baseUrl = origin
     } else if (referer) {
-      // Extraire l'origin depuis le referer (contient le port en local)
+      // Extraire l'origin depuis le referer
       try {
         const refererUrl = new URL(referer)
         baseUrl = refererUrl.origin
       } catch {
-        baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin
+        // Si referer invalide, vérifier NEXT_PUBLIC_APP_URL
+        if (envAppUrl && !envAppUrl.includes('localhost')) {
+          baseUrl = envAppUrl
+        } else {
+          baseUrl = request.nextUrl.origin
+        }
       }
     } else {
-      // Fallback vers NEXT_PUBLIC_APP_URL ou nextUrl.origin
-      baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin
+      // Fallback : utiliser NEXT_PUBLIC_APP_URL seulement s'il n'est pas localhost
+      // Sinon utiliser nextUrl.origin qui contient le vrai domaine
+      if (envAppUrl && !envAppUrl.includes('localhost')) {
+        baseUrl = envAppUrl
+      } else {
+        // nextUrl.origin contient toujours le bon domaine (production ou local)
+        baseUrl = request.nextUrl.origin
+      }
     }
 
     // Déterminer l'URL de retour en cas d'annulation
