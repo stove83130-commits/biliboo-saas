@@ -24,6 +24,36 @@ export async function POST() {
 
     console.log('🔄 Synchronisation du plan pour:', user.id, 'Customer:', stripeCustomerId)
 
+    // Vérifier d'abord si le customer existe dans le compte Stripe actuel
+    let customerExists = false
+    try {
+      await stripe.customers.retrieve(stripeCustomerId)
+      customerExists = true
+      console.log('✅ Customer existe dans Stripe')
+    } catch (retrieveError: any) {
+      // Si le customer n'existe pas (probablement un ID de test alors qu'on est en production)
+      if (retrieveError.type === 'StripeInvalidRequestError' && 
+          (retrieveError.code === 'resource_missing' || retrieveError.message.includes('No such customer') || retrieveError.message.includes('Client introuvable'))) {
+        console.warn('⚠️ Customer ID dans métadonnées n\'existe pas dans ce compte Stripe:', stripeCustomerId)
+        console.log('🧹 Nettoyage du customer ID des métadonnées (probablement un ID de test)')
+        
+        // Nettoyer le customer ID des métadonnées pour permettre la création d'un nouveau customer
+        await supabase.auth.updateUser({
+          data: {
+            stripe_customer_id: null,
+          }
+        })
+        
+        return NextResponse.json({ 
+          error: 'Customer Stripe introuvable. Veuillez réessayer de souscrire à un plan pour créer un nouveau customer.',
+          code: 'customer_not_found'
+        }, { status: 404 })
+      } else {
+        // Autre erreur, la propager
+        throw retrieveError
+      }
+    }
+
     // Récupérer l'abonnement actuel depuis Stripe
     const subscriptions = await stripe.subscriptions.list({
       customer: stripeCustomerId,
