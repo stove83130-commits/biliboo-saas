@@ -143,13 +143,48 @@ export async function POST(request: NextRequest) {
           }
         })
       } else {
-        console.log('📝 Customer existant:', customerId)
-        // Mettre à jour le customer existant pour s'assurer qu'il a les bonnes métadonnées
-        await stripe.customers.update(customerId, {
-          metadata: {
-            supabase_user_id: user.id,
+        console.log('📝 Customer existant dans métadonnées:', customerId)
+        
+        // Vérifier si le customer existe dans le compte Stripe actuel (production ou test)
+        try {
+          await stripe.customers.retrieve(customerId)
+          console.log('✅ Customer existe dans Stripe, mise à jour des métadonnées')
+          
+          // Mettre à jour le customer existant pour s'assurer qu'il a les bonnes métadonnées
+          await stripe.customers.update(customerId, {
+            metadata: {
+              supabase_user_id: user.id,
+            }
+          })
+        } catch (retrieveError: any) {
+          // Si le customer n'existe pas (erreur 404 ou "No such customer")
+          // C'est probablement un customer ID de test alors qu'on est en production (ou vice versa)
+          if (retrieveError.type === 'StripeInvalidRequestError' && 
+              (retrieveError.code === 'resource_missing' || retrieveError.message.includes('No such customer'))) {
+            console.warn('⚠️ Customer ID dans métadonnées n\'existe pas dans ce compte Stripe:', customerId)
+            console.log('🔄 Création d\'un nouveau customer car l\'ancien était probablement de test/production')
+            
+            // Créer un nouveau customer
+            const newCustomer = await stripe.customers.create({
+              email: user.email!,
+              metadata: {
+                supabase_user_id: user.id,
+              },
+            })
+            customerId = newCustomer.id
+            console.log('✅ Nouveau customer créé:', customerId)
+            
+            // Mettre à jour les métadonnées utilisateur avec le nouveau customer ID
+            await supabase.auth.updateUser({
+              data: {
+                stripe_customer_id: customerId,
+              }
+            })
+          } else {
+            // Autre erreur, la propager
+            throw retrieveError
           }
-        })
+        }
       }
     } catch (customerError: any) {
       console.error('❌ Erreur création/mise à jour customer:', customerError.message)
