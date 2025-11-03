@@ -162,6 +162,7 @@ export async function POST(request: NextRequest) {
         },
       ],
       mode: 'subscription',
+      allow_promotion_codes: true, // Permet aux clients d'utiliser des codes promo
       subscription_data: {
         ...(trialDaysToGrant > 0 ? { trial_period_days: trialDaysToGrant } : {}),
         metadata: {
