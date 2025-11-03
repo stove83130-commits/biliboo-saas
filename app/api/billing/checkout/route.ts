@@ -209,17 +209,29 @@ export async function POST(request: NextRequest) {
     )
 
     // Vérification supplémentaire dans Stripe pour les abonnements précédents
-    if (!trialAlreadyConsumed) {
-      const previousSubscriptions = await stripe.subscriptions.list({
-        customer: customerId,
-        status: 'all',
-        limit: 10
-      })
-      
-      // Si l'utilisateur a déjà eu un abonnement avec trial_end, il a utilisé son essai
-      trialAlreadyConsumed = previousSubscriptions.data.some(sub => 
-        sub.trial_end && (sub.status === 'active' || sub.status === 'canceled' || sub.status === 'past_due')
-      )
+    if (!trialAlreadyConsumed && customerId) {
+      try {
+        const previousSubscriptions = await stripe.subscriptions.list({
+          customer: customerId,
+          status: 'all',
+          limit: 10
+        })
+        
+        // Si l'utilisateur a déjà eu un abonnement avec trial_end, il a utilisé son essai
+        trialAlreadyConsumed = previousSubscriptions.data.some(sub => 
+          sub.trial_end && (sub.status === 'active' || sub.status === 'canceled' || sub.status === 'past_due')
+        )
+      } catch (subscriptionListError: any) {
+        // Si le customer n'existe pas, ignorer cette vérification (customer vient d'être créé)
+        if (subscriptionListError.type === 'StripeInvalidRequestError' && 
+            (subscriptionListError.code === 'resource_missing' || subscriptionListError.message.includes('No such customer'))) {
+          console.log('⚠️ Customer non trouvé lors de la vérification des subscriptions précédentes, on considère qu\'aucun essai n\'a été consommé')
+          // trialAlreadyConsumed reste false (pas d'essai consommé)
+        } else {
+          // Autre erreur, la logger mais ne pas bloquer
+          console.warn('⚠️ Erreur lors de la vérification des subscriptions précédentes:', subscriptionListError.message)
+        }
+      }
     }
 
     console.log('🎯 Logique essai:', {
