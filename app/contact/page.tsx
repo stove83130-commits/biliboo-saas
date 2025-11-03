@@ -2,11 +2,15 @@
 
 import type React from "react"
 
-import { useState } from "react"
-
+import { useState, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Mail, Phone, CheckCircle, ArrowRight } from "lucide-react"
 
-export default function ContactPage() {
+function ContactPageContent() {
+  const searchParams = useSearchParams()
+  const planParam = searchParams?.get('plan')
+  const trialParam = searchParams?.get('trial')
+  
   const [formData, setFormData] = useState({
     email: "",
     firstName: "",
@@ -320,3 +324,14 @@ export default function ContactPage() {
   )
 }
 
+export default function ContactPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    }>
+      <ContactPageContent />
+    </Suspense>
+  )
+}
