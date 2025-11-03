@@ -30,7 +30,8 @@ function PlanRedirectContent() {
           body: JSON.stringify({
             planId: plan,
             isAnnual: false,
-            source: 'oauth'
+            source: 'oauth',
+            returnUrl: '/dashboard'
           }),
         });
 
@@ -39,17 +40,19 @@ function PlanRedirectContent() {
           // Rediriger vers Stripe
           window.location.href = url;
         } else {
-          setError('Erreur lors de la création de la session de paiement');
+          const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }))
+          console.error('❌ Erreur création session Stripe:', errorData)
+          setError(`Erreur lors de la création de la session de paiement: ${errorData.error || 'Erreur inconnue'}`)
           setTimeout(() => {
             router.push('/dashboard');
-          }, 3000);
+          }, 5000);
         }
-      } catch (error) {
-        console.error('Erreur:', error);
-        setError('Erreur lors de la redirection vers le paiement');
+      } catch (error: any) {
+        console.error('❌ Erreur:', error);
+        setError(`Erreur lors de la redirection vers le paiement: ${error?.message || 'Erreur réseau'}`)
         setTimeout(() => {
           router.push('/dashboard');
-        }, 3000);
+        }, 5000);
       }
     };
 

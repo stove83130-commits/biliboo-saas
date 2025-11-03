@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       console.error('🔧 Solution: Mettez à jour STRIPE_SECRET_KEY dans Vercel avec une clé sk_live_...')
     }
 
-    const { planId, isAnnual, source } = await request.json()
+    const { planId, isAnnual, source, returnUrl } = await request.json()
     
     if (!planId) {
       return NextResponse.json({ error: 'Plan ID requis' }, { status: 400 })
@@ -252,19 +252,27 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
 
     // Déterminer l'URL de retour en cas d'annulation
-    // Si l'utilisateur a complété l'onboarding, retourner au dashboard ou à la page d'accueil selon la source
-    // Sinon, retourner à l'onboarding
+    // Priorité : returnUrl > source > referer > dashboard/homepage
     let cancelUrl: string
-    if (hasCompletedOnboarding) {
-      // Utilisateur expérimenté : retourner au dashboard ou à la page d'accueil selon d'où il vient
-      if (source === 'homepage') {
-        cancelUrl = `${baseUrl}/`
-      } else {
-        cancelUrl = `${baseUrl}/dashboard`
-      }
-    } else {
+    
+    if (!hasCompletedOnboarding) {
       // Nouvel utilisateur : retourner à l'onboarding
       cancelUrl = `${baseUrl}/onboarding?preview=1`
+    } else {
+      // Utilisateur expérimenté : déterminer la meilleure URL de retour
+      if (returnUrl && returnUrl.startsWith('/')) {
+        // Utiliser l'URL de retour fournie explicitement
+        cancelUrl = `${baseUrl}${returnUrl}`
+      } else if (source === 'homepage') {
+        cancelUrl = `${baseUrl}/`
+      } else if (source === 'plans') {
+        cancelUrl = `${baseUrl}/plans`
+      } else if (source === 'billing') {
+        cancelUrl = `${baseUrl}/settings/billing`
+      } else {
+        // Par défaut, retourner au dashboard
+        cancelUrl = `${baseUrl}/dashboard`
+      }
     }
 
     // Créer la session de checkout avec essai gratuit si disponible

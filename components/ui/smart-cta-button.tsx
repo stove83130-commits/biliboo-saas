@@ -129,7 +129,8 @@ export function SmartCTAButton({
             body: JSON.stringify({
               planId: planName.toLowerCase(),
               isAnnual: isAnnual,
-              source: 'homepage'
+              source: 'homepage',
+              returnUrl: window.location.pathname
             }),
           })
 
@@ -137,12 +138,13 @@ export function SmartCTAButton({
             const { url } = await response.json()
             window.location.href = url
           } else {
-            console.error('Erreur lors de la création de la session Stripe')
-            alert('Erreur lors de la création de la session de paiement')
+            const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }))
+            console.error('❌ Erreur création session Stripe:', errorData)
+            alert(`Erreur lors de la création de la session de paiement: ${errorData.error || 'Erreur inconnue'}`)
           }
-        } catch (error) {
-          console.error('Erreur:', error)
-          alert('Erreur lors de la création de la session de paiement')
+        } catch (error: any) {
+          console.error('❌ Erreur:', error)
+          alert(`Erreur lors de la création de la session de paiement: ${error?.message || 'Erreur réseau'}`)
         } finally {
           setIsProcessing(false)
         }

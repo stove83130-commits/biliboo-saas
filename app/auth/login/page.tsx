@@ -99,7 +99,8 @@ export default function LoginPage() {
             body: JSON.stringify({
               planId: selectedPlan,
               isAnnual: false,
-              source: 'login'
+              source: 'login',
+              returnUrl: window.location.pathname
             }),
           });
 
@@ -107,11 +108,15 @@ export default function LoginPage() {
             const { url } = await response.json();
             window.location.href = url;
           } else {
+            const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }))
+            console.error('❌ Erreur création session Stripe:', errorData)
+            alert(`Erreur lors de la création de la session de paiement: ${errorData.error || 'Erreur inconnue'}`)
             // En cas d'erreur, rediriger vers le dashboard
             window.location.href = '/dashboard';
           }
-        } catch (error) {
-          console.error('Erreur lors de la redirection vers le paiement:', error);
+        } catch (error: any) {
+          console.error('❌ Erreur lors de la redirection vers le paiement:', error);
+          alert(`Erreur: ${error?.message || 'Erreur réseau'}`)
           window.location.href = '/dashboard';
         }
       } else {
