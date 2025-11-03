@@ -195,8 +195,26 @@ export async function POST(request: NextRequest) {
 
     // Pour le plan Entreprise, rediriger vers contact (pas de Stripe)
     if (plan.isCustom) {
-      const origin = request.headers.get('origin') || request.nextUrl.origin
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+      // Utiliser la même logique de baseUrl que pour les autres cas
+      const origin = request.headers.get('origin')
+      const referer = request.headers.get('referer')
+      const envAppUrl = process.env.NEXT_PUBLIC_APP_URL
+      
+      let baseUrl: string
+      
+      if (origin) {
+        baseUrl = origin
+      } else if (referer) {
+        try {
+          const refererUrl = new URL(referer)
+          baseUrl = refererUrl.origin
+        } catch {
+          baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : request.nextUrl.origin
+        }
+      } else {
+        baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : request.nextUrl.origin
+      }
+      
       return NextResponse.json({ 
         url: `${baseUrl}/contact?plan=entreprise&trial=7days` 
       })
