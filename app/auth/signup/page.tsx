@@ -94,7 +94,7 @@ export default function SignupPage() {
                 planId: selectedPlan,
                 isAnnual: false,
                 source: 'signup',
-                returnUrl: window.location.pathname
+                returnUrl: window.location.pathname + window.location.search
               }),
             });
 

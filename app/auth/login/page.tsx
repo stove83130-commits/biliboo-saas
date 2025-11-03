@@ -100,7 +100,7 @@ export default function LoginPage() {
               planId: selectedPlan,
               isAnnual: false,
               source: 'login',
-              returnUrl: window.location.pathname
+              returnUrl: window.location.pathname + window.location.search
             }),
           });
 

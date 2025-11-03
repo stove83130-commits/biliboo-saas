@@ -130,7 +130,7 @@ export function SmartCTAButton({
               planId: planName.toLowerCase(),
               isAnnual: isAnnual,
               source: 'homepage',
-              returnUrl: window.location.pathname
+              returnUrl: window.location.pathname + window.location.search // Inclure les query params si présents
             }),
           })
 
