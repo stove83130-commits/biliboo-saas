@@ -16,6 +16,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Configuration Stripe manquante' }, { status: 500 })
     }
 
+    // Vérifier et logger le mode de la clé Stripe
+    const stripeKey = process.env.STRIPE_SECRET_KEY
+    const isProdKey = stripeKey.startsWith('sk_live_')
+    const isTestKey = stripeKey.startsWith('sk_test_')
+    
+    console.log('🔑 Configuration Stripe:', {
+      keyPrefix: stripeKey.substring(0, 12) + '...',
+      isProduction: isProdKey,
+      isTest: isTestKey,
+      environment: process.env.VERCEL_ENV || 'local',
+      warning: isTestKey ? '⚠️ ATTENTION: Clé en mode TEST détectée!' : '✅ Clé de production'
+    })
+
+    if (isTestKey) {
+      console.error('🚨 ERREUR: La clé Stripe est en mode TEST alors que vous êtes censé être en production!')
+      console.error('🔧 Solution: Mettez à jour STRIPE_SECRET_KEY dans Vercel avec une clé sk_live_...')
+    }
+
     const { planId, isAnnual, source } = await request.json()
     
     if (!planId) {
