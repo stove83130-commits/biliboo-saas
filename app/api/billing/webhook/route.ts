@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed':
+      case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
         const subscriptionId = session.subscription as string
         
@@ -40,16 +40,16 @@ export async function POST(request: NextRequest) {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
         // Déterminer le plan basé sur le price_id (pour supporter les Payment Links)
-        const priceId = subscription.items.data[0]?.price?.id
+        const checkoutPriceId = subscription.items.data[0]?.price?.id
         let planId = session.metadata?.plan_id || null
         
         // Si pas de plan_id dans les métadonnées, le déterminer depuis le price_id
-        if (!planId && priceId) {
-          if (priceId === process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_STARTER_ANNUAL_PRICE_ID) {
+        if (!planId && checkoutPriceId) {
+          if (checkoutPriceId === process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || checkoutPriceId === process.env.STRIPE_STARTER_ANNUAL_PRICE_ID) {
             planId = 'starter'
-          } else if (priceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_PRO_ANNUAL_PRICE_ID) {
+          } else if (checkoutPriceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID || checkoutPriceId === process.env.STRIPE_PRO_ANNUAL_PRICE_ID) {
             planId = 'pro'
-          } else if (priceId === process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID) {
+          } else if (checkoutPriceId === process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID || checkoutPriceId === process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID) {
             planId = 'business'
           }
         }
@@ -150,28 +150,29 @@ export async function POST(request: NextRequest) {
         }
         
         break
+      }
 
-      case 'customer.subscription.updated':
+      case 'customer.subscription.updated': {
         const updatedSubscription = event.data.object as Stripe.Subscription
         
         // Déterminer le plan basé sur le price_id de l'abonnement
-        const priceId = updatedSubscription.items.data[0]?.price?.id
-        let planId = null
+        const updatePriceId = updatedSubscription.items.data[0]?.price?.id
+        let updatePlanId = null
         
-        if (priceId === process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_STARTER_ANNUAL_PRICE_ID) {
-          planId = 'starter'
-        } else if (priceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_PRO_ANNUAL_PRICE_ID) {
-          planId = 'pro'
-        } else if (priceId === process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID || priceId === process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID) {
-          planId = 'business'
+        if (updatePriceId === process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || updatePriceId === process.env.STRIPE_STARTER_ANNUAL_PRICE_ID) {
+          updatePlanId = 'starter'
+        } else if (updatePriceId === process.env.STRIPE_PRO_MONTHLY_PRICE_ID || updatePriceId === process.env.STRIPE_PRO_ANNUAL_PRICE_ID) {
+          updatePlanId = 'pro'
+        } else if (updatePriceId === process.env.STRIPE_BUSINESS_MONTHLY_PRICE_ID || updatePriceId === process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID) {
+          updatePlanId = 'business'
         }
         
         // Trouver l'utilisateur via le customer Stripe
-        let targetUserId: string | null = null
+        let updateTargetUserId: string | null = null
         
         // Essayer d'abord via les métadonnées de l'abonnement
         if (updatedSubscription.metadata?.supabase_user_id) {
-          targetUserId = updatedSubscription.metadata.supabase_user_id
+          updateTargetUserId = updatedSubscription.metadata.supabase_user_id
         } else if (updatedSubscription.customer) {
           // Récupérer le customer Stripe
           const customer = typeof updatedSubscription.customer === 'string' 
@@ -180,26 +181,26 @@ export async function POST(request: NextRequest) {
           
           // Vérifier les métadonnées du customer
           if (customer.metadata?.supabase_user_id) {
-            targetUserId = customer.metadata.supabase_user_id
+            updateTargetUserId = customer.metadata.supabase_user_id
           } else if (customer.email) {
             // Chercher par email
             const { data: { users } } = await supabase.auth.admin.listUsers()
             const user = users.find(u => u.email === customer.email)
             if (user) {
-              targetUserId = user.id
+              updateTargetUserId = user.id
             }
           }
         }
         
-        if (targetUserId && planId) {
+        if (updateTargetUserId && updatePlanId) {
           // Mettre à jour via l'API admin
-          const { data: userData } = await supabase.auth.admin.getUserById(targetUserId)
+          const { data: userData } = await supabase.auth.admin.getUserById(updateTargetUserId)
           
           if (userData?.user) {
-            await supabase.auth.admin.updateUserById(targetUserId, {
+            await supabase.auth.admin.updateUserById(updateTargetUserId, {
               user_metadata: {
                 ...userData.user.user_metadata,
-                selected_plan: planId,
+                selected_plan: updatePlanId,
                 subscription_status: updatedSubscription.status,
                 current_period_end: new Date(updatedSubscription.current_period_end * 1000).toISOString(),
                 stripe_subscription_id: updatedSubscription.id,
@@ -211,15 +212,16 @@ export async function POST(request: NextRequest) {
                 } : {}),
               }
             })
-            console.log('✅ Subscription updated via webhook:', updatedSubscription.id, 'Plan:', planId, 'User:', targetUserId)
+            console.log('✅ Subscription updated via webhook:', updatedSubscription.id, 'Plan:', updatePlanId, 'User:', updateTargetUserId)
           }
         } else {
           console.warn('⚠️ Impossible de trouver l\'utilisateur pour subscription:', updatedSubscription.id, 'Customer:', updatedSubscription.customer)
         }
         
         break
+      }
 
-      case 'customer.subscription.deleted':
+      case 'customer.subscription.deleted': {
         const deletedSubscription = event.data.object as Stripe.Subscription
         
         // Trouver l'utilisateur via le customer Stripe
@@ -266,8 +268,9 @@ export async function POST(request: NextRequest) {
         }
         
         break
+      }
 
-      case 'invoice.payment_succeeded':
+      case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice
         
         if (invoice.subscription) {
@@ -321,8 +324,9 @@ export async function POST(request: NextRequest) {
         
         console.log('Payment succeeded:', invoice.id)
         break
+      }
 
-      case 'invoice.payment_failed':
+      case 'invoice.payment_failed': {
         const failedInvoice = event.data.object as Stripe.Invoice
         
         await supabase.auth.updateUser({
@@ -333,6 +337,7 @@ export async function POST(request: NextRequest) {
         
         console.log('Payment failed:', failedInvoice.id)
         break
+      }
 
       default:
         console.log(`Event non géré: ${event.type}`)
