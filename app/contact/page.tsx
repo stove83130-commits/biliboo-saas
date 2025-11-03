@@ -325,6 +325,7 @@ function ContactPageContent() {
             )}
           </div>
         </div>
+        </div>
       </div>
       
       {/* Footer */}
