@@ -5,6 +5,8 @@ import type React from "react"
 import { useState, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Mail, Phone, CheckCircle, ArrowRight } from "lucide-react"
+import { Header } from "@/components/sections/header"
+import { FooterSection } from "@/components/sections/footer-section"
 
 function ContactPageContent() {
   const searchParams = useSearchParams()
@@ -82,8 +84,15 @@ function ContactPageContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+    <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/40 to-white flex flex-col">
+      {/* Header */}
+      <div className="w-full max-w-[1320px] mx-auto px-4 lg:px-6 pt-4 pb-6 z-10">
+        <Header />
+      </div>
+      
+      {/* Main Content */}
+      <div className="flex-1">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
         {/* Left Section - Info */}
         <div className="bg-emerald-500 px-8 lg:px-12 py-16 lg:py-24 flex flex-col justify-between">
           <div>
@@ -319,6 +328,11 @@ function ContactPageContent() {
             )}
           </div>
         </div>
+      </div>
+      
+      {/* Footer */}
+      <div className="mt-auto">
+        <FooterSection />
       </div>
     </div>
   )
