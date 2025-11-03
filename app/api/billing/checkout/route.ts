@@ -227,7 +227,8 @@ export async function POST(request: NextRequest) {
       planId,
       isAnnual,
       trialDaysToGrant,
-      baseUrl
+      baseUrl,
+      stripeMode: isProdKey ? 'PRODUCTION (sk_live_)' : isTestKey ? 'TEST (sk_test_)' : 'INCONNU'
     })
 
     try {
