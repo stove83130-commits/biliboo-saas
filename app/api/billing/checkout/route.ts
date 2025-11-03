@@ -248,11 +248,31 @@ export async function POST(request: NextRequest) {
     const hasCompletedOnboarding = user.user_metadata?.onboarding_completed === true
 
     // Obtenir l'URL de base (production ou local)
-    const origin = request.headers.get('origin') || request.nextUrl.origin
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+    // Priorité : NEXT_PUBLIC_APP_URL > origin header > referer > nextUrl.origin
+    let baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    
+    if (!baseUrl) {
+      // Essayer de récupérer depuis les headers
+      const origin = request.headers.get('origin')
+      const referer = request.headers.get('referer')
+      
+      if (origin) {
+        baseUrl = origin
+      } else if (referer) {
+        // Extraire l'origin depuis le referer
+        try {
+          const refererUrl = new URL(referer)
+          baseUrl = refererUrl.origin
+        } catch {
+          baseUrl = request.nextUrl.origin
+        }
+      } else {
+        baseUrl = request.nextUrl.origin
+      }
+    }
 
     // Déterminer l'URL de retour en cas d'annulation
-    // Priorité : returnUrl > source > referer > dashboard/homepage
+    // Priorité : returnUrl > source > dashboard/homepage
     let cancelUrl: string
     
     if (!hasCompletedOnboarding) {
@@ -263,6 +283,9 @@ export async function POST(request: NextRequest) {
       if (returnUrl && returnUrl.startsWith('/')) {
         // Utiliser l'URL de retour fournie explicitement
         cancelUrl = `${baseUrl}${returnUrl}`
+      } else if (returnUrl && returnUrl.startsWith('http')) {
+        // Si returnUrl est une URL complète, l'utiliser directement
+        cancelUrl = returnUrl
       } else if (source === 'homepage') {
         cancelUrl = `${baseUrl}/`
       } else if (source === 'plans') {
@@ -274,6 +297,16 @@ export async function POST(request: NextRequest) {
         cancelUrl = `${baseUrl}/dashboard`
       }
     }
+    
+    console.log('🔙 URL de retour (cancelUrl):', {
+      cancelUrl,
+      baseUrl,
+      returnUrl,
+      source,
+      origin: request.headers.get('origin'),
+      referer: request.headers.get('referer'),
+      nextUrlOrigin: request.nextUrl.origin
+    })
 
     // Créer la session de checkout avec essai gratuit si disponible
     console.log('🎯 Création session checkout:', {
