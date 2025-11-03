@@ -143,9 +143,6 @@ function ContactPageContent() {
               </div>
             </div>
           </div>
-          <div className="mt-12 pt-8 border-t border-emerald-400">
-            <p className="text-xs text-emerald-100">© 2025 Bilibou. Tous droits réservés.</p>
-          </div>
         </div>
 
         {/* Right Section - Form */}
