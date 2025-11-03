@@ -360,6 +360,8 @@ export async function POST(request: NextRequest) {
         ],
         mode: 'subscription',
         allow_promotion_codes: true, // Permet aux clients d'utiliser des codes promo
+        // Couleur émeraude du branding (couleur principale du dégradé)
+        brand_color: '#10b981', // emerald-500
         subscription_data: {
           ...(trialDaysToGrant > 0 ? { trial_period_days: trialDaysToGrant } : {}),
           metadata: {
