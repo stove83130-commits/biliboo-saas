@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         // Récupérer la subscription pour avoir les détails
         const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
-        // Déterminer le plan basé sur le price_id (pour supporter les Payment Links)
+        // Déterminer le plan basé sur le price_id
         const checkoutPriceId = subscription.items.data[0]?.price?.id
         let planId = session.metadata?.plan_id || null
         
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
                 overage_subscription_item_id: overageItemId,
               }
             })
-            console.log('✅ Plan attribué via Payment Link:', planId, 'pour utilisateur:', targetUserId)
+            console.log('✅ Plan attribué via checkout:', planId, 'pour utilisateur:', targetUserId)
           }
         } else {
           // Fallback: utiliser updateUser (nécessite que l'utilisateur soit connecté lors du checkout)

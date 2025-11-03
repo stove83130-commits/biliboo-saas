@@ -70,7 +70,7 @@ Après le paiement, vous serez redirigé vers `/dashboard?success=true&payment=s
 #### Option B : Via les Logs Serveur
 Si vous avez accès aux logs de production, vérifiez :
 ```
-✅ Plan attribué via Payment Link: pro pour utilisateur: [user_id]
+✅ Plan attribué via checkout: pro pour utilisateur: [user_id]
 ✅ Subscription updated via webhook: [subscription_id] Plan: pro
 ```
 
