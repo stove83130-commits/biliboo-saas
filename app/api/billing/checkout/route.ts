@@ -311,15 +311,30 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    console.log('🔙 URL de retour (cancelUrl):', {
+    // Logger toutes les informations pour debug
+    console.log('🔙 URL de retour (cancelUrl) - DEBUG COMPLET:', {
       cancelUrl,
       baseUrl,
       returnUrl,
       source,
       origin: request.headers.get('origin'),
       referer: request.headers.get('referer'),
+      host: request.headers.get('host'),
       nextUrlOrigin: request.nextUrl.origin,
-      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL
+      nextUrlHost: request.nextUrl.host,
+      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+      VERCEL_URL: process.env.VERCEL_URL,
+      vercelEnv: process.env.VERCEL_ENV
+    })
+    
+    // Vérifier si le domaine est autorisé dans Stripe
+    // Stripe peut bloquer les URLs qui ne sont pas dans les domaines autorisés
+    const cancelUrlDomain = new URL(cancelUrl).hostname
+    const successUrlDomain = new URL(`${baseUrl}/dashboard`).hostname
+    console.log('🔒 Domaines pour Stripe:', {
+      cancelUrlDomain,
+      successUrlDomain,
+      note: 'Si Stripe refuse, vérifiez dans Stripe Dashboard > Settings > Checkout > Allowed domains'
     })
 
     // Créer la session de checkout avec essai gratuit si disponible
