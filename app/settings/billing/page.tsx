@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -41,13 +42,14 @@ interface Workspace {
   owner_id: string
 }
 
-export default function BillingPage() {
+function BillingPageContent() {
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
+  const searchParams = useSearchParams()
   const supabase = createClient()
-
+  
   const loadBillingData = async (skipAutoSync = false) => {
     try {
       setLoading(true)
@@ -110,10 +112,24 @@ export default function BillingPage() {
       
       // Synchronisation automatique si l'utilisateur a un stripe_customer_id mais pas de plan
       // Cela indique qu'il a probablement payé mais que le webhook n'a pas fonctionné
-      // Ne pas synchroniser si c'est un rechargement après une synchronisation manuelle
+      // Ne pas synchroniser si c'est un rechargement après une synchronisation automatique
       if (!skipAutoSync && user.user_metadata?.stripe_customer_id && !planKey) {
         console.log('🔄 Synchronisation automatique déclenchée: customer_id présent mais pas de plan')
-        await syncWithStripe()
+        try {
+          const response = await fetch('/api/billing/sync-plan', {
+            method: 'POST',
+          })
+          const data = await response.json()
+          if (response.ok && data.success) {
+            console.log('✅ Synchronisation automatique réussie:', data)
+            // Recharger les données
+            await loadBillingData(true)
+          } else {
+            console.warn('⚠️ Synchronisation automatique échouée:', data.error)
+          }
+        } catch (error) {
+          console.error('Erreur synchronisation automatique:', error)
+        }
       }
     } catch (error) {
       console.error('Erreur chargement facturation:', error)
@@ -125,6 +141,52 @@ export default function BillingPage() {
   useEffect(() => {
     loadBillingData()
   }, [])
+
+  // Synchronisation automatique si on revient du paiement
+  useEffect(() => {
+    const syncAfterPayment = async () => {
+      const shouldSync = searchParams?.get('sync') === 'true' || searchParams?.get('payment') === 'success'
+      
+      if (shouldSync) {
+        console.log('🔄 Synchronisation automatique après paiement déclenchée')
+        // Attendre un peu pour que le webhook Stripe ait le temps de s'exécuter
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        try {
+          const response = await fetch('/api/billing/sync-plan', {
+            method: 'POST',
+          })
+          const data = await response.json()
+          
+          if (response.ok && data.success) {
+            console.log('✅ Synchronisation automatique réussie après paiement:', data)
+            // Recharger les données
+            await loadBillingData(true)
+            // Nettoyer l'URL
+            window.history.replaceState({}, '', '/settings/billing')
+          } else {
+            console.warn('⚠️ Synchronisation automatique échouée, réessai dans 3 secondes...')
+            // Réessayer après 3 secondes
+            setTimeout(async () => {
+              const retryResponse = await fetch('/api/billing/sync-plan', {
+                method: 'POST',
+              })
+              const retryData = await retryResponse.json()
+              if (retryResponse.ok && retryData.success) {
+                console.log('✅ Synchronisation automatique réussie (réessai):', retryData)
+                await loadBillingData(true)
+                window.history.replaceState({}, '', '/settings/billing')
+              }
+            }, 3000)
+          }
+        } catch (error) {
+          console.error('❌ Erreur synchronisation automatique:', error)
+        }
+      }
+    }
+    
+    syncAfterPayment()
+  }, [searchParams])
 
   // Vérification périodique automatique en arrière-plan
   useEffect(() => {
@@ -463,6 +525,21 @@ export default function BillingPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Chargement...</p>
+        </div>
+      </div>
+    }>
+      <BillingPageContent />
+    </Suspense>
   )
 }
 
