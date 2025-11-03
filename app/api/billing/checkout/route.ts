@@ -62,18 +62,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 })
     }
 
-    // Pour le plan Pro mensuel, utiliser le Payment Link Stripe directement
-    if (planId === 'pro' && !isAnnual) {
-      // Obtenir l'URL de base pour la redirection après paiement
-      const origin = request.headers.get('origin') || request.nextUrl.origin
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
-      
-      // Ajouter l'URL de succès au Payment Link
-      const paymentLinkUrl = `https://buy.stripe.com/fZu5kDdgA0B8eCF8p1fQI03?success_url=${encodeURIComponent(`${baseUrl}/dashboard?success=true&payment=success`)}`
-      return NextResponse.json({ url: paymentLinkUrl })
-    }
-
-    // Créer ou récupérer le customer Stripe
+    // Créer ou récupérer le customer Stripe AVANT tout (même pour Payment Links)
     let customerId = user.user_metadata?.stripe_customer_id
     
     if (!customerId) {
@@ -91,6 +80,25 @@ export async function POST(request: NextRequest) {
           stripe_customer_id: customerId,
         }
       })
+    } else {
+      // Mettre à jour le customer existant pour s'assurer qu'il a les bonnes métadonnées
+      await stripe.customers.update(customerId, {
+        metadata: {
+          supabase_user_id: user.id,
+        }
+      })
+    }
+
+    // Pour le plan Pro mensuel, utiliser le Payment Link Stripe directement
+    // MAINTENANT le customer existe avec les bonnes métadonnées
+    if (planId === 'pro' && !isAnnual) {
+      // Obtenir l'URL de base pour la redirection après paiement
+      const origin = request.headers.get('origin') || request.nextUrl.origin
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || origin
+      
+      // Ajouter l'URL de succès au Payment Link avec le customer_id pour forcer l'association
+      const paymentLinkUrl = `https://buy.stripe.com/fZu5kDdgA0B8eCF8p1fQI03?success_url=${encodeURIComponent(`${baseUrl}/dashboard?success=true&payment=success&sync=true`)}&client_reference_id=${customerId}`
+      return NextResponse.json({ url: paymentLinkUrl })
     }
 
     // Pour le plan Entreprise, rediriger vers contact (pas de Stripe)

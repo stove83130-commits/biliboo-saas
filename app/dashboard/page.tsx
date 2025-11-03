@@ -1,14 +1,16 @@
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { DashboardOnboarding } from "@/components/dashboard/dashboard-onboarding"
+import { PaymentSyncHandler } from "@/components/dashboard/payment-sync-handler"
 // Widget d'usage retiré temporairement
 
 export default function DashboardPage({
   searchParams,
 }: {
-  searchParams: { success?: string }
+  searchParams: { success?: string; sync?: string; payment?: string }
 }) {
     return (
     <DashboardLayout>
+      <PaymentSyncHandler />
       <div className="flex flex-col gap-6">
         {/* Message de succès du paiement */}
         {searchParams.success === 'true' && (

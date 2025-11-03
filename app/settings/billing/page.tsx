@@ -48,11 +48,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
-  useEffect(() => {
-    loadBillingData()
-  }, [])
-
-  const loadBillingData = async () => {
+  const loadBillingData = async (skipAutoSync = false) => {
     try {
       setLoading(true)
       const { data: { user } } = await supabase.auth.getUser()
@@ -111,12 +107,49 @@ export default function BillingPage() {
 
       // Charger les factures (simulé pour l'instant)
       setInvoices([])
+      
+      // Synchronisation automatique si l'utilisateur a un stripe_customer_id mais pas de plan
+      // Cela indique qu'il a probablement payé mais que le webhook n'a pas fonctionné
+      // Ne pas synchroniser si c'est un rechargement après une synchronisation manuelle
+      if (!skipAutoSync && user.user_metadata?.stripe_customer_id && !planKey) {
+        console.log('🔄 Synchronisation automatique déclenchée: customer_id présent mais pas de plan')
+        await syncWithStripe()
+      }
     } catch (error) {
       console.error('Erreur chargement facturation:', error)
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadBillingData()
+  }, [])
+
+  // Vérification périodique automatique en arrière-plan
+  useEffect(() => {
+    const intervalId = setInterval(async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user && user.user_metadata?.stripe_customer_id && !user.user_metadata?.selected_plan) {
+        console.log('🔄 Vérification périodique: synchronisation automatique déclenchée')
+        try {
+          const response = await fetch('/api/billing/sync-plan', {
+            method: 'POST',
+          })
+          const data = await response.json()
+          if (response.ok && data.success) {
+            console.log('✅ Synchronisation périodique réussie')
+            // Recharger les données
+            await loadBillingData(true)
+          }
+        } catch (error) {
+          console.error('Erreur synchronisation périodique:', error)
+        }
+      }
+    }, 30000) // Vérifier toutes les 30 secondes
+    
+    return () => clearInterval(intervalId)
+  }, [])
 
   const handleUpgrade = () => {
     window.location.href = '/plans'
@@ -258,7 +291,7 @@ export default function BillingPage() {
           )}
 
           {/* Actions */}
-          <div className="mt-6 pt-6 border-t border-border/30 flex gap-3">
+          <div className="mt-6 pt-6 border-t border-border/30 flex gap-3 flex-wrap">
             {subscription?.plan !== 'enterprise' && (
               <Button
                 onClick={handleUpgrade}
