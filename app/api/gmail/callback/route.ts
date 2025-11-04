@@ -31,10 +31,16 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Déterminer l'URL de base (production ou local)
+    // Utiliser l'origin de la requête pour garantir la bonne URL
+    const baseUrl = origin || (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') 
+      ? process.env.NEXT_PUBLIC_APP_URL 
+      : 'http://localhost:3001')
+    
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/gmail/callback`
+      `${baseUrl}/api/gmail/callback`
     )
 
     // Exchange code for tokens

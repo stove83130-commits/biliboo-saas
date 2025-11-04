@@ -16,6 +16,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Déterminer l'URL de base (production ou local)
+  // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL (si pas localhost) > request.url origin
+  const requestUrl = new URL(request.url)
+  const origin = request.headers.get('origin')
+  const referer = request.headers.get('referer')
+  const envAppUrl = process.env.NEXT_PUBLIC_APP_URL
+  
+  let baseUrl: string
+  
+  if (origin) {
+    baseUrl = origin
+  } else if (referer) {
+    try {
+      const refererUrl = new URL(referer)
+      baseUrl = refererUrl.origin
+    } catch {
+      baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
+    }
+  } else {
+    baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
+  }
+
   // Vérifier les permissions du plan
   const planId = user.user_metadata?.selected_plan
   const { count } = await supabase
@@ -25,7 +47,7 @@ export async function GET(request: Request) {
     .eq('is_active', true)
 
   if (!canAddEmailAccount(planId, count || 0)) {
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/dashboard?error=plan_limit_reached&feature=email`)
+    return NextResponse.redirect(`${baseUrl}/dashboard?error=plan_limit_reached&feature=email`)
   }
 
   const { searchParams } = new URL(request.url)
@@ -36,14 +58,14 @@ export async function GET(request: Request) {
     const { canManageEmailConnections } = await import('@/lib/workspaces/permissions')
     const canManage = await canManageEmailConnections(supabase, workspaceId, user.id)
     if (!canManage) {
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/dashboard?error=no_permission_email`)
+      return NextResponse.redirect(`${baseUrl}/dashboard?error=no_permission_email`)
     }
   }
 
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/gmail/callback`
+    `${baseUrl}/api/gmail/callback`
   )
 
   const statePayload = new URLSearchParams()
