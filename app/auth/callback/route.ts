@@ -62,12 +62,43 @@ export async function GET(request: NextRequest) {
       return buildRedirectResponse(`${origin}/auth/login?error=confirmation_failed`)
     }
 
-    // IMPORTANT: Supprimer la session après confirmation pour éviter les redirections automatiques
-    // L'utilisateur devra se connecter manuellement après confirmation
-    await supabase.auth.signOut()
+    // Assurer l'écriture effective des cookies en forçant une lecture de session
+    await supabase.auth.getUser()
 
-    // Rediriger vers la page de connexion avec un message de succès
-    return buildRedirectResponse(`${origin}/auth/login?confirmed=true`)
+    // Recréer un client basé sur les cookies désormais présents dans `response`
+    const supabaseAfterAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        get(name) {
+          return response.cookies.get(name)?.value || request.cookies.get(name)?.value
+        },
+        set() {},
+        remove() {},
+      },
+    })
+
+    const { data: { user } } = await supabaseAfterAuth.auth.getUser()
+
+    // Vérifier si l'utilisateur a complété l'onboarding
+    const onboardingCompleted = user?.user_metadata?.onboarding_completed || false
+    
+    // Rediriger selon l'état de l'onboarding
+    // Si l'onboarding est complété, aller au dashboard, sinon à l'onboarding
+    const redirectPath = onboardingCompleted ? '/dashboard' : '/onboarding'
+    
+    console.log('🔀 Redirection après confirmation email:', {
+      userId: user?.id,
+      onboardingCompleted,
+      redirectPath
+    })
+    
+    const redirectResponse = buildRedirectResponse(`${origin}${redirectPath}`)
+    
+    // Copier les cookies accumulés sur la réponse finale
+    response.cookies.getAll().forEach((c) => {
+      redirectResponse.cookies.set(c)
+    })
+
+    return redirectResponse
   }
 
   // Gérer les codes d'authentification standard (OAuth, etc.) - mais PAS recovery/signup qui sont gérés plus haut
