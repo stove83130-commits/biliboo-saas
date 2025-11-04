@@ -172,8 +172,32 @@ export default function OnboardingPage() {
 
       console.log('✅ Onboarding complété, redirection vers dashboard');
       
-      // Rediriger vers le dashboard
-      window.location.href = '/dashboard';
+      // Vérifier que l'utilisateur est toujours connecté avant de rediriger
+      const { data: { user: finalUser }, error: finalError } = await supabase.auth.getUser();
+      
+      if (finalError || !finalUser) {
+        console.error('❌ Utilisateur non authentifié après onboarding:', finalError);
+        // Si l'utilisateur n'est plus connecté, rediriger vers la connexion
+        window.location.href = '/auth/login?error=session_expired';
+        return;
+      }
+      
+      // Vérifier que onboarding_completed est bien à true
+      if (!finalUser.user_metadata?.onboarding_completed) {
+        console.warn('⚠️ onboarding_completed pas à true, réessayant...');
+        // Réessayer une fois
+        await supabase.auth.updateUser({
+          data: {
+            ...finalUser.user_metadata,
+            onboarding_completed: true,
+          },
+        });
+      }
+      
+      // Rediriger vers le dashboard avec un petit délai pour s'assurer que les métadonnées sont sauvegardées
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 500);
     } catch (error) {
       console.error('❌ Erreur:', error);
       alert('Une erreur est survenue. Veuillez réessayer.');

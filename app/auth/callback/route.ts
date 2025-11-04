@@ -130,9 +130,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Si l'utilisateur a complété l'onboarding, toujours aller au dashboard
+    // Sinon, rediriger vers l'onboarding (sauf si un plan est sélectionné)
     const redirectPath = plan
       ? `/auth/plan-redirect?plan=${plan}`
       : (isNewUser ? '/onboarding' : '/dashboard')
+    
+    console.log('🔀 Redirection après auth:', {
+      userId: user?.id,
+      isNewUser,
+      onboardingCompleted: user?.user_metadata?.onboarding_completed,
+      plan,
+      redirectPath
+    })
+    
     const redirectResponse = buildRedirectResponse(`${origin}${redirectPath}`)
 
     // Copier les cookies accumulés sur la réponse finale
