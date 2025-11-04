@@ -252,25 +252,45 @@ export default function PersonalSettingsPage() {
                         
                         setIsDeleting(true)
                         try {
+                          // Désactiver temporairement les listeners d'erreurs pour éviter les erreurs pendant la suppression
+                          const originalErrorHandler = window.onerror
+                          window.onerror = () => true // Ignorer les erreurs pendant la suppression
+                          
                           const response = await fetch('/api/user/delete', {
                             method: 'DELETE',
                             headers: { 'Content-Type': 'application/json' }
                           })
+                          
                           const result = await response.json()
                           
                           if (response.ok) {
                             setIsConfirmDialogOpen(false)
                             setConfirmText('')
-                            alert('✅ Votre compte et toutes vos données ont été supprimés avec succès. Vous allez être redirigé.')
-                            setTimeout(() => {
-                              window.location.href = '/auth/login'
-                            }, 2000)
+                            
+                            // Déconnecter la session Supabase côté client AVANT la redirection
+                            try {
+                              const supabase = createClient()
+                              await supabase.auth.signOut()
+                              console.log('✅ Session déconnectée')
+                            } catch (signOutError) {
+                              console.warn('⚠️ Erreur lors de la déconnexion (non bloquant):', signOutError)
+                            }
+                            
+                            // Restaurer le gestionnaire d'erreurs
+                            window.onerror = originalErrorHandler
+                            
+                            // Rediriger immédiatement vers la page de login
+                            window.location.href = '/auth/login?deleted=true'
                           } else {
+                            // Restaurer le gestionnaire d'erreurs
+                            window.onerror = originalErrorHandler
                             setIsDeleting(false)
                             alert('❌ Erreur : ' + (result.error || 'Impossible de supprimer le compte'))
                           }
                         } catch (error: any) {
                           console.error('Erreur suppression:', error)
+                          // Restaurer le gestionnaire d'erreurs en cas d'erreur
+                          window.onerror = originalErrorHandler
                           setIsDeleting(false)
                           alert('❌ Erreur lors de la suppression : ' + (error.message || 'Erreur inconnue'))
                         }
