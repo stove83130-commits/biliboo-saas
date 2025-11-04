@@ -88,16 +88,20 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
     loadPermissions()
   }, [workspaceId, supabase])
 
-  const canModifyOrganization = role === 'owner'
-  const canDeleteOrganization = role === 'owner'
-  const canViewBilling = role === 'owner' || role === 'admin'
-  const canManageBilling = role === 'owner'
-  const canInviteMembers = role === 'owner' || role === 'admin'
-  const canViewInvoices = role === 'owner' || role === 'admin' || role === 'member'
-  const canManageInvoices = role === 'owner' || role === 'admin' || role === 'member'
-  const canManageEmailConnections = role === 'owner' || role === 'admin'
-  const canViewFullStatistics = role === 'owner' || role === 'admin' || role === 'member'
-  const canViewActivityLogs = role === 'owner' || role === 'admin'
+  // Pour un workspace personnel (workspaceId = null ou 'personal'), on a toujours toutes les permissions
+  // Pour un workspace d'organisation, on vérifie le rôle
+  const isPersonalWorkspace = !workspaceId || workspaceId === 'personal'
+  
+  const canModifyOrganization = isPersonalWorkspace ? true : (role === 'owner')
+  const canDeleteOrganization = isPersonalWorkspace ? true : (role === 'owner')
+  const canViewBilling = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin')
+  const canManageBilling = isPersonalWorkspace ? true : (role === 'owner')
+  const canInviteMembers = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin')
+  const canViewInvoices = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin' || role === 'member')
+  const canManageInvoices = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin' || role === 'member')
+  const canManageEmailConnections = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin')
+  const canViewFullStatistics = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin' || role === 'member')
+  const canViewActivityLogs = isPersonalWorkspace ? true : (role === 'owner' || role === 'admin')
 
   const canRemoveMember = async (targetUserId: string): Promise<boolean> => {
     if (role === 'owner') return true
