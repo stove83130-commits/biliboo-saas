@@ -112,20 +112,36 @@ export async function POST(request: NextRequest) {
     })
 
     // Mettre à jour les métadonnées utilisateur
+    const cancellationDate = new Date().toISOString()
+    const subscriptionEndsAt = new Date(cancelledSubscription.current_period_end * 1000).toISOString()
+    
     const { error: updateError } = await supabase.auth.updateUser({
       data: {
         subscription_status: 'cancelled',
-        cancellation_date: new Date().toISOString(),
-        subscription_ends_at: new Date(cancelledSubscription.current_period_end * 1000).toISOString()
+        cancellation_date: cancellationDate,
+        subscription_ends_at: subscriptionEndsAt
       }
     })
 
     if (updateError) {
-      console.error('Erreur lors de la mise à jour des métadonnées:', updateError)
+      console.error('❌ Erreur lors de la mise à jour des métadonnées:', updateError)
       // On continue quand même car l'annulation Stripe a réussi
+    } else {
+      console.log('✅ Métadonnées Supabase mises à jour avec succès')
     }
 
-    console.log('Annulation Stripe réussie')
+    console.log('✅ Annulation Stripe réussie - Détails:', {
+      subscription_id: cancelledSubscription.id,
+      customer_id: stripeCustomerId,
+      cancel_at_period_end: cancelledSubscription.cancel_at_period_end,
+      current_period_end: new Date(cancelledSubscription.current_period_end * 1000).toISOString(),
+      status: cancelledSubscription.status,
+      user_id: user.id,
+      user_email: user.email,
+      supabase_update: updateError ? 'FAILED' : 'SUCCESS',
+      cancellation_date: cancellationDate,
+      subscription_ends_at: subscriptionEndsAt
+    })
 
     return NextResponse.json({ 
       success: true,
