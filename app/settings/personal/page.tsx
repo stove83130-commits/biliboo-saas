@@ -251,11 +251,12 @@ export default function PersonalSettingsPage() {
                         if (confirmText !== 'SUPPRIMER') return
                         
                         setIsDeleting(true)
+                        
+                        // Désactiver temporairement les listeners d'erreurs pour éviter les erreurs pendant la suppression
+                        const originalErrorHandler = window.onerror
+                        window.onerror = () => true // Ignorer les erreurs pendant la suppression
+                        
                         try {
-                          // Désactiver temporairement les listeners d'erreurs pour éviter les erreurs pendant la suppression
-                          const originalErrorHandler = window.onerror
-                          window.onerror = () => true // Ignorer les erreurs pendant la suppression
-                          
                           const response = await fetch('/api/user/delete', {
                             method: 'DELETE',
                             headers: { 'Content-Type': 'application/json' }
@@ -277,20 +278,32 @@ export default function PersonalSettingsPage() {
                             }
                             
                             // Restaurer le gestionnaire d'erreurs
-                            window.onerror = originalErrorHandler
+                            if (originalErrorHandler) {
+                              window.onerror = originalErrorHandler
+                            } else {
+                              window.onerror = null
+                            }
                             
                             // Rediriger immédiatement vers la page de login
                             window.location.href = '/auth/login?deleted=true'
                           } else {
                             // Restaurer le gestionnaire d'erreurs
-                            window.onerror = originalErrorHandler
+                            if (originalErrorHandler) {
+                              window.onerror = originalErrorHandler
+                            } else {
+                              window.onerror = null
+                            }
                             setIsDeleting(false)
                             alert('❌ Erreur : ' + (result.error || 'Impossible de supprimer le compte'))
                           }
                         } catch (error: any) {
                           console.error('Erreur suppression:', error)
                           // Restaurer le gestionnaire d'erreurs en cas d'erreur
-                          window.onerror = originalErrorHandler
+                          if (originalErrorHandler) {
+                            window.onerror = originalErrorHandler
+                          } else {
+                            window.onerror = null
+                          }
                           setIsDeleting(false)
                           alert('❌ Erreur lors de la suppression : ' + (error.message || 'Erreur inconnue'))
                         }
