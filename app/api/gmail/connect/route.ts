@@ -53,14 +53,27 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const workspaceId = searchParams.get('workspaceId') || ''
 
-  // Si un workspaceId est fourni, vérifier les permissions
-  if (workspaceId && workspaceId !== 'personal') {
-    const { canManageEmailConnections } = await import('@/lib/workspaces/permissions')
-    const canManage = await canManageEmailConnections(supabase, workspaceId, user.id)
-    if (!canManage) {
-      return NextResponse.redirect(`${baseUrl}/dashboard?error=no_permission_email`)
+  // Si un workspaceId est fourni ET que ce n'est pas un compte personnel, vérifier les permissions
+  // Pour un compte personnel (workspaceId vide ou 'personal'), on laisse passer sans vérification
+  if (workspaceId && workspaceId !== 'personal' && workspaceId.trim() !== '') {
+    try {
+      const { canManageEmailConnections } = await import('@/lib/workspaces/permissions')
+      const canManage = await canManageEmailConnections(supabase, workspaceId, user.id)
+      if (!canManage) {
+        console.log('❌ Permission refusée pour workspace:', workspaceId, 'User:', user.id)
+        return NextResponse.redirect(`${baseUrl}/dashboard?error=no_permission_email`)
+      }
+    } catch (error) {
+      console.error('❌ Erreur lors de la vérification des permissions:', error)
+      // En cas d'erreur, on continue quand même pour un compte personnel
+      // Mais on bloque pour un workspace valide
+      if (workspaceId && workspaceId !== 'personal') {
+        return NextResponse.redirect(`${baseUrl}/dashboard?error=no_permission_email`)
+      }
     }
   }
+  
+  console.log('✅ Permissions OK, redirection vers OAuth Gmail. WorkspaceId:', workspaceId || 'personal')
 
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -69,7 +82,10 @@ export async function GET(request: Request) {
   )
 
   const statePayload = new URLSearchParams()
-  if (workspaceId) statePayload.set('workspaceId', workspaceId)
+  // Ne passer workspaceId dans le state que s'il est valide et n'est pas 'personal'
+  if (workspaceId && workspaceId !== 'personal' && workspaceId.trim() !== '') {
+    statePayload.set('workspaceId', workspaceId)
+  }
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',

@@ -106,8 +106,13 @@ function SettingsPageContent() {
   }
 
   const handleConnectGmail = () => {
+    // Pour ajouter un compte Gmail, on utilise toujours 'personal' ou on ne passe pas de workspaceId
+    // Cela permet d'ajouter un compte personnel sans vérifier les permissions de workspace
     const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
-    const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` : ''
+    // Ne passer workspaceId que si c'est vraiment un workspace d'organisation (pas 'personal')
+    const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' && activeWorkspaceId.trim() !== '' 
+      ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` 
+      : ''
     window.location.href = `/api/gmail/connect${qs}`
   }
 
