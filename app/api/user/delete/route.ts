@@ -1,13 +1,27 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
   try {
+    // Ajouter des logs pour debug
+    console.log('🔍 DELETE /api/user/delete - Headers:', {
+      cookie: request.headers.get('cookie') ? 'present' : 'missing',
+      authorization: request.headers.get('authorization') ? 'present' : 'missing',
+      userAgent: request.headers.get('user-agent')?.substring(0, 50)
+    })
+    
     const supabase = createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    console.log('🔍 Auth result:', {
+      hasUser: !!user,
+      userId: user?.id,
+      error: authError?.message || null,
+      errorStatus: authError?.status || null
+    })
 
     // Si l'utilisateur auth n'existe plus (partiellement supprimé lors d'un précédent essai),
     // on essaie de récupérer l'userId depuis le JWT directement
