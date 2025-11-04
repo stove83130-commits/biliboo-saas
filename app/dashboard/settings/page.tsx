@@ -33,14 +33,17 @@ function SettingsPageContent() {
   
   // Pour un workspace personnel (null ou 'personal'), on a toujours les permissions
   // Pour un workspace d'organisation, on vérifie les permissions
-  const isPersonalWorkspace = !activeWorkspaceId || activeWorkspaceId === 'personal' || activeWorkspaceId.trim() === ''
+  const isPersonalWorkspace = !activeWorkspaceId || activeWorkspaceId === 'personal' || (typeof activeWorkspaceId === 'string' && activeWorkspaceId.trim() === '')
   const workspacePermissions = useWorkspacePermissions(isPersonalWorkspace ? null : activeWorkspaceId)
   
   // Permissions adaptées : pour un workspace personnel, on a toujours les droits complets
-  // Ne pas utiliser les permissions du hook pour les espaces personnels
+  // IMPORTANT: On force canManageEmailConnections à true pour les espaces personnels
+  // car le hook retourne false par défaut même pour null
+  const canManageEmailConnections = isPersonalWorkspace ? true : workspacePermissions.canManageEmailConnections
+  
   const permissions = {
     ...workspacePermissions,
-    canManageEmailConnections: isPersonalWorkspace ? true : workspacePermissions.canManageEmailConnections,
+    canManageEmailConnections, // Utiliser la valeur calculée
     canModifyOrganization: isPersonalWorkspace ? true : workspacePermissions.canModifyOrganization,
     canDeleteOrganization: isPersonalWorkspace ? true : workspacePermissions.canDeleteOrganization,
     canViewBilling: isPersonalWorkspace ? true : workspacePermissions.canViewBilling,
@@ -55,8 +58,9 @@ function SettingsPageContent() {
   console.log('🔍 Permissions debug:', {
     activeWorkspaceId,
     isPersonalWorkspace,
-    canManageEmailConnections: permissions.canManageEmailConnections,
-    workspacePermissionsCanManage: workspacePermissions.canManageEmailConnections
+    canManageEmailConnections,
+    workspacePermissionsCanManage: workspacePermissions.canManageEmailConnections,
+    workspacePermissionsRole: workspacePermissions.role
   })
   
   useEffect(() => {
