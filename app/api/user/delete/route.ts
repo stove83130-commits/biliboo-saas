@@ -24,31 +24,37 @@ export async function DELETE(request: NextRequest) {
     })
 
     // Si l'utilisateur auth n'existe plus (partiellement supprimé lors d'un précédent essai),
-    // on essaie de récupérer l'userId depuis le JWT directement
+    // on essaie de récupérer l'userId depuis le token JWT ou les cookies
     let userId: string | null = null
     
     if (user) {
       userId = user.id
+      console.log('✅ Utilisateur authentifié:', userId)
     } else if (authError) {
       console.warn('⚠️ Erreur auth lors de la suppression:', authError.message)
       
-      // Essayer de récupérer l'userId depuis le token JWT dans les cookies
-      try {
-        const cookies = request.headers.get('cookie') || ''
-        // Le token est dans un cookie Supabase, on peut essayer de le parser
-        // Mais pour l'instant, on retourne une erreur si on ne peut pas authentifier
-        console.error('❌ Impossible d\'authentifier l\'utilisateur. L\'utilisateur auth a peut-être déjà été supprimé.')
-        console.error('   Erreur détaillée:', authError)
+      // Si l'erreur est "User from sub claim in JWT does not exist", cela signifie que
+      // l'utilisateur auth a été supprimé mais la session existe encore côté client
+      if (authError.message?.includes('does not exist') || authError.message?.includes('User not found')) {
+        console.error('❌ L\'utilisateur auth a été supprimé mais la session existe encore.')
+        console.error('   Cela signifie que lors d\'un précédent essai, l\'utilisateur auth a été supprimé.')
+        console.error('   Les données peuvent encore exister dans la base de données.')
+        
+        // On ne peut pas continuer sans userId car on ne sait pas quelles données supprimer
         return NextResponse.json({ 
-          error: 'Impossible d\'authentifier l\'utilisateur. Si vous avez déjà tenté de supprimer votre compte, l\'utilisateur peut avoir été partiellement supprimé.',
-          details: authError.message 
-        }, { status: 401 })
-      } catch (parseError) {
-        return NextResponse.json({ 
-          error: 'Impossible d\'authentifier l\'utilisateur',
-          details: authError.message 
+          error: 'L\'utilisateur auth a déjà été supprimé lors d\'un précédent essai.',
+          message: 'Si des données restent, elles seront supprimées automatiquement ou vous pouvez les supprimer manuellement depuis Supabase Dashboard.',
+          details: authError.message,
+          suggestion: 'Vérifiez dans Supabase Dashboard → Authentication → Users si votre utilisateur existe encore.'
         }, { status: 401 })
       }
+      
+      // Autre type d'erreur d'authentification
+      console.error('❌ Erreur d\'authentification:', authError)
+      return NextResponse.json({ 
+        error: 'Impossible d\'authentifier l\'utilisateur',
+        details: authError.message 
+      }, { status: 401 })
     }
 
     if (!userId) {
