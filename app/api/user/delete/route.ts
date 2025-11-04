@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -13,7 +13,24 @@ export async function DELETE(request: NextRequest) {
       userAgent: request.headers.get('user-agent')?.substring(0, 50)
     })
     
-    const supabase = createClient()
+    // Créer un client Supabase directement avec les cookies de la requête
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+    
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          // Ne rien faire car on ne modifie pas les cookies ici
+        },
+        remove(name: string, options: CookieOptions) {
+          // Ne rien faire car on ne modifie pas les cookies ici
+        },
+      },
+    })
+    
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
     console.log('🔍 Auth result:', {
@@ -42,26 +59,85 @@ export async function DELETE(request: NextRequest) {
         
         try {
           // Essayer d'extraire l'userId depuis le JWT dans les cookies
-          const cookies = request.headers.get('cookie') || ''
-          const accessTokenMatch = cookies.match(/sb-[^=]+-auth-token=([^;]+)/)
+          // Supabase SSR stocke le token dans plusieurs formats de cookies
+          const cookieHeader = request.headers.get('cookie') || ''
+          console.log('🔍 Cookies disponibles:', cookieHeader.substring(0, 200) + '...')
           
-          if (accessTokenMatch) {
+          // Chercher tous les cookies Supabase auth-token
+          // Format: sb-{project-ref}-auth-token
+          const projectRef = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || ''
+          const authTokenCookieName = `sb-${projectRef}-auth-token`
+          
+          // Essayer plusieurs patterns de cookies
+          const cookiePatterns = [
+            new RegExp(`${authTokenCookieName}=([^;]+)`),
+            /sb-[^=]+-auth-token=([^;]+)/,
+            /sb-[^=]+-auth-token\.0=([^;]+)/,
+            /sb-[^=]+-auth-token\.1=([^;]+)/,
+          ]
+          
+          let accessToken: string | null = null
+          
+          for (const pattern of cookiePatterns) {
+            const match = cookieHeader.match(pattern)
+            if (match && match[1]) {
+              accessToken = decodeURIComponent(match[1])
+              console.log('✅ Token trouvé avec pattern:', pattern.toString())
+              break
+            }
+          }
+          
+          // Si on n'a pas trouvé de token, essayer de lire directement depuis les cookies de la requête
+          if (!accessToken) {
+            const authTokenCookie = request.cookies.get(authTokenCookieName)
+            if (authTokenCookie) {
+              accessToken = authTokenCookie.value
+              console.log('✅ Token trouvé via request.cookies.get')
+            }
+          }
+          
+          // Si on a un token, essayer de le parser
+          if (accessToken) {
             try {
-              // Le token est en base64url, on peut le décoder
-              const tokenParts = accessTokenMatch[1].split('.')
+              // Le token peut être un objet JSON stringifié ou un JWT direct
+              let tokenString = accessToken
+              
+              // Si c'est un objet JSON, le parser
+              if (accessToken.startsWith('{')) {
+                const tokenObj = JSON.parse(accessToken)
+                tokenString = tokenObj.access_token || tokenObj.accessToken || accessToken
+              }
+              
+              // Le token JWT a 3 parties séparées par des points
+              const tokenParts = tokenString.split('.')
               if (tokenParts.length >= 2) {
                 // Décoder le payload (partie 2 du JWT)
-                const payload = JSON.parse(Buffer.from(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString())
-                const userIdFromJWT = payload.sub || payload.user_id
+                // Base64url: remplacer - par + et _ par /
+                let base64Payload = tokenParts[1].replace(/-/g, '+').replace(/_/g, '/')
+                // Ajouter le padding si nécessaire
+                while (base64Payload.length % 4) {
+                  base64Payload += '='
+                }
+                
+                const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString())
+                const userIdFromJWT = payload.sub || payload.user_id || payload.userId
                 
                 if (userIdFromJWT) {
                   console.log('✅ userId extrait depuis le JWT:', userIdFromJWT)
                   userId = userIdFromJWT
+                } else {
+                  console.warn('⚠️ Payload JWT trouvé mais pas de userId:', Object.keys(payload))
                 }
+              } else {
+                console.warn('⚠️ Token n\'est pas un JWT valide (pas assez de parties)')
               }
-            } catch (jwtError) {
-              console.error('❌ Erreur lors du parsing du JWT:', jwtError)
+            } catch (jwtError: any) {
+              console.error('❌ Erreur lors du parsing du JWT:', jwtError.message)
+              console.error('   Token (premiers 50 chars):', accessToken.substring(0, 50))
             }
+          } else {
+            console.warn('⚠️ Aucun token d\'accès trouvé dans les cookies')
+            console.warn('   Cookies disponibles:', Object.keys(request.cookies.getAll()).join(', '))
           }
           
           // Si on n'a pas réussi à extraire l'userId depuis le JWT, essayer via le service role key
