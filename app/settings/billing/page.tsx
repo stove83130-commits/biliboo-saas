@@ -13,8 +13,17 @@ import {
   XCircle,
   AlertCircle,
   ArrowUpRight,
-  Sparkles
+  Sparkles,
+  X
 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { createClient } from "@/lib/supabase/client"
 import { PLANS } from "@/lib/billing/plans"
 
@@ -47,6 +56,8 @@ function BillingPageContent() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const searchParams = useSearchParams()
   const supabase = createClient()
   
@@ -221,6 +232,46 @@ function BillingPageContent() {
     window.location.href = '/api/billing/portal'
   }
 
+  const handleCancelSubscription = async () => {
+    setCancelling(true)
+    try {
+      const response = await fetch('/api/billing/cancel-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reasons: [],
+          otherReason: ''
+        }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Recharger les données pour afficher le statut d'annulation
+        await loadBillingData(true)
+        setShowCancelDialog(false)
+        // Afficher un message de succès (vous pouvez ajouter un toast ici)
+        alert('Votre abonnement a été annulé avec succès. Il restera actif jusqu\'à la fin de la période de facturation.')
+      } else {
+        if (response.status === 409) {
+          // Abonnement déjà annulé
+          await loadBillingData(true)
+          setShowCancelDialog(false)
+          alert('Votre abonnement est déjà annulé.')
+        } else {
+          alert(`Erreur lors de l'annulation: ${data.error || 'Erreur inconnue'}`)
+        }
+      }
+    } catch (error: any) {
+      console.error('Erreur annulation:', error)
+      alert('Erreur lors de l\'annulation de l\'abonnement. Veuillez réessayer.')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('fr-FR', {
       day: 'numeric',
@@ -354,7 +405,7 @@ function BillingPageContent() {
 
           {/* Actions */}
           <div className="mt-6 pt-6 border-t border-border/30 flex gap-3 flex-wrap">
-            {subscription?.plan !== 'enterprise' && (
+            {subscription?.plan !== 'enterprise' && subscription?.status === 'active' && !subscription?.cancel_at_period_end && (
               <Button
                 onClick={handleUpgrade}
                 className="text-white hover:opacity-90 transition-all"
@@ -364,6 +415,16 @@ function BillingPageContent() {
               >
                 <Sparkles className="h-4 w-4 mr-2" />
                 Améliorer mon plan
+              </Button>
+            )}
+            {subscription?.plan && subscription?.status === 'active' && !subscription?.cancel_at_period_end && (
+              <Button
+                variant="outline"
+                onClick={() => setShowCancelDialog(true)}
+                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              >
+                <X className="h-4 w-4 mr-2" />
+                Annuler l'abonnement
               </Button>
             )}
             <Button
@@ -524,6 +585,52 @@ function BillingPageContent() {
           )}
         </Card>
       </div>
+
+      {/* Dialog d'annulation */}
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Annuler l'abonnement</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir annuler votre abonnement ?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg mb-4">
+              <p className="text-sm text-amber-900">
+                <strong>Information importante :</strong> Votre abonnement restera actif jusqu'à la fin de la période de facturation ({subscription?.current_period_end ? formatDate(subscription.current_period_end) : 'la fin de la période'}). 
+                Vous pourrez continuer à utiliser tous les services jusqu'à cette date.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Vous pourrez réactiver votre abonnement à tout moment avant la fin de la période.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCancelDialog(false)}
+              disabled={cancelling}
+            >
+              Conserver l'abonnement
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelSubscription}
+              disabled={cancelling}
+            >
+              {cancelling ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Annulation en cours...
+                </>
+              ) : (
+                'Confirmer l\'annulation'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
