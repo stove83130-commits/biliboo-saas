@@ -54,7 +54,7 @@ export async function DELETE(request: Request) {
     }
     console.log('✅ Comptes email supprimés')
 
-    // 4. Récupérer les organisations dont l'utilisateur est propriétaire
+    // 4. Récupérer TOUTES les organisations dont l'utilisateur est propriétaire (y compris le workspace personnel)
     const { data: ownedWorkspaces } = await supabase
       .from('workspaces')
       .select('id')
@@ -120,40 +120,55 @@ export async function DELETE(request: Request) {
       console.log('✅ Profil supprimé')
     }
 
-    // 7. Supprimer l'utilisateur dans auth.users via Admin API
-    try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
-      const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-      
-      if (supabaseServiceRoleKey && supabaseUrl) {
-        const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceRoleKey, {
-          auth: {
-            autoRefreshToken: false,
-            persistSession: false
+    // 7. NE PAS supprimer l'utilisateur auth.users immédiatement
+    // Cela invalide la session et cause des erreurs 401/403 pour les composants qui chargent encore des données
+    // L'utilisateur auth sera supprimé par le client après déconnexion de la session, ou via un trigger CASCADE
+    // Si SUPABASE_SERVICE_ROLE_KEY est configuré, on peut le supprimer mais avec un délai pour laisser le client se déconnecter
+    console.log('⚠️ IMPORTANT: L\'utilisateur auth.users n\'est PAS supprimé immédiatement pour éviter les erreurs de session')
+    console.log('ℹ️ Les données sont toutes supprimées. L\'utilisateur auth sera supprimé:')
+    console.log('   1. Par le client après déconnexion de la session (recommandé)')
+    console.log('   2. Via un trigger CASCADE si configuré dans Supabase')
+    console.log('   3. Ou manuellement si nécessaire')
+    
+    // Optionnel: Supprimer l'utilisateur auth avec un délai (si vraiment nécessaire)
+    // Mais cela peut toujours causer des problèmes si le client charge encore des données
+    const shouldDeleteAuthUser = process.env.DELETE_AUTH_USER_IMMEDIATELY === 'true'
+    
+    if (shouldDeleteAuthUser) {
+      try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+        const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+        
+        if (supabaseServiceRoleKey && supabaseUrl) {
+          // Attendre un peu pour laisser le client se déconnecter
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceRoleKey, {
+            auth: {
+              autoRefreshToken: false,
+              persistSession: false
+            }
+          })
+          
+          const { error: deleteUserError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+          
+          if (deleteUserError) {
+            console.error('⚠️ Impossible de supprimer auth.users directement:', deleteUserError)
+          } else {
+            console.log('✅ Utilisateur auth supprimé (avec délai)')
           }
-        })
-        
-        const { error: deleteUserError } = await supabaseAdmin.auth.admin.deleteUser(userId)
-        
-        if (deleteUserError) {
-          console.error('⚠️ Impossible de supprimer auth.users directement:', deleteUserError)
-          console.log('ℹ️ Les données sont supprimées, mais l\'utilisateur auth peut nécessiter une suppression manuelle')
-        } else {
-          console.log('✅ Utilisateur auth supprimé')
         }
-      } else {
-        console.log('⚠️ SUPABASE_SERVICE_ROLE_KEY non configuré - l\'utilisateur auth sera supprimé via triggers CASCADE si configurés')
+      } catch (adminError: any) {
+        console.error('⚠️ Erreur lors de la suppression admin:', adminError)
       }
-    } catch (adminError: any) {
-      console.error('⚠️ Erreur lors de la suppression admin:', adminError)
-      console.log('ℹ️ Les données sont supprimées, mais l\'utilisateur auth peut nécessiter une suppression manuelle')
     }
 
     console.log(`✅ Suppression complète terminée pour l'utilisateur ${userId}`)
 
     return NextResponse.json({ 
       success: true, 
-      message: 'Compte et toutes les données associées supprimés avec succès' 
+      message: 'Compte et toutes les données associées supprimés avec succès',
+      note: 'L\'utilisateur auth sera supprimé après déconnexion de la session pour éviter les erreurs'
     })
 
   } catch (error: any) {

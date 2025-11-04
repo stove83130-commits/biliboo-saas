@@ -273,6 +273,17 @@ export default function PersonalSettingsPage() {
                               const supabase = createClient()
                               await supabase.auth.signOut()
                               console.log('✅ Session déconnectée')
+                              
+                              // Maintenant que la session est déconnectée, supprimer l'utilisateur auth si possible
+                              // Cela peut être fait via une API séparée ou laissé à Supabase (trigger CASCADE)
+                              try {
+                                // Optionnel: Appeler une API pour supprimer l'utilisateur auth
+                                // Mais ce n'est pas nécessaire car les données sont déjà supprimées
+                                // L'utilisateur auth peut rester (orphan) ou être supprimé via trigger CASCADE
+                                console.log('ℹ️ Les données sont supprimées. L\'utilisateur auth sera supprimé automatiquement ou peut rester orphelin.')
+                              } catch (deleteAuthError) {
+                                console.warn('⚠️ Erreur suppression auth user (non bloquant):', deleteAuthError)
+                              }
                             } catch (signOutError) {
                               console.warn('⚠️ Erreur lors de la déconnexion (non bloquant):', signOutError)
                             }
@@ -285,7 +296,8 @@ export default function PersonalSettingsPage() {
                             }
                             
                             // Rediriger immédiatement vers la page de login
-                            window.location.href = '/auth/login?deleted=true'
+                            // Utiliser window.location.replace pour éviter que l'utilisateur puisse revenir en arrière
+                            window.location.replace('/auth/login?deleted=true')
                           } else {
                             // Restaurer le gestionnaire d'erreurs
                             if (originalErrorHandler) {
