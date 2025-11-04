@@ -33,19 +33,54 @@ function SettingsPageContent() {
   
   // Pour un workspace personnel (null ou 'personal'), on a toujours les permissions
   // Pour un workspace d'organisation, on vérifie les permissions
-  const isPersonalWorkspace = !activeWorkspaceId || activeWorkspaceId === 'personal'
+  const isPersonalWorkspace = !activeWorkspaceId || activeWorkspaceId === 'personal' || activeWorkspaceId.trim() === ''
   const workspacePermissions = useWorkspacePermissions(isPersonalWorkspace ? null : activeWorkspaceId)
   
-  // Permissions adaptées : pour un workspace personnel, on a toujours les droits
+  // Permissions adaptées : pour un workspace personnel, on a toujours les droits complets
+  // Ne pas utiliser les permissions du hook pour les espaces personnels
   const permissions = {
     ...workspacePermissions,
-    canManageEmailConnections: isPersonalWorkspace ? true : workspacePermissions.canManageEmailConnections
+    canManageEmailConnections: isPersonalWorkspace ? true : workspacePermissions.canManageEmailConnections,
+    canModifyOrganization: isPersonalWorkspace ? true : workspacePermissions.canModifyOrganization,
+    canDeleteOrganization: isPersonalWorkspace ? true : workspacePermissions.canDeleteOrganization,
+    canViewBilling: isPersonalWorkspace ? true : workspacePermissions.canViewBilling,
+    canManageBilling: isPersonalWorkspace ? true : workspacePermissions.canManageBilling,
+    canInviteMembers: isPersonalWorkspace ? true : workspacePermissions.canInviteMembers,
+    canViewInvoices: isPersonalWorkspace ? true : workspacePermissions.canViewInvoices,
+    canManageInvoices: isPersonalWorkspace ? true : workspacePermissions.canManageInvoices,
+    canViewFullStatistics: isPersonalWorkspace ? true : workspacePermissions.canViewFullStatistics,
+    canViewActivityLogs: isPersonalWorkspace ? true : workspacePermissions.canViewActivityLogs,
   }
+  
+  console.log('🔍 Permissions debug:', {
+    activeWorkspaceId,
+    isPersonalWorkspace,
+    canManageEmailConnections: permissions.canManageEmailConnections,
+    workspacePermissionsCanManage: workspacePermissions.canManageEmailConnections
+  })
   
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const workspaceId = localStorage.getItem('active_workspace_id')
       setActiveWorkspaceId(workspaceId)
+      console.log('📋 Workspace ID chargé:', workspaceId, 'Is personal:', !workspaceId || workspaceId === 'personal')
+    }
+  }, [])
+  
+  // Écouter les changements de workspace
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const handleWorkspaceChange = () => {
+      const workspaceId = localStorage.getItem('active_workspace_id')
+      setActiveWorkspaceId(workspaceId)
+      console.log('🔄 Workspace changé:', workspaceId)
+      fetchEmailAccounts()
+    }
+    
+    window.addEventListener('workspace:changed', handleWorkspaceChange as any)
+    return () => {
+      window.removeEventListener('workspace:changed', handleWorkspaceChange as any)
     }
   }, [])
   
