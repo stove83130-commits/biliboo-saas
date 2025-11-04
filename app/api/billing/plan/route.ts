@@ -27,7 +27,25 @@ export async function GET() {
   const subscriptionStatus = user.user_metadata?.subscription_status || null
   const isTrial = Boolean(user.user_metadata?.is_trial)
   const trialEndsAt = user.user_metadata?.trial_ends_at ?? null
-  const hasActive = planKey ? hasActivePlan(planKey) : false
+  
+  // Vérifier si le plan existe ET si l'abonnement Stripe est actif
+  const planExists = planKey ? hasActivePlan(planKey) : false
+  const subscriptionIsActive = subscriptionStatus === 'active' || subscriptionStatus === 'trialing'
+  const trialIsActive = isTrial && trialEndsAt && new Date(trialEndsAt) > new Date()
+  
+  // L'utilisateur a un plan actif si : le plan existe ET (abonnement actif OU essai actif)
+  const hasActive = planExists && (subscriptionIsActive || trialIsActive)
+  
+  console.log('🔍 Vérification plan actif:', {
+    planKey,
+    planExists,
+    subscriptionStatus,
+    subscriptionIsActive,
+    isTrial,
+    trialEndsAt,
+    trialIsActive,
+    hasActive
+  })
   
   // Vérifier si l'utilisateur a déjà eu un plan (même expiré/annulé)
   const hasEverHadPlan = Boolean(
