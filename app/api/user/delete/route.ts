@@ -35,18 +35,67 @@ export async function DELETE(request: NextRequest) {
       
       // Si l'erreur est "User from sub claim in JWT does not exist", cela signifie que
       // l'utilisateur auth a été supprimé mais la session existe encore côté client
+      // Le JWT contient encore l'userId, on peut l'extraire pour supprimer les données restantes
       if (authError.message?.includes('does not exist') || authError.message?.includes('User not found')) {
-        console.error('❌ L\'utilisateur auth a été supprimé mais la session existe encore.')
-        console.error('   Cela signifie que lors d\'un précédent essai, l\'utilisateur auth a été supprimé.')
-        console.error('   Les données peuvent encore exister dans la base de données.')
+        console.warn('⚠️ L\'utilisateur auth a été supprimé mais la session existe encore.')
+        console.warn('   Tentative d\'extraction de l\'userId depuis le JWT...')
         
-        // On ne peut pas continuer sans userId car on ne sait pas quelles données supprimer
-        return NextResponse.json({ 
-          error: 'L\'utilisateur auth a déjà été supprimé lors d\'un précédent essai.',
-          message: 'Si des données restent, elles seront supprimées automatiquement ou vous pouvez les supprimer manuellement depuis Supabase Dashboard.',
-          details: authError.message,
-          suggestion: 'Vérifiez dans Supabase Dashboard → Authentication → Users si votre utilisateur existe encore.'
-        }, { status: 401 })
+        try {
+          // Essayer d'extraire l'userId depuis le JWT dans les cookies
+          const cookies = request.headers.get('cookie') || ''
+          const accessTokenMatch = cookies.match(/sb-[^=]+-auth-token=([^;]+)/)
+          
+          if (accessTokenMatch) {
+            try {
+              // Le token est en base64url, on peut le décoder
+              const tokenParts = accessTokenMatch[1].split('.')
+              if (tokenParts.length >= 2) {
+                // Décoder le payload (partie 2 du JWT)
+                const payload = JSON.parse(Buffer.from(tokenParts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString())
+                const userIdFromJWT = payload.sub || payload.user_id
+                
+                if (userIdFromJWT) {
+                  console.log('✅ userId extrait depuis le JWT:', userIdFromJWT)
+                  userId = userIdFromJWT
+                }
+              }
+            } catch (jwtError) {
+              console.error('❌ Erreur lors du parsing du JWT:', jwtError)
+            }
+          }
+          
+          // Si on n'a pas réussi à extraire l'userId depuis le JWT, essayer via le service role key
+          if (!userId) {
+            console.log('⚠️ Impossible d\'extraire userId depuis JWT, tentative via service role key...')
+            
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+            const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+            
+            if (supabaseServiceRoleKey && supabaseUrl) {
+              // On ne peut pas vraiment trouver l'userId sans email ou autre identifiant
+              // Mais on peut au moins informer l'utilisateur
+              console.error('❌ Impossible de déterminer l\'userId pour supprimer les données restantes.')
+              return NextResponse.json({ 
+                error: 'L\'utilisateur auth a déjà été supprimé lors d\'un précédent essai.',
+                message: 'Impossible de déterminer automatiquement quelles données supprimer. Les données restantes doivent être supprimées manuellement depuis Supabase Dashboard.',
+                details: authError.message,
+                suggestion: 'Allez dans Supabase Dashboard → Table Editor et supprimez manuellement les données restantes (invoices, workspaces, email_accounts, etc.) associées à votre compte.'
+              }, { status: 401 })
+            }
+          }
+        } catch (extractError) {
+          console.error('❌ Erreur lors de l\'extraction de l\'userId:', extractError)
+        }
+        
+        // Si on n'a toujours pas d'userId après toutes les tentatives
+        if (!userId) {
+          return NextResponse.json({ 
+            error: 'L\'utilisateur auth a déjà été supprimé lors d\'un précédent essai.',
+            message: 'Impossible de déterminer automatiquement quelles données supprimer. Les données restantes doivent être supprimées manuellement depuis Supabase Dashboard.',
+            details: authError.message,
+            suggestion: 'Allez dans Supabase Dashboard → Table Editor et supprimez manuellement les données restantes.'
+          }, { status: 401 })
+        }
       }
       
       // Autre type d'erreur d'authentification
