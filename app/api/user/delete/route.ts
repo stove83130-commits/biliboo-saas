@@ -9,11 +9,37 @@ export async function DELETE(request: Request) {
     const supabase = createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    // Si l'utilisateur auth n'existe plus (partiellement supprimé lors d'un précédent essai),
+    // on essaie de récupérer l'userId depuis le JWT directement
+    let userId: string | null = null
+    
+    if (user) {
+      userId = user.id
+    } else if (authError) {
+      console.warn('⚠️ Erreur auth lors de la suppression:', authError.message)
+      
+      // Essayer de récupérer l'userId depuis le token JWT dans les cookies
+      try {
+        const cookies = request.headers.get('cookie') || ''
+        // Le token est dans un cookie Supabase, on peut essayer de le parser
+        // Mais pour l'instant, on retourne une erreur si on ne peut pas authentifier
+        console.error('❌ Impossible d\'authentifier l\'utilisateur. L\'utilisateur auth a peut-être déjà été supprimé.')
+        console.error('   Erreur détaillée:', authError)
+        return NextResponse.json({ 
+          error: 'Impossible d\'authentifier l\'utilisateur. Si vous avez déjà tenté de supprimer votre compte, l\'utilisateur peut avoir été partiellement supprimé.',
+          details: authError.message 
+        }, { status: 401 })
+      } catch (parseError) {
+        return NextResponse.json({ 
+          error: 'Impossible d\'authentifier l\'utilisateur',
+          details: authError.message 
+        }, { status: 401 })
+      }
     }
 
-    const userId = user.id
+    if (!userId) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    }
 
     console.log(`🗑️ Début de la suppression du compte pour l'utilisateur ${userId}`)
 
