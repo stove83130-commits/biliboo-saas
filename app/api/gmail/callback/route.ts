@@ -10,7 +10,12 @@ export async function GET(request: Request) {
   const error = searchParams.get('error')
   const state = searchParams.get('state') || ''
   const stateParams = new URLSearchParams(state)
-  const workspaceId = stateParams.get('workspaceId') || null
+  let workspaceId = stateParams.get('workspaceId') || null
+  
+  // Si workspaceId est 'personal' ou vide, on le met à null pour un compte personnel
+  if (workspaceId === 'personal' || workspaceId?.trim() === '') {
+    workspaceId = null
+  }
 
   if (error) {
     return NextResponse.redirect(`${origin}/dashboard?error=gmail_connection_failed`)
