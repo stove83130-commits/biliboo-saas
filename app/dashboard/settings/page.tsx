@@ -92,16 +92,26 @@ function SettingsPageContent() {
 
   const fetchEmailAccounts = async () => {
     try {
-      const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
-      let query: any = supabase
+      setLoading(true)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      
+      const currentWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
+      
+      let query = supabase
         .from('email_accounts')
         .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
         .order('created_at', { ascending: false })
 
-      if (activeWorkspaceId && activeWorkspaceId !== 'personal') {
-        query = query.eq('workspace_id', activeWorkspaceId)
+      // Pour un workspace personnel (null ou 'personal'), on charge les comptes sans workspace_id
+      // Pour un workspace d'organisation, on charge uniquement les comptes de ce workspace
+      if (currentWorkspaceId && currentWorkspaceId !== 'personal' && currentWorkspaceId.trim() !== '') {
+        query = query.eq('workspace_id', currentWorkspaceId)
       } else {
-        query = query.is('workspace_id', null)
+        // Pour un workspace personnel, on charge les comptes avec workspace_id = null ou 'personal'
+        query = query.or('workspace_id.is.null,workspace_id.eq.personal')
       }
 
       const { data, error } = await query
