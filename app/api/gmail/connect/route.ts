@@ -70,16 +70,27 @@ export async function GET(request: Request) {
   }
   
   console.log('🔗 URI de redirection Gmail finale:', `${baseUrl}/api/gmail/callback`)
+  console.log('🔍 Vérification plan et permissions...')
 
   // Vérifier les permissions du plan
   const planId = user.user_metadata?.selected_plan
-  const { count } = await supabase
+  const { count, error: countError } = await supabase
     .from('email_accounts')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('is_active', true)
 
-  if (!canAddEmailAccount(planId, count || 0)) {
+  if (countError) {
+    console.error('❌ Erreur lors du comptage des comptes email:', countError)
+  }
+
+  console.log('📊 Plan ID:', planId, 'Comptes email actifs:', count || 0)
+  
+  const canAdd = canAddEmailAccount(planId, count || 0)
+  console.log('✅ Peut ajouter compte email:', canAdd)
+
+  if (!canAdd) {
+    console.log('❌ Limite de plan atteinte, redirection vers dashboard')
     return NextResponse.redirect(`${baseUrl}/dashboard?error=plan_limit_reached&feature=email`)
   }
 
@@ -108,11 +119,21 @@ export async function GET(request: Request) {
   
   console.log('✅ Permissions OK, redirection vers OAuth Gmail. WorkspaceId:', workspaceId || 'personal')
 
+  // Vérifier que les credentials Google sont configurés
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    console.error('❌ GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET non configuré')
+    return NextResponse.redirect(`${baseUrl}/dashboard?error=google_oauth_not_configured`)
+  }
+
+  console.log('🔑 Google OAuth credentials présents, création du client OAuth2...')
+
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     `${baseUrl}/api/gmail/callback`
   )
+  
+  console.log('🔗 Callback URI configuré:', `${baseUrl}/api/gmail/callback`)
 
   const statePayload = new URLSearchParams()
   // Ne passer workspaceId dans le state que s'il est valide et n'est pas 'personal'
@@ -130,6 +151,9 @@ export async function GET(request: Request) {
     prompt: 'consent',
     state: statePayload.toString() || undefined,
   })
+
+  console.log('🌐 URL OAuth Google générée:', authUrl.substring(0, 100) + '...')
+  console.log('✅ Redirection vers Google OAuth...')
 
   return NextResponse.redirect(authUrl)
 }
