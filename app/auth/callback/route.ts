@@ -144,6 +144,14 @@ export async function GET(request: NextRequest) {
   // Gérer les codes d'authentification standard (OAuth, etc.) - mais PAS recovery/signup qui sont gérés plus haut
   if (code && type !== 'recovery' && type !== 'signup') {
     console.log('Standard auth flow (OAuth, etc.)')
+    console.log('📧 Code présent:', code ? 'yes' : 'no', 'Type:', type)
+    
+    // Vérifier que le code est valide
+    if (!code || code.trim() === '') {
+      console.error('❌ Code vide ou invalide')
+      return buildRedirectResponse(`${origin}/auth/login?error=invalid_code`)
+    }
+    
     // Créer un client SSR lié à une réponse pour que les cookies soient bien écrits AVANT la redirection
     let response = NextResponse.next()
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
@@ -164,11 +172,29 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    // Vérifier si on a un code_verifier dans les cookies (pour PKCE)
+    // Supabase stocke le code_verifier dans les cookies lors de la génération du code
+    const codeVerifier = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-code-verifier')?.value
+    console.log('📧 Code verifier présent:', codeVerifier ? 'yes' : 'no')
+
+    const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
-      console.error('Erreur lors de l\'échange du code:', error)
-      return NextResponse.redirect(`${origin}/auth/login?error=auth_failed`)
+      console.error('❌ Erreur lors de l\'échange du code:', error)
+      console.error('❌ Détails erreur:', JSON.stringify(error, null, 2))
+      console.error('❌ Code:', code.substring(0, 20) + '...')
+      console.error('❌ Code verifier présent:', !!codeVerifier)
+      
+      // Si l'erreur est liée au code verifier, rediriger vers login avec un message spécifique
+      if (error.message?.includes('code verifier') || error.message?.includes('code_verifier')) {
+        console.error('❌ Erreur code verifier - redirection vers login')
+        return buildRedirectResponse(`${origin}/auth/login?error=code_verifier_missing`)
+      }
+      
+      return buildRedirectResponse(`${origin}/auth/login?error=auth_failed`)
     }
+    
+    console.log('✅ Code échangé avec succès pour OAuth')
+    console.log('📧 Session user:', sessionData?.user?.id || 'N/A')
 
     // Assurer l\'écriture effective des cookies en forçant une lecture de session
     await supabase.auth.getUser()

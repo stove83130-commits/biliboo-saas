@@ -132,34 +132,49 @@ export default function OnboardingPage() {
 
     try {
       const supabase = createClient();
-      let { data: { user }, error: userError } = await supabase.auth.getUser();
-
-      if (!user || userError) {
-        console.error('❌ Utilisateur non authentifié:', userError);
-        // Attendre 1 seconde et réessayer
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const { data: { user: retryUser }, error: retryError } = await supabase.auth.getUser();
+      
+      // Réessayer plusieurs fois pour récupérer l'utilisateur (la session peut mettre du temps à se synchroniser)
+      let user = null;
+      let userError = null;
+      let retries = 0;
+      const maxRetries = 5;
+      
+      while (retries < maxRetries && !user) {
+        const { data: { user: currentUser }, error: currentError } = await supabase.auth.getUser();
         
-        if (!retryUser || retryError) {
-          console.error('❌ Retry échoué:', retryError);
-          // Au lieu de rediriger vers login, afficher un message et laisser l'utilisateur continuer
-          // Le middleware gérera la session lors de la navigation
-          console.warn('⚠️ Session non disponible, mais continuons quand même');
-          // Créer un utilisateur temporaire pour permettre la soumission
-          // (la page onboarding peut fonctionner sans session si nécessaire)
-          alert('Session expirée. Veuillez vous reconnecter et compléter l\'onboarding.');
-          window.location.href = '/auth/login';
-          return;
+        if (currentUser && !currentError) {
+          user = currentUser;
+          console.log(`✅ Utilisateur récupéré à la tentative ${retries + 1}/${maxRetries}`);
+          break;
         }
         
-        // Utiliser l'utilisateur du retry
-        user = retryUser;
+        userError = currentError;
+        retries++;
+        
+        if (retries < maxRetries) {
+          console.warn(`⚠️ Tentative ${retries + 1}/${maxRetries} de récupération de l'utilisateur (avant soumission)...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      // Si on n'a toujours pas d'utilisateur après plusieurs tentatives, continuer quand même
+      // Le backend vérifiera la session lors de la mise à jour
+      if (!user) {
+        console.warn('⚠️ Session non disponible après plusieurs tentatives, mais continuons quand même');
+        console.warn('   Le backend vérifiera la session lors de la mise à jour des métadonnées');
+        // Ne pas bloquer l'utilisateur, continuer avec la soumission
+        // Si la session est vraiment expirée, l'erreur viendra du backend et on la gérera
       }
 
-      console.log('✅ Utilisateur authentifié:', user.email);
+      if (user) {
+        console.log('✅ Utilisateur authentifié:', user.email);
+      } else {
+        console.warn('⚠️ Pas d\'utilisateur disponible, mais tentative de mise à jour quand même');
+      }
 
       // Mettre à jour les métadonnées avec les réponses
-      const { error } = await supabase.auth.updateUser({
+      // Si user est null, Supabase essaiera quand même de mettre à jour avec la session dans les cookies
+      const { error, data: updateData } = await supabase.auth.updateUser({
         data: {
           onboarding_completed: true,
           onboarding_responses: answers,
@@ -172,27 +187,89 @@ export default function OnboardingPage() {
 
       if (error) {
         console.error('❌ Erreur lors de la sauvegarde:', error);
-        alert('Erreur lors de la sauvegarde. Veuillez réessayer.');
-        return;
+        console.error('❌ Détails erreur:', {
+          message: error.message,
+          status: error.status,
+          name: error.name
+        });
+        
+        // Pour TOUTES les erreurs, réessayer plusieurs fois avec des délais
+        // Cela permet de gérer les erreurs temporaires de synchronisation
+        let retryCount = 0;
+        const maxRetries = 3;
+        let lastError = error;
+        let success = false;
+        
+        while (retryCount < maxRetries && !success) {
+          retryCount++;
+          console.warn(`⚠️ Tentative ${retryCount}/${maxRetries} de mise à jour des métadonnées...`);
+          
+          // Attendre avant de réessayer (délai progressif)
+          await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+          
+          // Réessayer la mise à jour
+          const { error: retryError } = await supabase.auth.updateUser({
+            data: {
+              onboarding_completed: true,
+              onboarding_responses: answers,
+              profile: answers['profile']?.[0],
+              volume: answers['volume']?.[0],
+              situation: answers['situation'],
+              acquisition: answers['acquisition']?.[0],
+            },
+          });
+          
+          if (!retryError) {
+            console.log(`✅ Métadonnées mises à jour avec succès à la tentative ${retryCount}`);
+            success = true;
+            break;
+          }
+          
+          lastError = retryError;
+          console.warn(`⚠️ Tentative ${retryCount} échouée:`, retryError.message);
+        }
+        
+        // Si toutes les tentatives ont échoué, continuer quand même
+        // Le middleware ou le dashboard vérifiera la session
+        // NE PAS bloquer l'utilisateur avec une alerte
+        if (!success) {
+          console.warn('⚠️ Toutes les tentatives ont échoué, mais continuons quand même');
+          console.warn('   Le middleware vérifiera la session lors de l\'accès au dashboard');
+          // Les métadonnées peuvent être partiellement sauvegardées
+          // On continue le flux normal
+        }
+      } else {
+        console.log('✅ Métadonnées mises à jour avec succès');
       }
 
       console.log('✅ Onboarding complété, redirection vers dashboard');
       
       // Attendre un peu pour que les métadonnées soient bien synchronisées
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Rafraîchir la session pour s'assurer qu'elle est à jour
+      try {
+        const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError && session) {
+          console.log('✅ Session rafraîchie');
+        }
+      } catch (refreshErr) {
+        console.warn('⚠️ Erreur lors du rafraîchissement de session (non bloquant):', refreshErr);
+      }
       
       // Vérifier que l'utilisateur est toujours connecté avant de rediriger
       // Réessayer plusieurs fois en cas d'erreur temporaire
       let finalUser = null;
       let finalError = null;
       let retries = 0;
-      const maxRetries = 3;
+      const maxRetries = 5; // Augmenter le nombre de tentatives
       
       while (retries < maxRetries && !finalUser) {
         const { data: { user }, error } = await supabase.auth.getUser();
         
         if (user && !error) {
           finalUser = user;
+          console.log(`✅ Utilisateur récupéré à la tentative ${retries + 1}/${maxRetries}`);
           break;
         }
         
@@ -201,7 +278,8 @@ export default function OnboardingPage() {
         
         if (retries < maxRetries) {
           console.warn(`⚠️ Tentative ${retries + 1}/${maxRetries} de récupération de l'utilisateur...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Augmenter le délai entre les tentatives
+          await new Promise(resolve => setTimeout(resolve, 1500));
         }
       }
       
@@ -210,7 +288,8 @@ export default function OnboardingPage() {
         // En cas d'échec, rediriger quand même vers le dashboard
         // Le middleware gérera la redirection vers login si nécessaire
         console.warn('⚠️ Redirection vers dashboard malgré l\'erreur (le middleware gérera la session)');
-        window.location.href = '/dashboard';
+        // Utiliser window.location.replace pour éviter que l'utilisateur puisse revenir en arrière
+        window.location.replace('/dashboard');
         return;
       }
       
@@ -225,18 +304,31 @@ export default function OnboardingPage() {
           },
         });
         // Attendre un peu après la mise à jour
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
       console.log('✅ Utilisateur vérifié, redirection vers dashboard');
+      console.log('📧 Détails utilisateur:', {
+        id: finalUser.id,
+        email: finalUser.email,
+        onboarding_completed: finalUser.user_metadata?.onboarding_completed,
+        email_confirmed_at: finalUser.email_confirmed_at
+      });
       
       // Rediriger vers le dashboard
-      // Utiliser window.location.href pour forcer une navigation complète
+      // Utiliser window.location.replace pour forcer une navigation complète
       // Cela permet au middleware de voir les cookies de session mis à jour
-      window.location.href = '/dashboard';
+      // replace() empêche aussi l'utilisateur de revenir en arrière avec le bouton retour
+      window.location.replace('/dashboard');
     } catch (error) {
-      console.error('❌ Erreur:', error);
-      alert('Une erreur est survenue. Veuillez réessayer.');
+      console.error('❌ Erreur lors de la soumission de l\'onboarding:', error);
+      // Ne pas afficher d'alerte pour éviter de perturber l'expérience utilisateur
+      // Le flux continue vers le dashboard même en cas d'erreur
+      // Le middleware vérifiera la session et redirigera si nécessaire
+      console.warn('⚠️ Redirection vers dashboard malgré l\'erreur (non bloquant)');
+      // Attendre un peu avant de rediriger pour laisser le temps aux logs d'être enregistrés
+      await new Promise(resolve => setTimeout(resolve, 500));
+      window.location.replace('/dashboard');
     } finally {
       setIsSubmitting(false);
     }

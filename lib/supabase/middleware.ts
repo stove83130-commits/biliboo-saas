@@ -88,8 +88,20 @@ export async function updateSession(request: NextRequest) {
       pathname === route || pathname.startsWith(route + '/')
     )
     
+    // IMPORTANT: Les routes API ne doivent PAS être redirigées vers login
+    // Elles doivent gérer elles-mêmes l'authentification et retourner des erreurs JSON
+    const isApiRoute = pathname.startsWith('/api/')
+    
     // Si l'utilisateur n'est pas authentifié et essaie d'accéder à une route protégée
     if (!user && !isPublicRoute) {
+      // Pour les routes API, ne pas rediriger, laisser l'API gérer l'erreur
+      if (isApiRoute) {
+        console.log('🔒 Route API sans authentification, laisser l\'API gérer')
+        // Laisser passer, l'API retournera une erreur 401 JSON
+        return response
+      }
+      
+      // Pour les routes pages, rediriger vers login
       console.log('🔒 Utilisateur non authentifié, redirection vers /auth/login')
       const redirectUrl = new URL('/auth/login', request.url)
       return NextResponse.redirect(redirectUrl)
@@ -116,8 +128,18 @@ export async function updateSession(request: NextRequest) {
         pathname === route || pathname.startsWith(route + '/')
       )
       
-      // Si ce n'est pas une route autorisée, rediriger vers /verify-email
+      // IMPORTANT: Les routes API ne doivent PAS être redirigées
+      // Elles doivent gérer elles-mêmes la vérification d'email
+      const isApiRoute = pathname.startsWith('/api/')
+      
+      // Si ce n'est pas une route autorisée, rediriger vers /verify-email (sauf pour les API)
       if (!isAllowedRoute) {
+        if (isApiRoute) {
+          // Laisser passer pour les API, elles géreront l'erreur
+          console.log('📧 Route API avec email non confirmé, laisser l\'API gérer')
+          return response
+        }
+        
         console.log('📧 Email non confirmé, redirection vers /verify-email')
         const redirectUrl = new URL('/verify-email', request.url)
         return NextResponse.redirect(redirectUrl)
