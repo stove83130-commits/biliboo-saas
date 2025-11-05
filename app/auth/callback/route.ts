@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
   // Les confirmations email n'ont généralement pas de code verifier (sauf si PKCE est activé)
   // Les OAuth ont toujours un code verifier
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
   const hasCodeVerifier = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-code-verifier')?.value
   const isSignupFlow = type === 'signup' || (!type && !hasCodeVerifier && code)
   
@@ -50,8 +51,6 @@ export async function GET(request: NextRequest) {
     
     // Créer un client SSR pour échanger le code et confirmer l'email
     let response = NextResponse.next()
-    // supabaseUrl est déjà défini plus haut
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
