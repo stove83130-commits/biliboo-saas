@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { RefreshCw, CheckCircle2, X } from "lucide-react"
-import { useState, useEffect, Suspense } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter, useSearchParams } from "next/navigation"
 import { UpgradeModal } from "@/components/dashboard/upgrade-modal"
@@ -171,11 +171,14 @@ function SettingsPageContent() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
   useEffect(() => {
-    fetchEmailAccounts()
+    // Ne charger les comptes que si le workspace est initialisé
+    if (isInitialized) {
+      fetchEmailAccounts()
+    }
     const handler = () => fetchEmailAccounts()
     if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
     return () => { if (typeof window !== 'undefined') window.removeEventListener('workspace:changed', handler as any) }
-  }, [])
+  }, [isInitialized, workspaceType, isPersonalWorkspace])
 
   useEffect(() => {
     // Check for success/error messages
@@ -206,14 +209,16 @@ function SettingsPageContent() {
     }
   }, [searchParams])
 
-  const fetchEmailAccounts = async () => {
+  const fetchEmailAccounts = useCallback(async () => {
     try {
       setLoading(true)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       
-      // Utiliser le currentWorkspaceId calculé ou charger depuis localStorage
-      const workspaceIdToUse = currentWorkspaceId || (typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null)
+      // Utiliser le workspaceType et currentWorkspaceId pour déterminer la requête
+      // Charger l'ID depuis localStorage si nécessaire
+      const workspaceIdFromStorage = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
+      const workspaceIdToUse = currentWorkspaceId || workspaceIdFromStorage
       
       let query = supabase
         .from('email_accounts')
@@ -225,7 +230,9 @@ function SettingsPageContent() {
       // IMPORTANT: Utiliser le TYPE du workspace pour déterminer la requête
       // Si c'est un workspace personnel (type === 'personal'), charger les comptes sans workspace_id
       // Si c'est un workspace d'organisation, charger uniquement les comptes de ce workspace
-      if (isPersonalWorkspace || workspaceType === 'personal') {
+      const isPersonal = workspaceType === 'personal' || workspaceType === null || !workspaceIdToUse
+      
+      if (isPersonal) {
         // Pour un workspace personnel, on charge les comptes avec workspace_id = null ou 'personal'
         query = query.or('workspace_id.is.null,workspace_id.eq.personal')
       } else if (workspaceIdToUse && workspaceIdToUse.trim() !== '') {
@@ -245,7 +252,7 @@ function SettingsPageContent() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [supabase, currentWorkspaceId, workspaceType])
 
   const handleConnectGmail = () => {
     // Pour ajouter un compte Gmail, on utilise toujours 'personal' ou on ne passe pas de workspaceId
