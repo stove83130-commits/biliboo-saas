@@ -212,7 +212,8 @@ function SettingsPageContent() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       
-      const currentWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
+      // Utiliser le currentWorkspaceId calculé ou charger depuis localStorage
+      const workspaceIdToUse = currentWorkspaceId || (typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null)
       
       let query = supabase
         .from('email_accounts')
@@ -221,12 +222,17 @@ function SettingsPageContent() {
         .eq('is_active', true)
         .order('created_at', { ascending: false })
 
-      // Pour un workspace personnel (null ou 'personal'), on charge les comptes sans workspace_id
-      // Pour un workspace d'organisation, on charge uniquement les comptes de ce workspace
-      if (currentWorkspaceId && currentWorkspaceId !== 'personal' && currentWorkspaceId.trim() !== '') {
-        query = query.eq('workspace_id', currentWorkspaceId)
-      } else {
+      // IMPORTANT: Utiliser le TYPE du workspace pour déterminer la requête
+      // Si c'est un workspace personnel (type === 'personal'), charger les comptes sans workspace_id
+      // Si c'est un workspace d'organisation, charger uniquement les comptes de ce workspace
+      if (isPersonalWorkspace || workspaceType === 'personal') {
         // Pour un workspace personnel, on charge les comptes avec workspace_id = null ou 'personal'
+        query = query.or('workspace_id.is.null,workspace_id.eq.personal')
+      } else if (workspaceIdToUse && workspaceIdToUse.trim() !== '') {
+        // Pour un workspace d'organisation, charger uniquement les comptes de ce workspace
+        query = query.eq('workspace_id', workspaceIdToUse)
+      } else {
+        // Par défaut, charger les comptes personnels
         query = query.or('workspace_id.is.null,workspace_id.eq.personal')
       }
 
