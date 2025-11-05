@@ -73,6 +73,10 @@ export default function SignupPage() {
 
       setSuccess(true);
       
+      // Stocker l'email dans localStorage pour l'afficher sur la page de vérification
+      // (car Supabase ne crée pas de session immédiatement après signUp)
+      localStorage.setItem('pending_verification_email', email);
+      
       // Rediriger vers la page de vérification d'email
       // L'utilisateur devra confirmer son email avant d'accéder à l'application
       setTimeout(() => {

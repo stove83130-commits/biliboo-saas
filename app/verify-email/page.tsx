@@ -22,25 +22,41 @@ export default function VerifyEmailPage() {
         const supabase = createClient();
         const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-        if (userError || !user) {
-          router.push('/auth/login');
-          return;
-        }
+        // Si l'utilisateur est authentifié (session active après confirmation)
+        if (user && !userError) {
+          setEmail(user.email || '');
 
-        setEmail(user.email || '');
+          // Vérifier si l'email est déjà vérifié
+          if (user.email_confirmed_at) {
+            setIsVerified(true);
+            setIsChecking(false);
+            // Nettoyer le localStorage
+            localStorage.removeItem('pending_verification_email');
+            // Rediriger vers onboarding après 1 seconde
+            setTimeout(() => {
+              router.push('/onboarding');
+            }, 1000);
+            return;
+          }
 
-        // Vérifier si l'email est déjà vérifié
-        if (user.email_confirmed_at) {
-          setIsVerified(true);
           setIsChecking(false);
-          // Rediriger vers onboarding après 1 seconde
-          setTimeout(() => {
-            router.push('/onboarding');
-          }, 1000);
           return;
         }
 
-        setIsChecking(false);
+        // Si pas de session active (utilisateur vient de s'inscrire)
+        // Récupérer l'email depuis localStorage
+        const pendingEmail = localStorage.getItem('pending_verification_email');
+        if (pendingEmail) {
+          setEmail(pendingEmail);
+          setIsChecking(false);
+          return;
+        }
+
+        // Si ni session ni email en localStorage, rediriger vers login
+        // (mais seulement après un délai pour éviter les redirections trop rapides)
+        setTimeout(() => {
+          router.push('/auth/login');
+        }, 1000);
       } catch (err) {
         console.error('Erreur lors de la vérification:', err);
         setError('Erreur lors de la vérification de votre email');
@@ -56,9 +72,12 @@ export default function VerifyEmailPage() {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
 
+        // Si l'utilisateur a maintenant une session et que l'email est confirmé
         if (user?.email_confirmed_at && !isVerified) {
           setIsVerified(true);
           clearInterval(interval);
+          // Nettoyer le localStorage
+          localStorage.removeItem('pending_verification_email');
           // Rediriger vers onboarding
           router.push('/onboarding');
         }
@@ -78,9 +97,19 @@ export default function VerifyEmailPage() {
 
     try {
       const supabase = createClient();
+      
+      // Utiliser l'email stocké ou celui de la session
+      const emailToResend = email || localStorage.getItem('pending_verification_email') || '';
+      
+      if (!emailToResend) {
+        setError('Aucun email trouvé. Veuillez vous reconnecter.');
+        setIsResending(false);
+        return;
+      }
+
       const { error: resendError } = await supabase.auth.resend({
         type: 'signup',
-        email: email,
+        email: emailToResend,
       });
 
       if (resendError) {
