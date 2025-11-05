@@ -178,7 +178,7 @@ function SettingsPageContent() {
     const handler = () => fetchEmailAccounts()
     if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
     return () => { if (typeof window !== 'undefined') window.removeEventListener('workspace:changed', handler as any) }
-  }, [isInitialized, workspaceType, isPersonalWorkspace])
+  }, [isInitialized, fetchEmailAccounts])
 
   useEffect(() => {
     // Check for success/error messages
