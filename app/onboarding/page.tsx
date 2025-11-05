@@ -315,6 +315,35 @@ export default function OnboardingPage() {
         email_confirmed_at: finalUser.email_confirmed_at
       });
       
+      // IMPORTANT: Forcer une dernière synchronisation des cookies avant redirection
+      // Le middleware lit les cookies depuis la requête HTTP, il faut s'assurer qu'ils sont à jour
+      try {
+        // Rafraîchir une dernière fois pour forcer la mise à jour des cookies
+        const { data: { session: finalSession }, error: finalRefreshError } = await supabase.auth.refreshSession();
+        if (finalRefreshError) {
+          console.warn('⚠️ Erreur lors du dernier rafraîchissement (non bloquant):', finalRefreshError);
+        } else if (finalSession) {
+          console.log('✅ Session et cookies synchronisés avant redirection');
+        }
+        
+        // Attendre un peu pour que les cookies soient bien écrits dans le navigateur
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Vérifier une dernière fois que la session est toujours valide
+        const { data: { user: lastCheck }, error: lastCheckError } = await supabase.auth.getUser();
+        if (!lastCheck || lastCheckError) {
+          console.error('❌ Session perdue avant redirection, réessayant...');
+          // Réessayer une fois de plus
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const { data: { user: retryCheck } } = await supabase.auth.getUser();
+          if (!retryCheck) {
+            console.error('❌ Impossible de récupérer la session, redirection quand même');
+          }
+        }
+      } catch (syncError) {
+        console.warn('⚠️ Erreur lors de la synchronisation finale (non bloquant):', syncError);
+      }
+      
       // Rediriger vers le dashboard
       // Utiliser window.location.replace pour forcer une navigation complète
       // Cela permet au middleware de voir les cookies de session mis à jour
