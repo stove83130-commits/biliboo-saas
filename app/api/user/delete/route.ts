@@ -293,7 +293,6 @@ export async function DELETE(request: NextRequest) {
 
     // 7. Supprimer l'utilisateur auth.users de Supabase
     // Utiliser le service role key pour avoir les permissions admin
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
     
     if (supabaseServiceRoleKey && supabaseUrl) {
