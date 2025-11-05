@@ -80,7 +80,13 @@ function SettingsPageContent() {
   // Pour un workspace personnel (type === 'personal'), on a toujours les permissions
   // Pour un workspace d'organisation, on vérifie les permissions
   // IMPORTANT: Utiliser le TYPE du workspace, pas seulement l'ID
-  const currentWorkspaceId = activeWorkspaceId !== null ? activeWorkspaceId : getInitialWorkspaceId()
+  const getCurrentWorkspaceId = () => {
+    if (activeWorkspaceId !== null) return activeWorkspaceId
+    if (typeof window === 'undefined') return null
+    const workspaceId = localStorage.getItem('active_workspace_id')
+    return workspaceId && workspaceId.trim() !== '' ? workspaceId : null
+  }
+  const currentWorkspaceId = getCurrentWorkspaceId()
   const isPersonalWorkspace = workspaceType === 'personal' || workspaceType === null
   // Si c'est un workspace personnel, on ne passe pas l'ID au hook (null), sinon on passe l'ID
   const normalizedWorkspaceId = isPersonalWorkspace ? null : currentWorkspaceId
