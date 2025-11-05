@@ -17,8 +17,8 @@ export async function GET(request: Request) {
   }
 
   // Déterminer l'URL de base (production ou local)
-  // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL (si pas localhost) > request.url origin
-  // IMPORTANT: Normaliser l'URL pour éviter les problèmes www vs non-www
+  // Priorité : NEXT_PUBLIC_APP_URL (domaine personnalisé) > origin header > referer > request.url origin
+  // IMPORTANT: Privilégier le domaine personnalisé (bilibou.com) plutôt que le domaine Vercel
   const requestUrl = new URL(request.url)
   const origin = request.headers.get('origin')
   const referer = request.headers.get('referer')
@@ -26,17 +26,37 @@ export async function GET(request: Request) {
   
   let baseUrl: string
   
-  if (origin) {
+  // PRIORITÉ 1: Utiliser NEXT_PUBLIC_APP_URL si c'est un domaine personnalisé (pas localhost, pas vercel.app)
+  if (envAppUrl && !envAppUrl.includes('localhost') && !envAppUrl.includes('vercel.app')) {
+    baseUrl = envAppUrl
+    console.log('✅ Utilisation NEXT_PUBLIC_APP_URL (domaine personnalisé):', baseUrl)
+  } 
+  // PRIORITÉ 2: Utiliser origin si c'est un domaine personnalisé
+  else if (origin && !origin.includes('vercel.app') && !origin.includes('localhost')) {
     baseUrl = origin
-  } else if (referer) {
+    console.log('✅ Utilisation origin (domaine personnalisé):', baseUrl)
+  }
+  // PRIORITÉ 3: Utiliser referer si c'est un domaine personnalisé
+  else if (referer) {
     try {
       const refererUrl = new URL(referer)
-      baseUrl = refererUrl.origin
+      if (!refererUrl.origin.includes('vercel.app') && !refererUrl.origin.includes('localhost')) {
+        baseUrl = refererUrl.origin
+        console.log('✅ Utilisation referer (domaine personnalisé):', baseUrl)
+      } else {
+        // Fallback: utiliser origin ou envAppUrl
+        baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin)
+        console.log('⚠️ Utilisation fallback (domaine Vercel détecté):', baseUrl)
+      }
     } catch {
-      baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
+      baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin)
+      console.log('⚠️ Utilisation fallback (erreur parsing referer):', baseUrl)
     }
-  } else {
-    baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
+  } 
+  // PRIORITÉ 4: Fallback sur origin ou envAppUrl
+  else {
+    baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin)
+    console.log('⚠️ Utilisation fallback final:', baseUrl)
   }
   
   // IMPORTANT: Normaliser l'URL pour bilibou.com (toujours sans www pour la cohérence)
@@ -49,7 +69,7 @@ export async function GET(request: Request) {
     }
   }
   
-  console.log('🔗 URI de redirection Gmail:', `${baseUrl}/api/gmail/callback`)
+  console.log('🔗 URI de redirection Gmail finale:', `${baseUrl}/api/gmail/callback`)
 
   // Vérifier les permissions du plan
   const planId = user.user_metadata?.selected_plan

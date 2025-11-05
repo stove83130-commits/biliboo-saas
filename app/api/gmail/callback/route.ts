@@ -37,11 +37,27 @@ export async function GET(request: Request) {
 
   try {
     // Déterminer l'URL de base (production ou local)
-    // Utiliser l'origin de la requête pour garantir la bonne URL
-    // IMPORTANT: Normaliser l'URL pour éviter les problèmes www vs non-www
-    let baseUrl = origin || (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') 
-      ? process.env.NEXT_PUBLIC_APP_URL 
-      : 'http://localhost:3001')
+    // Priorité : NEXT_PUBLIC_APP_URL (domaine personnalisé) > origin > localhost
+    // IMPORTANT: Privilégier le domaine personnalisé (bilibou.com) plutôt que le domaine Vercel
+    const envAppUrl = process.env.NEXT_PUBLIC_APP_URL
+    
+    let baseUrl: string
+    
+    // PRIORITÉ 1: Utiliser NEXT_PUBLIC_APP_URL si c'est un domaine personnalisé
+    if (envAppUrl && !envAppUrl.includes('localhost') && !envAppUrl.includes('vercel.app')) {
+      baseUrl = envAppUrl
+      console.log('✅ Callback: Utilisation NEXT_PUBLIC_APP_URL (domaine personnalisé):', baseUrl)
+    }
+    // PRIORITÉ 2: Utiliser origin si c'est un domaine personnalisé
+    else if (origin && !origin.includes('vercel.app') && !origin.includes('localhost')) {
+      baseUrl = origin
+      console.log('✅ Callback: Utilisation origin (domaine personnalisé):', baseUrl)
+    }
+    // PRIORITÉ 3: Fallback sur origin ou localhost
+    else {
+      baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : 'http://localhost:3001')
+      console.log('⚠️ Callback: Utilisation fallback:', baseUrl)
+    }
     
     // IMPORTANT: Normaliser l'URL pour bilibou.com (toujours sans www pour la cohérence)
     // L'URI de redirection doit correspondre EXACTEMENT à celle configurée dans Google Cloud Console
@@ -53,7 +69,7 @@ export async function GET(request: Request) {
       }
     }
     
-    console.log('🔗 URI de redirection callback Gmail:', `${baseUrl}/api/gmail/callback`)
+    console.log('🔗 URI de redirection callback Gmail finale:', `${baseUrl}/api/gmail/callback`)
     
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
