@@ -32,11 +32,21 @@ function SettingsPageContent() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   
+  // IMPORTANT: Charger immédiatement depuis localStorage pour éviter les problèmes de timing
+  // On fait cela au niveau du composant, pas dans useEffect, pour que ce soit synchrone
+  const getInitialWorkspaceId = () => {
+    if (typeof window === 'undefined') return null
+    const workspaceId = localStorage.getItem('active_workspace_id')
+    // Normaliser : si c'est une chaîne vide ou 'personal', on met null
+    return workspaceId && workspaceId.trim() !== '' && workspaceId !== 'personal' ? workspaceId : null
+  }
+  
   // Pour un workspace personnel (null ou 'personal'), on a toujours les permissions
   // Pour un workspace d'organisation, on vérifie les permissions
-  // IMPORTANT: Normaliser activeWorkspaceId pour éviter les problèmes de chaînes vides
-  const normalizedWorkspaceId = activeWorkspaceId && activeWorkspaceId.trim() !== '' && activeWorkspaceId !== 'personal' 
-    ? activeWorkspaceId 
+  // IMPORTANT: Utiliser activeWorkspaceId ou la valeur initiale depuis localStorage
+  const currentWorkspaceId = activeWorkspaceId !== null ? activeWorkspaceId : getInitialWorkspaceId()
+  const normalizedWorkspaceId = currentWorkspaceId && currentWorkspaceId.trim() !== '' && currentWorkspaceId !== 'personal' 
+    ? currentWorkspaceId 
     : null
   const isPersonalWorkspace = normalizedWorkspaceId === null
   const workspacePermissions = useWorkspacePermissions(normalizedWorkspaceId)
@@ -44,6 +54,7 @@ function SettingsPageContent() {
   // Permissions adaptées : pour un workspace personnel, on a toujours les droits complets
   // IMPORTANT: On force canManageEmailConnections à true pour les espaces personnels
   // car le hook retourne false par défaut même pour null
+  // DOUBLE CHECK: Si c'est un espace personnel, on a TOUJOURS les permissions, peu importe ce que dit le hook
   const canManageEmailConnections = isPersonalWorkspace ? true : workspacePermissions.canManageEmailConnections
   
   const permissions = {
@@ -76,6 +87,11 @@ function SettingsPageContent() {
       setActiveWorkspaceId(normalizedId)
       setIsInitialized(true)
       console.log('📋 Workspace ID chargé:', workspaceId, 'Normalisé:', normalizedId, 'Is personal:', normalizedId === null)
+      console.log('📋 Permissions calculées:', {
+        normalizedId,
+        isPersonal: normalizedId === null,
+        canManageEmailConnections: normalizedId === null ? true : 'vérifié par hook'
+      })
     }
   }, [])
   
@@ -319,7 +335,15 @@ function SettingsPageContent() {
                   Connecter
                 </Button>
               )}
-              {!permissions.canManageEmailConnections && !isPersonalWorkspace && isInitialized && (
+              {/* Afficher le message d'erreur SEULEMENT si :
+                  1. On n'a pas les permissions ET
+                  2. Ce n'est PAS un espace personnel (on est sûr maintenant) ET  
+                  3. Le workspace est initialisé ET
+                  4. On a vraiment un workspace d'organisation (pas null) */}
+              {!permissions.canManageEmailConnections && 
+               normalizedWorkspaceId !== null && 
+               isInitialized && 
+               !isPersonalWorkspace && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
               )}
             </div>
@@ -383,7 +407,15 @@ function SettingsPageContent() {
                   Connecter
                 </Button>
               )}
-              {!permissions.canManageEmailConnections && !isPersonalWorkspace && isInitialized && (
+              {/* Afficher le message d'erreur SEULEMENT si :
+                  1. On n'a pas les permissions ET
+                  2. Ce n'est PAS un espace personnel (on est sûr maintenant) ET  
+                  3. Le workspace est initialisé ET
+                  4. On a vraiment un workspace d'organisation (pas null) */}
+              {!permissions.canManageEmailConnections && 
+               normalizedWorkspaceId !== null && 
+               isInitialized && 
+               !isPersonalWorkspace && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
               )}
             </div>
