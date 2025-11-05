@@ -16,77 +16,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Déterminer l'URL de base (production ou local)
-  // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL (si pas localhost) > request.url origin
-  // IMPORTANT: Utiliser l'origin de la requête actuelle pour garantir la bonne URL de callback
+  // Déterminer l'URL de base pour le callback OAuth
+  // Utiliser NEXT_PUBLIC_APP_URL comme Microsoft (simple et fiable)
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/gmail/callback`
+  
+  // Normaliser pour bilibou.com (sans www)
+  const normalizedRedirectUri = redirectUri.includes('bilibou.com')
+    ? redirectUri.replace(/https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com')
+    : redirectUri
+  
+  console.log('🔗 URI de redirection Gmail:', normalizedRedirectUri)
+  
+  // Pour les redirections internes, utiliser l'origin de la requête
   const requestUrl = new URL(request.url)
-  const origin = request.headers.get('origin')
-  const referer = request.headers.get('referer')
-  const envAppUrl = process.env.NEXT_PUBLIC_APP_URL
-  
-  let baseUrl: string
-  
-  // PRIORITÉ 1: Utiliser origin (toujours fiable, même pour vercel.app)
-  // On utilise origin car c'est le domaine réel de la requête, nécessaire pour le callback
-  if (origin) {
-    baseUrl = origin
-    console.log('✅ Utilisation origin (domaine de la requête):', baseUrl)
-  } 
-  // PRIORITÉ 2: Utiliser referer
-  else if (referer) {
-    try {
-      const refererUrl = new URL(referer)
-      baseUrl = refererUrl.origin
-      console.log('✅ Utilisation referer:', baseUrl)
-    } catch {
-      baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
-      console.log('⚠️ Utilisation fallback (erreur parsing referer):', baseUrl)
-    }
-  } 
-  // PRIORITÉ 3: Fallback sur envAppUrl ou requestUrl.origin
-  else {
-    baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
-    console.log('⚠️ Utilisation fallback final:', baseUrl)
-  }
-  
-  // IMPORTANT: Pour le callback OAuth, on doit utiliser l'URL normalisée (bilibou.com si disponible)
-  // Mais seulement si NEXT_PUBLIC_APP_URL est défini ET que c'est un domaine personnalisé
-  // Sinon on garde l'origin de la requête pour que le callback fonctionne
-  if (envAppUrl && !envAppUrl.includes('localhost') && !envAppUrl.includes('vercel.app')) {
-    // Utiliser NEXT_PUBLIC_APP_URL pour le callback URI (doit correspondre à Google Cloud Console)
-    const callbackBaseUrl = envAppUrl.includes('bilibou.com') 
-      ? 'https://bilibou.com' 
-      : envAppUrl
-    console.log('🔗 Utilisation NEXT_PUBLIC_APP_URL pour callback URI:', callbackBaseUrl)
-    baseUrl = callbackBaseUrl
-  } else if (baseUrl.includes('bilibou.com')) {
-    // Normaliser bilibou.com (toujours sans www pour la cohérence)
-    baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?/, 'https://')
-    if (baseUrl.startsWith('https://www.bilibou.com')) {
-      baseUrl = 'https://bilibou.com'
-    }
-  }
-  
-  console.log('🔗 URI de redirection Gmail finale:', `${baseUrl}/api/gmail/callback`)
-  console.log('🔍 Vérification plan et permissions...')
+  const origin = request.headers.get('origin') || requestUrl.origin
+  const baseUrl = origin
 
-  // Vérifier les permissions du plan
+  // Vérifier les permissions du plan (mais ne pas bloquer si erreur)
   const planId = user.user_metadata?.selected_plan
-  const { count, error: countError } = await supabase
+  const { count } = await supabase
     .from('email_accounts')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
     .eq('is_active', true)
 
-  if (countError) {
-    console.error('❌ Erreur lors du comptage des comptes email:', countError)
-  }
-
-  console.log('📊 Plan ID:', planId, 'Comptes email actifs:', count || 0)
-  
   const canAdd = canAddEmailAccount(planId, count || 0)
-  console.log('✅ Peut ajouter compte email:', canAdd)
-
+  
   if (!canAdd) {
     console.log('❌ Limite de plan atteinte, redirection vers dashboard')
     return NextResponse.redirect(`${baseUrl}/dashboard?error=plan_limit_reached&feature=email`)
@@ -128,10 +83,10 @@ export async function GET(request: Request) {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    `${baseUrl}/api/gmail/callback`
+    normalizedRedirectUri
   )
   
-  console.log('🔗 Callback URI configuré:', `${baseUrl}/api/gmail/callback`)
+  console.log('🔗 Callback URI configuré:', normalizedRedirectUri)
 
   const statePayload = new URLSearchParams()
   // Ne passer workspaceId dans le state que s'il est valide et n'est pas 'personal'
