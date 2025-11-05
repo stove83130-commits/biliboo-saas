@@ -102,8 +102,8 @@ function VerifyEmailContent() {
 
     checkEmailVerification();
 
-    // Polling toutes les 1.5 secondes pour vérifier si l'email est confirmé (plus rapide)
-    const interval = setInterval(async () => {
+    // Fonction pour vérifier la confirmation
+    const checkConfirmation = async () => {
       try {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
@@ -111,7 +111,6 @@ function VerifyEmailContent() {
         // Si l'utilisateur a maintenant une session et que l'email est confirmé
         if (user?.email_confirmed_at && !isVerified) {
           setIsVerified(true);
-          clearInterval(interval);
           // Nettoyer le localStorage
           localStorage.removeItem('pending_verification_email');
           
@@ -119,6 +118,7 @@ function VerifyEmailContent() {
           setTimeout(() => {
             router.push('/onboarding');
           }, 2000);
+          return true; // Confirmation détectée
         }
         
         // Si l'utilisateur a maintenant une session mais pas encore d'email confirmé,
@@ -126,13 +126,51 @@ function VerifyEmailContent() {
         if (user?.email && user.email !== email) {
           setEmail(user.email);
         }
+        return false;
       } catch (err) {
-        console.error('Erreur lors du polling:', err);
+        console.error('Erreur lors de la vérification:', err);
+        return false;
+      }
+    };
+
+    // Polling toutes les 1.5 secondes pour vérifier si l'email est confirmé (plus rapide)
+    const interval = setInterval(async () => {
+      const confirmed = await checkConfirmation();
+      if (confirmed) {
+        clearInterval(interval);
       }
     }, 1500); // Polling plus rapide (1.5 secondes au lieu de 3)
 
-    return () => clearInterval(interval);
-  }, [router, isVerified]);
+    // Vérifier immédiatement quand la page devient visible (si l'utilisateur revient sur l'onglet)
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && !isVerified) {
+        const confirmed = await checkConfirmation();
+        if (confirmed) {
+          clearInterval(interval);
+        }
+      }
+    };
+
+    // Vérifier quand la fenêtre reçoit le focus
+    const handleFocus = async () => {
+      if (!isVerified) {
+        const confirmed = await checkConfirmation();
+        if (confirmed) {
+          clearInterval(interval);
+        }
+      }
+    };
+
+    // Ajouter les listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [router, isVerified, email]);
 
   const handleResendEmail = async () => {
     if (resendCooldown > 0) return;
