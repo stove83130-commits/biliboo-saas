@@ -190,9 +190,16 @@ function VerifyEmailContent() {
         return;
       }
 
+      // Déterminer l'URL de redirection pour la confirmation d'email
+      const baseUrl = window.location.origin;
+      const redirectUrl = `${baseUrl}/auth/callback`;
+      
       const { error: resendError } = await supabase.auth.resend({
         type: 'signup',
         email: emailToResend,
+        options: {
+          emailRedirectTo: redirectUrl,
+        },
       });
 
       if (resendError) {

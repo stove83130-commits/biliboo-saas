@@ -56,10 +56,15 @@ export default function SignupPage() {
 
     try {
       const supabase = createClient();
+      // Déterminer l'URL de redirection pour la confirmation d'email
+      const baseUrl = window.location.origin;
+      const redirectUrl = `${baseUrl}/auth/callback`;
+      
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: redirectUrl,
           data: {
             onboarding_completed: false,
           },
