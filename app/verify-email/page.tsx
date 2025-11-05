@@ -103,12 +103,62 @@ function VerifyEmailContent() {
     checkEmailVerification();
 
     // Fonction pour vérifier la confirmation
+    // Utilise à la fois l'API et la session locale pour détecter la confirmation depuis n'importe quel appareil
     const checkConfirmation = async () => {
       try {
+        // Méthode 1: Vérifier via l'API (fonctionne même si la session a été créée sur un autre appareil)
+        try {
+          const apiResponse = await fetch('/api/auth/check-email-verification', {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store'
+          });
+          
+          if (apiResponse.ok) {
+            const apiData = await apiResponse.json();
+            
+            console.log('🔍 Vérification API:', {
+              verified: apiData.verified,
+              hasSession: apiData.hasSession,
+              email: apiData.email || 'N/A',
+              email_confirmed_at: apiData.email_confirmed_at || 'N/A'
+            });
+            
+            // Si l'email est confirmé via l'API
+            if (apiData.verified && !isVerified) {
+              console.log('✅✅✅ Confirmation détectée via API ! email_confirmed_at:', apiData.email_confirmed_at);
+              
+              // Mettre à jour l'email affiché si disponible
+              if (apiData.email && apiData.email !== email) {
+                setEmail(apiData.email);
+              }
+              
+              setIsVerified(true);
+              // Nettoyer le localStorage
+              localStorage.removeItem('pending_verification_email');
+              
+              // Rediriger vers onboarding après 2 secondes pour laisser voir le message de succès
+              setTimeout(() => {
+                router.push('/onboarding');
+              }, 2000);
+              return true; // Confirmation détectée
+            }
+            
+            // Si l'utilisateur a maintenant une session mais pas encore d'email confirmé,
+            // mettre à jour l'email affiché
+            if (apiData.hasSession && apiData.email && apiData.email !== email) {
+              setEmail(apiData.email);
+            }
+          }
+        } catch (apiError) {
+          console.warn('⚠️ Erreur lors de la vérification API (tentative session locale):', apiError);
+        }
+        
+        // Méthode 2: Vérifier aussi via la session locale (fallback)
         const supabase = createClient();
         const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-        console.log('🔍 Vérification confirmation email:', {
+        console.log('🔍 Vérification session locale:', {
           hasUser: !!user,
           userId: user?.id || 'N/A',
           email: user?.email || 'N/A',
@@ -120,7 +170,7 @@ function VerifyEmailContent() {
 
         // Si l'utilisateur a maintenant une session et que l'email est confirmé
         if (user?.email_confirmed_at && !isVerified) {
-          console.log('✅✅✅ Confirmation détectée ! email_confirmed_at:', user.email_confirmed_at);
+          console.log('✅✅✅ Confirmation détectée via session locale ! email_confirmed_at:', user.email_confirmed_at);
           setIsVerified(true);
           // Nettoyer le localStorage
           localStorage.removeItem('pending_verification_email');
@@ -297,6 +347,14 @@ function VerifyEmailContent() {
                   Cliquez sur le lien dans l'email pour confirmer votre adresse et continuer.
                   Si vous ne voyez pas l'email, vérifiez votre dossier spam.
                 </p>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                  <p className="font-medium mb-1">💡 Confirmation depuis un autre appareil ?</p>
+                  <p className="text-xs">
+                    Si vous avez confirmé votre email depuis votre téléphone, la page se mettra à jour automatiquement. 
+                    Vous pouvez aussi rafraîchir la page pour vérifier manuellement.
+                  </p>
+                </div>
 
                 {error && (
                   <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
