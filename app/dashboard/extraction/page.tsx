@@ -58,28 +58,80 @@ export default function ExtractionPage() {
   useEffect(() => {
     if (!currentJobId) return
 
+    let pollCount = 0
+    const maxPolls = 300 // Maximum 10 minutes (300 * 2 secondes)
+    const startTime = Date.now()
+    const maxDuration = 10 * 60 * 1000 // 10 minutes maximum
+
     const pollJobStatus = async () => {
       try {
+        // Vérifier le timeout
+        if (Date.now() - startTime > maxDuration) {
+          console.warn('⏰ Timeout polling extraction après 10 minutes')
+          setError('Extraction en cours depuis trop longtemps. Veuillez réessayer.')
+          setIsProcessing(false)
+          setCurrentJobId(null)
+          return
+        }
+
+        pollCount++
+        if (pollCount > maxPolls) {
+          console.warn('⏰ Limite de polling atteinte')
+          setError('Extraction en cours depuis trop longtemps. Veuillez réessayer.')
+          setIsProcessing(false)
+          setCurrentJobId(null)
+          return
+        }
+
         const response = await fetch(`/api/extraction/status?jobId=${currentJobId}`)
+        
+        if (!response.ok) {
+          // Si le job n'existe plus ou erreur 404, arrêter le polling
+          if (response.status === 404) {
+            console.warn('⚠️ Job non trouvé, arrêt du polling')
+            setError('Job d\'extraction introuvable')
+            setIsProcessing(false)
+            setCurrentJobId(null)
+            return
+          }
+          throw new Error(`Erreur HTTP: ${response.status}`)
+        }
+
         const result = await response.json()
 
         if (result.success && result.job) {
           setJobStatus(result.job)
 
           if (result.job.status === 'completed') {
-            setLastResult(`✅ ${result.job.invoicesExtracted} factures extraites !`)
+            setLastResult(`✅ ${result.job.invoicesExtracted || 0} factures extraites !`)
             setIsProcessing(false)
             setCurrentJobId(null)
           } else if (result.job.status === 'failed') {
-            setError(`Erreur : ${result.job.errorMessage}`)
+            setError(`Erreur : ${result.job.errorMessage || 'Échec de l\'extraction'}`)
             setIsProcessing(false)
             setCurrentJobId(null)
           }
+          // Si le status est 'processing', on continue le polling
+        } else if (result.error) {
+          // Si l'API retourne une erreur, arrêter le polling
+          console.error('❌ Erreur API polling:', result.error)
+          setError(`Erreur : ${result.error}`)
+          setIsProcessing(false)
+          setCurrentJobId(null)
         }
       } catch (err) {
-        console.error('Erreur polling job:', err)
+        console.error('❌ Erreur polling job:', err)
+        // Après 3 erreurs consécutives, arrêter le polling
+        if (pollCount >= 3) {
+          setError('Erreur lors de la vérification du statut. Veuillez réessayer.')
+          setIsProcessing(false)
+          setCurrentJobId(null)
+        }
       }
     }
+
+    // Premier appel immédiat
+    pollJobStatus()
 
     const interval = setInterval(pollJobStatus, 2000)
     return () => clearInterval(interval)
