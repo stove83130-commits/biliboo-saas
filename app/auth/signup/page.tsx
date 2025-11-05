@@ -77,11 +77,10 @@ export default function SignupPage() {
       // (car Supabase ne crée pas de session immédiatement après signUp)
       localStorage.setItem('pending_verification_email', email);
       
-      // Rediriger vers la page de vérification d'email
+      // Rediriger IMMÉDIATEMENT vers la page de vérification d'email
       // L'utilisateur devra confirmer son email avant d'accéder à l'application
-      setTimeout(() => {
-        window.location.href = '/verify-email';
-      }, 2000);
+      // Utiliser window.location.href pour forcer une navigation complète
+      window.location.href = '/verify-email';
     } catch (err: any) {
       setError(err.message || 'Erreur lors de l\'inscription');
     } finally {

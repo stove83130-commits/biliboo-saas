@@ -19,12 +19,27 @@ export default function VerifyEmailPage() {
   useEffect(() => {
     const checkEmailVerification = async () => {
       try {
+        // Attendre un peu pour que le localStorage soit bien synchronisé
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // PRIORITÉ 1: Récupérer l'email depuis localStorage (toujours vérifier en premier)
+        const pendingEmail = localStorage.getItem('pending_verification_email');
+        if (pendingEmail) {
+          setEmail(pendingEmail);
+          setIsChecking(false);
+          // Ne pas retourner ici, continuer pour vérifier aussi la session
+        }
+
+        // PRIORITÉ 2: Vérifier si l'utilisateur a une session active
         const supabase = createClient();
         const { data: { user }, error: userError } = await supabase.auth.getUser();
 
         // Si l'utilisateur est authentifié (session active après confirmation)
         if (user && !userError) {
-          setEmail(user.email || '');
+          // Utiliser l'email de la session si disponible
+          if (user.email) {
+            setEmail(user.email);
+          }
 
           // Vérifier si l'email est déjà vérifié
           if (user.email_confirmed_at) {
@@ -39,24 +54,20 @@ export default function VerifyEmailPage() {
             return;
           }
 
+          // Si session active mais email non confirmé, continuer à afficher la page
           setIsChecking(false);
           return;
         }
 
-        // Si pas de session active (utilisateur vient de s'inscrire)
-        // Récupérer l'email depuis localStorage
-        const pendingEmail = localStorage.getItem('pending_verification_email');
-        if (pendingEmail) {
-          setEmail(pendingEmail);
+        // Si pas de session ET pas d'email en localStorage, afficher quand même la page
+        // (peut-être que l'utilisateur a fermé l'onglet et revient)
+        if (!pendingEmail) {
+          // Ne PAS rediriger automatiquement, juste afficher un message
+          setError('Veuillez vérifier votre email ou vous reconnecter.');
           setIsChecking(false);
-          return;
+        } else {
+          setIsChecking(false);
         }
-
-        // Si ni session ni email en localStorage, rediriger vers login
-        // (mais seulement après un délai pour éviter les redirections trop rapides)
-        setTimeout(() => {
-          router.push('/auth/login');
-        }, 1000);
       } catch (err) {
         console.error('Erreur lors de la vérification:', err);
         setError('Erreur lors de la vérification de votre email');
@@ -79,7 +90,15 @@ export default function VerifyEmailPage() {
           // Nettoyer le localStorage
           localStorage.removeItem('pending_verification_email');
           // Rediriger vers onboarding
-          router.push('/onboarding');
+          setTimeout(() => {
+            router.push('/onboarding');
+          }, 500);
+        }
+        
+        // Si l'utilisateur a maintenant une session mais pas encore d'email confirmé,
+        // mettre à jour l'email affiché
+        if (user?.email && user.email !== email) {
+          setEmail(user.email);
         }
       } catch (err) {
         console.error('Erreur lors du polling:', err);
