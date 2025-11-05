@@ -41,7 +41,7 @@ function SettingsPageContent() {
         ? localStorage.getItem('active_workspace_id') 
         : null
       const finalWorkspaceId = workspaceId && workspaceId.trim() !== '' ? workspaceId : null
-      if (!workspaceId) {
+      if (!finalWorkspaceId) {
         setWorkspaceType('personal')
         setIsInitialized(true)
         return
@@ -51,10 +51,10 @@ function SettingsPageContent() {
         const response = await fetch('/api/workspaces')
         if (response.ok) {
           const data = await response.json()
-          const workspace = data.workspaces?.find((w: any) => w.id === workspaceId)
+          const workspace = data.workspaces?.find((w: any) => w.id === finalWorkspaceId)
           if (workspace) {
             setWorkspaceType(workspace.type || 'organization')
-            console.log('📋 Workspace type chargé:', workspace.type, 'pour ID:', workspaceId)
+            console.log('📋 Workspace type chargé:', workspace.type, 'pour ID:', finalWorkspaceId)
           } else {
             // Si le workspace n'est pas trouvé, considérer comme personnel par défaut
             setWorkspaceType('personal')
