@@ -23,10 +23,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Renvoyer l'email de confirmation
+    // Déterminer l'URL de redirection pour la confirmation d'email
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+                   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3001')
+    const redirectUrl = `${baseUrl}/auth/callback`
+    
+    // Renvoyer l'email de confirmation avec la bonne URL de redirection
     const { error: resendError } = await supabase.auth.resend({
       type: 'signup',
       email: user.email || '',
+      options: {
+        emailRedirectTo: redirectUrl,
+      },
     })
 
     if (resendError) {
