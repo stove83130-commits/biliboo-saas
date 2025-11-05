@@ -291,47 +291,40 @@ export async function DELETE(request: NextRequest) {
       console.log('✅ Profil supprimé')
     }
 
-    // 7. NE PAS supprimer l'utilisateur auth.users immédiatement
-    // Cela invalide la session et cause des erreurs 401/403 pour les composants qui chargent encore des données
-    // L'utilisateur auth sera supprimé par le client après déconnexion de la session, ou via un trigger CASCADE
-    // Si SUPABASE_SERVICE_ROLE_KEY est configuré, on peut le supprimer mais avec un délai pour laisser le client se déconnecter
-    console.log('⚠️ IMPORTANT: L\'utilisateur auth.users n\'est PAS supprimé immédiatement pour éviter les erreurs de session')
-    console.log('ℹ️ Les données sont toutes supprimées. L\'utilisateur auth sera supprimé:')
-    console.log('   1. Par le client après déconnexion de la session (recommandé)')
-    console.log('   2. Via un trigger CASCADE si configuré dans Supabase')
-    console.log('   3. Ou manuellement si nécessaire')
+    // 7. Supprimer l'utilisateur auth.users de Supabase
+    // Utiliser le service role key pour avoir les permissions admin
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
     
-    // Optionnel: Supprimer l'utilisateur auth avec un délai (si vraiment nécessaire)
-    // Mais cela peut toujours causer des problèmes si le client charge encore des données
-    const shouldDeleteAuthUser = process.env.DELETE_AUTH_USER_IMMEDIATELY === 'true'
-    
-    if (shouldDeleteAuthUser) {
+    if (supabaseServiceRoleKey && supabaseUrl) {
       try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
-        const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+        console.log('🗑️ Suppression de l\'utilisateur auth.users...')
         
-        if (supabaseServiceRoleKey && supabaseUrl) {
-          // Attendre un peu pour laisser le client se déconnecter
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          
-          const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceRoleKey, {
-            auth: {
-              autoRefreshToken: false,
-              persistSession: false
-            }
-          })
-          
-          const { error: deleteUserError } = await supabaseAdmin.auth.admin.deleteUser(userId)
-          
-          if (deleteUserError) {
-            console.error('⚠️ Impossible de supprimer auth.users directement:', deleteUserError)
-          } else {
-            console.log('✅ Utilisateur auth supprimé (avec délai)')
+        const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceRoleKey, {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false
           }
+        })
+        
+        const { error: deleteUserError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+        
+        if (deleteUserError) {
+          console.error('❌ Erreur lors de la suppression de l\'utilisateur auth:', deleteUserError)
+          // Ne pas retourner une erreur ici car les données sont déjà supprimées
+          // On log juste l'erreur pour debug
+          console.error('   Détails:', JSON.stringify(deleteUserError, null, 2))
+        } else {
+          console.log('✅ Utilisateur auth.users supprimé avec succès')
         }
       } catch (adminError: any) {
-        console.error('⚠️ Erreur lors de la suppression admin:', adminError)
+        console.error('❌ Erreur lors de la suppression admin:', adminError)
+        console.error('   Détails:', adminError.message)
       }
+    } else {
+      console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY non configuré, impossible de supprimer auth.users')
+      console.warn('   L\'utilisateur auth restera dans Supabase mais toutes les données sont supprimées')
+      console.warn('   Pour supprimer complètement, ajoutez SUPABASE_SERVICE_ROLE_KEY dans les variables d\'environnement')
     }
 
     console.log(`✅ Suppression complète terminée pour l'utilisateur ${userId}`)
