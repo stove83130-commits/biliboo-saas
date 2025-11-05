@@ -234,18 +234,29 @@ function SettingsPageContent() {
     
     if (success === 'gmail_connected') {
       alert('✅ Gmail connecté avec succès !')
-      // Remove query params and refresh accounts
+      // Remove query params
       router.replace('/dashboard/settings')
-      // Wait a bit before refreshing to ensure DB has updated
+      // Force refresh accounts immediately and after a delay
+      fetchEmailAccounts()
       setTimeout(() => {
         fetchEmailAccounts()
-      }, 500)
+      }, 1000)
+      // Also refresh after 2 seconds to ensure DB has updated
+      setTimeout(() => {
+        fetchEmailAccounts()
+      }, 2000)
     } else if (success === 'outlook_connected') {
       alert('✅ Outlook connecté avec succès !')
       router.replace('/dashboard/settings')
+      // Force refresh accounts immediately and after a delay
+      fetchEmailAccounts()
       setTimeout(() => {
         fetchEmailAccounts()
-      }, 500)
+      }, 1000)
+      // Also refresh after 2 seconds to ensure DB has updated
+      setTimeout(() => {
+        fetchEmailAccounts()
+      }, 2000)
     } else if (error) {
       alert(`❌ Erreur: ${error}`)
       router.replace('/dashboard/settings')
