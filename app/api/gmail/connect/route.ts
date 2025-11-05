@@ -50,27 +50,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const workspaceId = searchParams.get('workspaceId') || ''
 
-  // Si un workspaceId est fourni ET que ce n'est pas un compte personnel, vérifier les permissions
-  // Pour un compte personnel (workspaceId vide ou 'personal'), on laisse passer sans vérification
-  if (workspaceId && workspaceId !== 'personal' && workspaceId.trim() !== '') {
-    try {
-      const { canManageEmailConnections } = await import('@/lib/workspaces/permissions')
-      const canManage = await canManageEmailConnections(supabase, workspaceId, user.id)
-      if (!canManage) {
-        console.log('❌ Permission refusée pour workspace:', workspaceId, 'User:', user.id)
-        return NextResponse.redirect(`${baseUrl}/dashboard?error=no_permission_email`)
-      }
-    } catch (error) {
-      console.error('❌ Erreur lors de la vérification des permissions:', error)
-      // En cas d'erreur, on continue quand même pour un compte personnel
-      // Mais on bloque pour un workspace valide
-      if (workspaceId && workspaceId !== 'personal') {
-        return NextResponse.redirect(`${baseUrl}/dashboard?error=no_permission_email`)
-      }
-    }
-  }
-  
-  console.log('✅ Permissions OK, redirection vers OAuth Gmail. WorkspaceId:', workspaceId || 'personal')
+  // Note: Pas de vérification des permissions de workspace ici (comme Microsoft Outlook)
+  // La vérification du plan (canAddEmailAccount) est déjà faite plus haut
+  // Les permissions de workspace seront vérifiées côté UI si nécessaire
+  console.log('✅ Redirection vers OAuth Gmail. WorkspaceId:', workspaceId || 'personal')
 
   // Vérifier que les credentials Google sont configurés
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
