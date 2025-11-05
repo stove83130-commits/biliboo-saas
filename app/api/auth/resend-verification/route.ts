@@ -24,9 +24,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Déterminer l'URL de redirection pour la confirmation d'email
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-                   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3001')
-    const redirectUrl = `${baseUrl}/auth/callback`
+    // Normaliser : enlever www. pour éviter les problèmes de cookies/session
+    let baseUrl: string;
+    if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
+      baseUrl = process.env.NEXT_PUBLIC_APP_URL.replace(/^https?:\/\/(www\.)?/, 'https://');
+      // Si c'est bilibou.com, on garde sans www pour cohérence
+      if (baseUrl.includes('bilibou.com')) {
+        baseUrl = baseUrl.replace('www.', '');
+      }
+    } else if (process.env.VERCEL_URL) {
+      baseUrl = `https://${process.env.VERCEL_URL}`;
+    } else {
+      baseUrl = 'http://localhost:3001';
+    }
+    const redirectUrl = `${baseUrl}/auth/callback`;
+    
+    console.log('📧 URL de redirection email (resend):', redirectUrl);
     
     // Renvoyer l'email de confirmation avec la bonne URL de redirection
     const { error: resendError } = await supabase.auth.resend({

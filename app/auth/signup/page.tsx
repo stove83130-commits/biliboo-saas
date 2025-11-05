@@ -57,8 +57,21 @@ export default function SignupPage() {
     try {
       const supabase = createClient();
       // Déterminer l'URL de redirection pour la confirmation d'email
-      const baseUrl = window.location.origin;
+      // Priorité : NEXT_PUBLIC_APP_URL > window.location.origin (normalisé)
+      let baseUrl: string;
+      if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
+        baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+      } else {
+        // Normaliser : enlever www. pour éviter les problèmes de cookies/session
+        baseUrl = window.location.origin.replace(/^https?:\/\/(www\.)?/, 'https://');
+        // Si c'est bilibou.com, on garde sans www pour cohérence
+        if (baseUrl.includes('bilibou.com')) {
+          baseUrl = baseUrl.replace('www.', '');
+        }
+      }
       const redirectUrl = `${baseUrl}/auth/callback`;
+      
+      console.log('📧 URL de redirection email:', redirectUrl);
       
       const { error } = await supabase.auth.signUp({
         email,
