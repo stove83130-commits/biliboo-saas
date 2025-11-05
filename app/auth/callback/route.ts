@@ -89,21 +89,19 @@ export async function GET(request: NextRequest) {
       return redirectResponse
     }
 
-    // Vérifier si l'utilisateur a complété l'onboarding
+    // Si l'email est confirmé, rediriger vers /verify-email avec confirmed=true
+    // pour afficher le message de succès, puis rediriger vers onboarding
     const onboardingCompleted = user?.user_metadata?.onboarding_completed || false
     
-    // Rediriger selon l'état de l'onboarding
-    // Si l'onboarding est complété, aller au dashboard, sinon à l'onboarding
-    const redirectPath = onboardingCompleted ? '/dashboard' : '/onboarding'
-    
-    console.log('🔀 Redirection après confirmation email:', {
+    console.log('✅ Email confirmé avec succès:', {
       userId: user?.id,
       emailConfirmed: !!user?.email_confirmed_at,
-      onboardingCompleted,
-      redirectPath
+      onboardingCompleted
     })
     
-    const redirectResponse = buildRedirectResponse(`${origin}${redirectPath}`)
+    // Rediriger vers /verify-email?confirmed=true pour afficher le message de succès
+    // La page /verify-email détectera ce paramètre et redirigera automatiquement vers /onboarding
+    const redirectResponse = buildRedirectResponse(`${origin}/verify-email?confirmed=true`)
     
     // Copier les cookies accumulés sur la réponse finale
     response.cookies.getAll().forEach((c) => {

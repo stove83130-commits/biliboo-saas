@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Mail, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react';
@@ -9,6 +9,7 @@ import Link from 'next/link';
 
 export default function VerifyEmailPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState<string>('');
   const [isVerified, setIsVerified] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
@@ -17,6 +18,28 @@ export default function VerifyEmailPage() {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
+    // Vérifier si on vient du callback avec confirmed=true
+    const confirmed = searchParams.get('confirmed') === 'true';
+    
+    if (confirmed) {
+      // Email confirmé ! Afficher le message de succès immédiatement
+      setIsVerified(true);
+      setIsChecking(false);
+      
+      // Nettoyer le localStorage
+      localStorage.removeItem('pending_verification_email');
+      
+      // Nettoyer l'URL pour enlever le paramètre
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      
+      // Rediriger vers onboarding après 2 secondes pour laisser voir le message
+      const redirectTimer = setTimeout(() => {
+        router.push('/onboarding');
+      }, 2000);
+      
+      return () => clearTimeout(redirectTimer);
+    }
     const checkEmailVerification = async () => {
       try {
         // Attendre un peu pour que le localStorage soit bien synchronisé
@@ -47,10 +70,10 @@ export default function VerifyEmailPage() {
             setIsChecking(false);
             // Nettoyer le localStorage
             localStorage.removeItem('pending_verification_email');
-            // Rediriger vers onboarding après 1 seconde
+            // Rediriger vers onboarding après 2 secondes pour laisser voir le message
             setTimeout(() => {
               router.push('/onboarding');
-            }, 1000);
+            }, 2000);
             return;
           }
 
@@ -77,7 +100,7 @@ export default function VerifyEmailPage() {
 
     checkEmailVerification();
 
-    // Polling toutes les 3 secondes pour vérifier si l'email est confirmé
+    // Polling toutes les 1.5 secondes pour vérifier si l'email est confirmé (plus rapide)
     const interval = setInterval(async () => {
       try {
         const supabase = createClient();
@@ -89,10 +112,11 @@ export default function VerifyEmailPage() {
           clearInterval(interval);
           // Nettoyer le localStorage
           localStorage.removeItem('pending_verification_email');
-          // Rediriger vers onboarding
+          
+          // Rediriger vers onboarding après 2 secondes pour laisser voir le message de succès
           setTimeout(() => {
             router.push('/onboarding');
-          }, 500);
+          }, 2000);
         }
         
         // Si l'utilisateur a maintenant une session mais pas encore d'email confirmé,
@@ -103,7 +127,7 @@ export default function VerifyEmailPage() {
       } catch (err) {
         console.error('Erreur lors du polling:', err);
       }
-    }, 3000);
+    }, 1500); // Polling plus rapide (1.5 secondes au lieu de 3)
 
     return () => clearInterval(interval);
   }, [router, isVerified]);
