@@ -172,13 +172,39 @@ export default function OnboardingPage() {
 
       console.log('✅ Onboarding complété, redirection vers dashboard');
       
-      // Vérifier que l'utilisateur est toujours connecté avant de rediriger
-      const { data: { user: finalUser }, error: finalError } = await supabase.auth.getUser();
+      // Attendre un peu pour que les métadonnées soient bien synchronisées
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      if (finalError || !finalUser) {
-        console.error('❌ Utilisateur non authentifié après onboarding:', finalError);
-        // Si l'utilisateur n'est plus connecté, rediriger vers la connexion
-        window.location.href = '/auth/login?error=session_expired';
+      // Vérifier que l'utilisateur est toujours connecté avant de rediriger
+      // Réessayer plusieurs fois en cas d'erreur temporaire
+      let finalUser = null;
+      let finalError = null;
+      let retries = 0;
+      const maxRetries = 3;
+      
+      while (retries < maxRetries && !finalUser) {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        
+        if (user && !error) {
+          finalUser = user;
+          break;
+        }
+        
+        finalError = error;
+        retries++;
+        
+        if (retries < maxRetries) {
+          console.warn(`⚠️ Tentative ${retries + 1}/${maxRetries} de récupération de l'utilisateur...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      if (!finalUser) {
+        console.error('❌ Utilisateur non authentifié après onboarding après plusieurs tentatives:', finalError);
+        // En cas d'échec, rediriger quand même vers le dashboard
+        // Le middleware gérera la redirection vers login si nécessaire
+        console.warn('⚠️ Redirection vers dashboard malgré l\'erreur (le middleware gérera la session)');
+        window.location.href = '/dashboard';
         return;
       }
       
@@ -192,12 +218,16 @@ export default function OnboardingPage() {
             onboarding_completed: true,
           },
         });
+        // Attendre un peu après la mise à jour
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      // Rediriger vers le dashboard avec un petit délai pour s'assurer que les métadonnées sont sauvegardées
-      setTimeout(() => {
-        window.location.href = '/dashboard';
-      }, 500);
+      console.log('✅ Utilisateur vérifié, redirection vers dashboard');
+      
+      // Rediriger vers le dashboard
+      // Utiliser window.location.href pour forcer une navigation complète
+      // Cela permet au middleware de voir les cookies de session mis à jour
+      window.location.href = '/dashboard';
     } catch (error) {
       console.error('❌ Erreur:', error);
       alert('Une erreur est survenue. Veuillez réessayer.');
