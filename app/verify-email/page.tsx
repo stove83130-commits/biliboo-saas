@@ -107,8 +107,14 @@ function VerifyEmailContent() {
     const checkConfirmation = async () => {
       try {
         // Méthode 1: Vérifier via l'API (fonctionne même si la session a été créée sur un autre appareil)
+        // Passer l'email en paramètre pour permettre la vérification même sans session
+        const emailToCheck = email || localStorage.getItem('pending_verification_email') || ''
         try {
-          const apiResponse = await fetch('/api/auth/check-email-verification', {
+          const apiUrl = emailToCheck 
+            ? `/api/auth/check-email-verification?email=${encodeURIComponent(emailToCheck)}`
+            : '/api/auth/check-email-verification'
+          
+          const apiResponse = await fetch(apiUrl, {
             method: 'GET',
             credentials: 'include',
             cache: 'no-store'
