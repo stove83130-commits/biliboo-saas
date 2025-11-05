@@ -34,8 +34,9 @@ function VerifyEmailContent() {
       window.history.replaceState({}, '', newUrl);
       
       // Rediriger vers onboarding après 2 secondes pour laisser voir le message
+      // Utiliser window.location.href pour forcer une navigation complète avec les cookies
       const redirectTimer = setTimeout(() => {
-        router.push('/onboarding');
+        window.location.href = '/onboarding';
       }, 2000);
       
       return () => clearTimeout(redirectTimer);
@@ -182,8 +183,9 @@ function VerifyEmailContent() {
           localStorage.removeItem('pending_verification_email');
           
           // Rediriger vers onboarding après 2 secondes pour laisser voir le message de succès
+          // Utiliser window.location.href pour forcer une navigation complète avec les cookies
           setTimeout(() => {
-            router.push('/onboarding');
+            window.location.href = '/onboarding';
           }, 2000);
           return true; // Confirmation détectée
         }
