@@ -30,11 +30,16 @@ function SettingsPageContent() {
   const supabase = createClient()
   const { hasActivePlan } = usePlan()
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
   
   // Pour un workspace personnel (null ou 'personal'), on a toujours les permissions
   // Pour un workspace d'organisation, on vérifie les permissions
-  const isPersonalWorkspace = !activeWorkspaceId || activeWorkspaceId === 'personal' || (typeof activeWorkspaceId === 'string' && activeWorkspaceId.trim() === '')
-  const workspacePermissions = useWorkspacePermissions(isPersonalWorkspace ? null : activeWorkspaceId)
+  // IMPORTANT: Normaliser activeWorkspaceId pour éviter les problèmes de chaînes vides
+  const normalizedWorkspaceId = activeWorkspaceId && activeWorkspaceId.trim() !== '' && activeWorkspaceId !== 'personal' 
+    ? activeWorkspaceId 
+    : null
+  const isPersonalWorkspace = normalizedWorkspaceId === null
+  const workspacePermissions = useWorkspacePermissions(normalizedWorkspaceId)
   
   // Permissions adaptées : pour un workspace personnel, on a toujours les droits complets
   // IMPORTANT: On force canManageEmailConnections à true pour les espaces personnels
@@ -66,8 +71,11 @@ function SettingsPageContent() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const workspaceId = localStorage.getItem('active_workspace_id')
-      setActiveWorkspaceId(workspaceId)
-      console.log('📋 Workspace ID chargé:', workspaceId, 'Is personal:', !workspaceId || workspaceId === 'personal')
+      // Normaliser : si c'est une chaîne vide ou 'personal', on met null
+      const normalizedId = workspaceId && workspaceId.trim() !== '' && workspaceId !== 'personal' ? workspaceId : null
+      setActiveWorkspaceId(normalizedId)
+      setIsInitialized(true)
+      console.log('📋 Workspace ID chargé:', workspaceId, 'Normalisé:', normalizedId, 'Is personal:', normalizedId === null)
     }
   }, [])
   
@@ -77,8 +85,11 @@ function SettingsPageContent() {
     
     const handleWorkspaceChange = () => {
       const workspaceId = localStorage.getItem('active_workspace_id')
-      setActiveWorkspaceId(workspaceId)
-      console.log('🔄 Workspace changé:', workspaceId)
+      // Normaliser : si c'est une chaîne vide ou 'personal', on met null
+      const normalizedId = workspaceId && workspaceId.trim() !== '' && workspaceId !== 'personal' ? workspaceId : null
+      setActiveWorkspaceId(normalizedId)
+      setIsInitialized(true)
+      console.log('🔄 Workspace changé:', workspaceId, 'Normalisé:', normalizedId)
       fetchEmailAccounts()
     }
     
@@ -308,7 +319,7 @@ function SettingsPageContent() {
                   Connecter
                 </Button>
               )}
-              {!permissions.canManageEmailConnections && !isPersonalWorkspace && (
+              {!permissions.canManageEmailConnections && !isPersonalWorkspace && isInitialized && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
               )}
             </div>
@@ -372,7 +383,7 @@ function SettingsPageContent() {
                   Connecter
                 </Button>
               )}
-              {!permissions.canManageEmailConnections && !isPersonalWorkspace && (
+              {!permissions.canManageEmailConnections && !isPersonalWorkspace && isInitialized && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
               )}
             </div>
