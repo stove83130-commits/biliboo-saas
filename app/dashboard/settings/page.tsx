@@ -335,15 +335,14 @@ function SettingsPageContent() {
                   Connecter
                 </Button>
               )}
-              {/* Afficher le message d'erreur SEULEMENT si :
-                  1. On n'a pas les permissions ET
-                  2. Ce n'est PAS un espace personnel (on est sûr maintenant) ET  
-                  3. Le workspace est initialisé ET
-                  4. On a vraiment un workspace d'organisation (pas null) */}
-              {!permissions.canManageEmailConnections && 
-               normalizedWorkspaceId !== null && 
+              {/* Afficher le message d'erreur UNIQUEMENT si :
+                  1. On est dans un workspace d'organisation (normalizedWorkspaceId !== null) ET
+                  2. On n'a pas les permissions ET
+                  3. Le workspace est initialisé
+                  IMPORTANT: Pour un espace personnel, on n'affiche JAMAIS ce message */}
+              {normalizedWorkspaceId !== null && 
                isInitialized && 
-               !isPersonalWorkspace && (
+               !permissions.canManageEmailConnections && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
               )}
             </div>
@@ -407,15 +406,14 @@ function SettingsPageContent() {
                   Connecter
                 </Button>
               )}
-              {/* Afficher le message d'erreur SEULEMENT si :
-                  1. On n'a pas les permissions ET
-                  2. Ce n'est PAS un espace personnel (on est sûr maintenant) ET  
-                  3. Le workspace est initialisé ET
-                  4. On a vraiment un workspace d'organisation (pas null) */}
-              {!permissions.canManageEmailConnections && 
-               normalizedWorkspaceId !== null && 
+              {/* Afficher le message d'erreur UNIQUEMENT si :
+                  1. On est dans un workspace d'organisation (normalizedWorkspaceId !== null) ET
+                  2. On n'a pas les permissions ET
+                  3. Le workspace est initialisé
+                  IMPORTANT: Pour un espace personnel, on n'affiche JAMAIS ce message */}
+              {normalizedWorkspaceId !== null && 
                isInitialized && 
-               !isPersonalWorkspace && (
+               !permissions.canManageEmailConnections && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
               )}
             </div>
