@@ -137,22 +137,22 @@ export default function OnboardingPage() {
       let user = null;
       let userError = null;
       let retries = 0;
-      const maxRetries = 5;
+      const maxUserRetries = 5;
       
-      while (retries < maxRetries && !user) {
+      while (retries < maxUserRetries && !user) {
         const { data: { user: currentUser }, error: currentError } = await supabase.auth.getUser();
         
         if (currentUser && !currentError) {
           user = currentUser;
-          console.log(`✅ Utilisateur récupéré à la tentative ${retries + 1}/${maxRetries}`);
+          console.log(`✅ Utilisateur récupéré à la tentative ${retries + 1}/${maxUserRetries}`);
           break;
         }
         
         userError = currentError;
         retries++;
         
-        if (retries < maxRetries) {
-          console.warn(`⚠️ Tentative ${retries + 1}/${maxRetries} de récupération de l'utilisateur (avant soumission)...`);
+        if (retries < maxUserRetries) {
+          console.warn(`⚠️ Tentative ${retries + 1}/${maxUserRetries} de récupération de l'utilisateur (avant soumission)...`);
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
@@ -261,23 +261,23 @@ export default function OnboardingPage() {
       // Réessayer plusieurs fois en cas d'erreur temporaire
       let finalUser = null;
       let finalError = null;
-      let retries = 0;
-      const maxRetries = 5; // Augmenter le nombre de tentatives
+      let finalRetries = 0;
+      const maxFinalUserRetries = 5; // Augmenter le nombre de tentatives
       
-      while (retries < maxRetries && !finalUser) {
+      while (finalRetries < maxFinalUserRetries && !finalUser) {
         const { data: { user }, error } = await supabase.auth.getUser();
         
         if (user && !error) {
           finalUser = user;
-          console.log(`✅ Utilisateur récupéré à la tentative ${retries + 1}/${maxRetries}`);
+          console.log(`✅ Utilisateur récupéré à la tentative ${finalRetries + 1}/${maxFinalUserRetries}`);
           break;
         }
         
         finalError = error;
-        retries++;
+        finalRetries++;
         
-        if (retries < maxRetries) {
-          console.warn(`⚠️ Tentative ${retries + 1}/${maxRetries} de récupération de l'utilisateur...`);
+        if (finalRetries < maxFinalUserRetries) {
+          console.warn(`⚠️ Tentative ${finalRetries + 1}/${maxFinalUserRetries} de récupération de l'utilisateur...`);
           // Augmenter le délai entre les tentatives
           await new Promise(resolve => setTimeout(resolve, 1500));
         }
