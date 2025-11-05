@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout'
 import { AuthGuard } from '@/components/auth-guard'
 import { Card } from '@/components/ui/card'
@@ -55,31 +55,47 @@ export default function ExtractionPage() {
   // (Périodes prédéfinies supprimées pour un flux minimaliste)
 
   // Polling du statut du job en cours
-  useEffect(() => {
-    if (!currentJobId) return
+  const pollCountRef = useRef(0)
+  const startTimeRef = useRef<number | null>(null)
 
-    let pollCount = 0
+  useEffect(() => {
+    if (!currentJobId) {
+      // Réinitialiser les compteurs quand il n'y a pas de job
+      pollCountRef.current = 0
+      startTimeRef.current = null
+      return
+    }
+
+    // Initialiser le temps de départ
+    if (startTimeRef.current === null) {
+      startTimeRef.current = Date.now()
+      pollCountRef.current = 0
+    }
+
     const maxPolls = 300 // Maximum 10 minutes (300 * 2 secondes)
-    const startTime = Date.now()
     const maxDuration = 10 * 60 * 1000 // 10 minutes maximum
 
     const pollJobStatus = async () => {
       try {
         // Vérifier le timeout
-        if (Date.now() - startTime > maxDuration) {
+        if (startTimeRef.current && Date.now() - startTimeRef.current > maxDuration) {
           console.warn('⏰ Timeout polling extraction après 10 minutes')
           setError('Extraction en cours depuis trop longtemps. Veuillez réessayer.')
           setIsProcessing(false)
           setCurrentJobId(null)
+          pollCountRef.current = 0
+          startTimeRef.current = null
           return
         }
 
-        pollCount++
-        if (pollCount > maxPolls) {
+        pollCountRef.current++
+        if (pollCountRef.current > maxPolls) {
           console.warn('⏰ Limite de polling atteinte')
           setError('Extraction en cours depuis trop longtemps. Veuillez réessayer.')
           setIsProcessing(false)
           setCurrentJobId(null)
+          pollCountRef.current = 0
+          startTimeRef.current = null
           return
         }
 
@@ -92,6 +108,8 @@ export default function ExtractionPage() {
             setError('Job d\'extraction introuvable')
             setIsProcessing(false)
             setCurrentJobId(null)
+            pollCountRef.current = 0
+            startTimeRef.current = null
             return
           }
           throw new Error(`Erreur HTTP: ${response.status}`)
@@ -106,10 +124,14 @@ export default function ExtractionPage() {
             setLastResult(`✅ ${result.job.invoicesExtracted || 0} factures extraites !`)
             setIsProcessing(false)
             setCurrentJobId(null)
+            pollCountRef.current = 0
+            startTimeRef.current = null
           } else if (result.job.status === 'failed') {
             setError(`Erreur : ${result.job.errorMessage || 'Échec de l\'extraction'}`)
             setIsProcessing(false)
             setCurrentJobId(null)
+            pollCountRef.current = 0
+            startTimeRef.current = null
           }
           // Si le status est 'processing', on continue le polling
         } else if (result.error) {
@@ -118,14 +140,18 @@ export default function ExtractionPage() {
           setError(`Erreur : ${result.error}`)
           setIsProcessing(false)
           setCurrentJobId(null)
+          pollCountRef.current = 0
+          startTimeRef.current = null
         }
       } catch (err) {
         console.error('❌ Erreur polling job:', err)
         // Après 3 erreurs consécutives, arrêter le polling
-        if (pollCount >= 3) {
+        if (pollCountRef.current >= 3) {
           setError('Erreur lors de la vérification du statut. Veuillez réessayer.')
           setIsProcessing(false)
           setCurrentJobId(null)
+          pollCountRef.current = 0
+          startTimeRef.current = null
         }
       }
     }
