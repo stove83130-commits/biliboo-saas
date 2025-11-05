@@ -38,9 +38,22 @@ export async function GET(request: Request) {
   try {
     // Déterminer l'URL de base (production ou local)
     // Utiliser l'origin de la requête pour garantir la bonne URL
-    const baseUrl = origin || (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') 
+    // IMPORTANT: Normaliser l'URL pour éviter les problèmes www vs non-www
+    let baseUrl = origin || (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost') 
       ? process.env.NEXT_PUBLIC_APP_URL 
       : 'http://localhost:3001')
+    
+    // IMPORTANT: Normaliser l'URL pour bilibou.com (toujours sans www pour la cohérence)
+    // L'URI de redirection doit correspondre EXACTEMENT à celle configurée dans Google Cloud Console
+    if (baseUrl.includes('bilibou.com')) {
+      baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?/, 'https://')
+      // Si c'est bilibou.com, on retire le www pour la cohérence
+      if (baseUrl.startsWith('https://www.bilibou.com')) {
+        baseUrl = 'https://bilibou.com'
+      }
+    }
+    
+    console.log('🔗 URI de redirection callback Gmail:', `${baseUrl}/api/gmail/callback`)
     
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,

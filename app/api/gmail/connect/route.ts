@@ -18,6 +18,7 @@ export async function GET(request: Request) {
 
   // Déterminer l'URL de base (production ou local)
   // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL (si pas localhost) > request.url origin
+  // IMPORTANT: Normaliser l'URL pour éviter les problèmes www vs non-www
   const requestUrl = new URL(request.url)
   const origin = request.headers.get('origin')
   const referer = request.headers.get('referer')
@@ -37,6 +38,18 @@ export async function GET(request: Request) {
   } else {
     baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
   }
+  
+  // IMPORTANT: Normaliser l'URL pour bilibou.com (toujours sans www pour la cohérence)
+  // L'URI de redirection doit correspondre EXACTEMENT à celle configurée dans Google Cloud Console
+  if (baseUrl.includes('bilibou.com')) {
+    baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?/, 'https://')
+    // Si c'est bilibou.com, on retire le www pour la cohérence
+    if (baseUrl.startsWith('https://www.bilibou.com')) {
+      baseUrl = 'https://bilibou.com'
+    }
+  }
+  
+  console.log('🔗 URI de redirection Gmail:', `${baseUrl}/api/gmail/callback`)
 
   // Vérifier les permissions du plan
   const planId = user.user_metadata?.selected_plan
