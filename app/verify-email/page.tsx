@@ -40,6 +40,8 @@ export default function VerifyEmailPage() {
       
       return () => clearTimeout(redirectTimer);
     }
+
+    // Si pas de confirmed=true, continuer avec le flow normal
     const checkEmailVerification = async () => {
       try {
         // Attendre un peu pour que le localStorage soit bien synchronisé
