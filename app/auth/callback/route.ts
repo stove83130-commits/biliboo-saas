@@ -36,7 +36,11 @@ export async function GET(request: NextRequest) {
 
   // Gérer la confirmation d'email
   if (code && type === 'signup') {
-    console.log('Email confirmation detected')
+    console.log('📧 Email confirmation detected')
+    console.log('📧 Code:', code.substring(0, 20) + '...')
+    console.log('📧 Type:', type)
+    console.log('📧 Origin:', origin)
+    
     // Créer un client SSR pour échanger le code et confirmer l'email
     let response = NextResponse.next()
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
@@ -56,14 +60,21 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
-      console.error('Erreur lors de la confirmation email:', error)
+      console.error('❌ Erreur lors de la confirmation email:', error)
+      console.error('❌ Détails erreur:', JSON.stringify(error, null, 2))
       return buildRedirectResponse(`${origin}/auth/login?error=confirmation_failed`)
     }
 
+    console.log('✅ Code échangé avec succès, session créée')
+    console.log('📧 Session user:', sessionData?.user?.id || 'N/A')
+    console.log('📧 Session email confirmed:', !!sessionData?.user?.email_confirmed_at)
+
     // Assurer l'écriture effective des cookies en forçant une lecture de session
-    await supabase.auth.getUser()
+    const { data: { user: userAfterExchange } } = await supabase.auth.getUser()
+    console.log('📧 User après exchange:', userAfterExchange?.id || 'N/A')
+    console.log('📧 Email confirmed après exchange:', !!userAfterExchange?.email_confirmed_at)
 
     // Recréer un client basé sur les cookies désormais présents dans `response`
     const supabaseAfterAuth = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -76,12 +87,29 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    const { data: { user } } = await supabaseAfterAuth.auth.getUser()
+    const { data: { user }, error: getUserError } = await supabaseAfterAuth.auth.getUser()
+    
+    if (getUserError) {
+      console.error('❌ Erreur lors de la récupération de l\'utilisateur:', getUserError)
+    }
+
+    console.log('📧 User final:', {
+      id: user?.id || 'N/A',
+      email: user?.email || 'N/A',
+      email_confirmed_at: user?.email_confirmed_at || 'N/A',
+      has_confirmed_at: !!user?.email_confirmed_at
+    })
 
     // Vérifier si l'email est confirmé
     // Si l'email n'est pas encore confirmé, rediriger vers /verify-email
     if (!user?.email_confirmed_at) {
       console.log('⚠️ Email non confirmé après confirmation, redirection vers /verify-email')
+      console.log('⚠️ Détails user:', {
+        id: user?.id,
+        email: user?.email,
+        email_confirmed_at: user?.email_confirmed_at,
+        created_at: user?.created_at
+      })
       const redirectResponse = buildRedirectResponse(`${origin}/verify-email`)
       response.cookies.getAll().forEach((c) => {
         redirectResponse.cookies.set(c)
@@ -93,9 +121,11 @@ export async function GET(request: NextRequest) {
     // pour afficher le message de succès, puis rediriger vers onboarding
     const onboardingCompleted = user?.user_metadata?.onboarding_completed || false
     
-    console.log('✅ Email confirmé avec succès:', {
+    console.log('✅✅✅ Email confirmé avec succès:', {
       userId: user?.id,
+      email: user?.email,
       emailConfirmed: !!user?.email_confirmed_at,
+      emailConfirmedAt: user?.email_confirmed_at,
       onboardingCompleted
     })
     

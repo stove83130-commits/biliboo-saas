@@ -106,10 +106,21 @@ function VerifyEmailContent() {
     const checkConfirmation = async () => {
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+        console.log('🔍 Vérification confirmation email:', {
+          hasUser: !!user,
+          userId: user?.id || 'N/A',
+          email: user?.email || 'N/A',
+          email_confirmed_at: user?.email_confirmed_at || 'N/A',
+          has_confirmed_at: !!user?.email_confirmed_at,
+          isVerified: isVerified,
+          error: userError?.message || 'N/A'
+        });
 
         // Si l'utilisateur a maintenant une session et que l'email est confirmé
         if (user?.email_confirmed_at && !isVerified) {
+          console.log('✅✅✅ Confirmation détectée ! email_confirmed_at:', user.email_confirmed_at);
           setIsVerified(true);
           // Nettoyer le localStorage
           localStorage.removeItem('pending_verification_email');
@@ -128,7 +139,7 @@ function VerifyEmailContent() {
         }
         return false;
       } catch (err) {
-        console.error('Erreur lors de la vérification:', err);
+        console.error('❌ Erreur lors de la vérification:', err);
         return false;
       }
     };
