@@ -17,8 +17,8 @@ export async function GET(request: Request) {
   }
 
   // Déterminer l'URL de base (production ou local)
-  // Priorité : NEXT_PUBLIC_APP_URL (domaine personnalisé) > origin header > referer > request.url origin
-  // IMPORTANT: Privilégier le domaine personnalisé (bilibou.com) plutôt que le domaine Vercel
+  // Priorité : origin header > referer > NEXT_PUBLIC_APP_URL (si pas localhost) > request.url origin
+  // IMPORTANT: Utiliser l'origin de la requête actuelle pour garantir la bonne URL de callback
   const requestUrl = new URL(request.url)
   const origin = request.headers.get('origin')
   const referer = request.headers.get('referer')
@@ -26,44 +26,42 @@ export async function GET(request: Request) {
   
   let baseUrl: string
   
-  // PRIORITÉ 1: Utiliser NEXT_PUBLIC_APP_URL si c'est un domaine personnalisé (pas localhost, pas vercel.app)
-  if (envAppUrl && !envAppUrl.includes('localhost') && !envAppUrl.includes('vercel.app')) {
-    baseUrl = envAppUrl
-    console.log('✅ Utilisation NEXT_PUBLIC_APP_URL (domaine personnalisé):', baseUrl)
-  } 
-  // PRIORITÉ 2: Utiliser origin si c'est un domaine personnalisé
-  else if (origin && !origin.includes('vercel.app') && !origin.includes('localhost')) {
+  // PRIORITÉ 1: Utiliser origin (toujours fiable, même pour vercel.app)
+  // On utilise origin car c'est le domaine réel de la requête, nécessaire pour le callback
+  if (origin) {
     baseUrl = origin
-    console.log('✅ Utilisation origin (domaine personnalisé):', baseUrl)
-  }
-  // PRIORITÉ 3: Utiliser referer si c'est un domaine personnalisé
+    console.log('✅ Utilisation origin (domaine de la requête):', baseUrl)
+  } 
+  // PRIORITÉ 2: Utiliser referer
   else if (referer) {
     try {
       const refererUrl = new URL(referer)
-      if (!refererUrl.origin.includes('vercel.app') && !refererUrl.origin.includes('localhost')) {
-        baseUrl = refererUrl.origin
-        console.log('✅ Utilisation referer (domaine personnalisé):', baseUrl)
-      } else {
-        // Fallback: utiliser origin ou envAppUrl
-        baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin)
-        console.log('⚠️ Utilisation fallback (domaine Vercel détecté):', baseUrl)
-      }
+      baseUrl = refererUrl.origin
+      console.log('✅ Utilisation referer:', baseUrl)
     } catch {
-      baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin)
+      baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
       console.log('⚠️ Utilisation fallback (erreur parsing referer):', baseUrl)
     }
   } 
-  // PRIORITÉ 4: Fallback sur origin ou envAppUrl
+  // PRIORITÉ 3: Fallback sur envAppUrl ou requestUrl.origin
   else {
-    baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin)
+    baseUrl = envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : requestUrl.origin
     console.log('⚠️ Utilisation fallback final:', baseUrl)
   }
   
-  // IMPORTANT: Normaliser l'URL pour bilibou.com (toujours sans www pour la cohérence)
-  // L'URI de redirection doit correspondre EXACTEMENT à celle configurée dans Google Cloud Console
-  if (baseUrl.includes('bilibou.com')) {
+  // IMPORTANT: Pour le callback OAuth, on doit utiliser l'URL normalisée (bilibou.com si disponible)
+  // Mais seulement si NEXT_PUBLIC_APP_URL est défini ET que c'est un domaine personnalisé
+  // Sinon on garde l'origin de la requête pour que le callback fonctionne
+  if (envAppUrl && !envAppUrl.includes('localhost') && !envAppUrl.includes('vercel.app')) {
+    // Utiliser NEXT_PUBLIC_APP_URL pour le callback URI (doit correspondre à Google Cloud Console)
+    const callbackBaseUrl = envAppUrl.includes('bilibou.com') 
+      ? 'https://bilibou.com' 
+      : envAppUrl
+    console.log('🔗 Utilisation NEXT_PUBLIC_APP_URL pour callback URI:', callbackBaseUrl)
+    baseUrl = callbackBaseUrl
+  } else if (baseUrl.includes('bilibou.com')) {
+    // Normaliser bilibou.com (toujours sans www pour la cohérence)
     baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?/, 'https://')
-    // Si c'est bilibou.com, on retire le www pour la cohérence
     if (baseUrl.startsWith('https://www.bilibou.com')) {
       baseUrl = 'https://bilibou.com'
     }
