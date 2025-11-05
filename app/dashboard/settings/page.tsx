@@ -30,25 +30,60 @@ function SettingsPageContent() {
   const supabase = createClient()
   const { hasActivePlan } = usePlan()
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const [workspaceType, setWorkspaceType] = useState<'personal' | 'organization' | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   
-  // IMPORTANT: Charger immédiatement depuis localStorage pour éviter les problèmes de timing
-  // On fait cela au niveau du composant, pas dans useEffect, pour que ce soit synchrone
-  const getInitialWorkspaceId = () => {
-    if (typeof window === 'undefined') return null
-    const workspaceId = localStorage.getItem('active_workspace_id')
-    // Normaliser : si c'est une chaîne vide ou 'personal', on met null
-    return workspaceId && workspaceId.trim() !== '' && workspaceId !== 'personal' ? workspaceId : null
-  }
+  // Charger le type du workspace depuis l'API
+  useEffect(() => {
+    const loadWorkspaceType = async () => {
+      // Charger l'ID depuis localStorage
+      const workspaceId = typeof window !== 'undefined' 
+        ? localStorage.getItem('active_workspace_id') 
+        : null
+      const finalWorkspaceId = workspaceId && workspaceId.trim() !== '' ? workspaceId : null
+      if (!workspaceId) {
+        setWorkspaceType('personal')
+        setIsInitialized(true)
+        return
+      }
+      
+      try {
+        const response = await fetch('/api/workspaces')
+        if (response.ok) {
+          const data = await response.json()
+          const workspace = data.workspaces?.find((w: any) => w.id === workspaceId)
+          if (workspace) {
+            setWorkspaceType(workspace.type || 'organization')
+            console.log('📋 Workspace type chargé:', workspace.type, 'pour ID:', workspaceId)
+          } else {
+            // Si le workspace n'est pas trouvé, considérer comme personnel par défaut
+            setWorkspaceType('personal')
+            console.log('⚠️ Workspace non trouvé, considéré comme personnel')
+          }
+        } else {
+          // En cas d'erreur, considérer comme personnel par défaut
+          setWorkspaceType('personal')
+          console.log('⚠️ Erreur chargement workspace, considéré comme personnel')
+        }
+      } catch (error) {
+        console.error('❌ Erreur lors du chargement du type de workspace:', error)
+        // En cas d'erreur, considérer comme personnel par défaut
+        setWorkspaceType('personal')
+      } finally {
+        setIsInitialized(true)
+      }
+    }
+    
+    loadWorkspaceType()
+  }, [])
   
-  // Pour un workspace personnel (null ou 'personal'), on a toujours les permissions
+  // Pour un workspace personnel (type === 'personal'), on a toujours les permissions
   // Pour un workspace d'organisation, on vérifie les permissions
-  // IMPORTANT: Utiliser activeWorkspaceId ou la valeur initiale depuis localStorage
+  // IMPORTANT: Utiliser le TYPE du workspace, pas seulement l'ID
   const currentWorkspaceId = activeWorkspaceId !== null ? activeWorkspaceId : getInitialWorkspaceId()
-  const normalizedWorkspaceId = currentWorkspaceId && currentWorkspaceId.trim() !== '' && currentWorkspaceId !== 'personal' 
-    ? currentWorkspaceId 
-    : null
-  const isPersonalWorkspace = normalizedWorkspaceId === null
+  const isPersonalWorkspace = workspaceType === 'personal' || workspaceType === null
+  // Si c'est un workspace personnel, on ne passe pas l'ID au hook (null), sinon on passe l'ID
+  const normalizedWorkspaceId = isPersonalWorkspace ? null : currentWorkspaceId
   const workspacePermissions = useWorkspacePermissions(normalizedWorkspaceId)
   
   // Permissions adaptées : pour un workspace personnel, on a toujours les droits complets
@@ -73,39 +108,48 @@ function SettingsPageContent() {
   
   console.log('🔍 Permissions debug:', {
     activeWorkspaceId,
+    workspaceType,
     isPersonalWorkspace,
     canManageEmailConnections,
     workspacePermissionsCanManage: workspacePermissions.canManageEmailConnections,
-    workspacePermissionsRole: workspacePermissions.role
+    workspacePermissionsRole: workspacePermissions.role,
+    normalizedWorkspaceId
   })
-  
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const workspaceId = localStorage.getItem('active_workspace_id')
-      // Normaliser : si c'est une chaîne vide ou 'personal', on met null
-      const normalizedId = workspaceId && workspaceId.trim() !== '' && workspaceId !== 'personal' ? workspaceId : null
-      setActiveWorkspaceId(normalizedId)
-      setIsInitialized(true)
-      console.log('📋 Workspace ID chargé:', workspaceId, 'Normalisé:', normalizedId, 'Is personal:', normalizedId === null)
-      console.log('📋 Permissions calculées:', {
-        normalizedId,
-        isPersonal: normalizedId === null,
-        canManageEmailConnections: normalizedId === null ? true : 'vérifié par hook'
-      })
-    }
-  }, [])
   
   // Écouter les changements de workspace
   useEffect(() => {
     if (typeof window === 'undefined') return
     
-    const handleWorkspaceChange = () => {
+    const handleWorkspaceChange = async (event?: any) => {
       const workspaceId = localStorage.getItem('active_workspace_id')
-      // Normaliser : si c'est une chaîne vide ou 'personal', on met null
-      const normalizedId = workspaceId && workspaceId.trim() !== '' && workspaceId !== 'personal' ? workspaceId : null
-      setActiveWorkspaceId(normalizedId)
+      const workspaceIdFromEvent = event?.detail?.id
+      const finalWorkspaceId = workspaceIdFromEvent || workspaceId
+      
+      setActiveWorkspaceId(finalWorkspaceId && finalWorkspaceId.trim() !== '' ? finalWorkspaceId : null)
+      
+      // Recharger le type du workspace
+      if (finalWorkspaceId && finalWorkspaceId.trim() !== '') {
+        try {
+          const response = await fetch('/api/workspaces')
+          if (response.ok) {
+            const data = await response.json()
+            const workspace = data.workspaces?.find((w: any) => w.id === finalWorkspaceId)
+            if (workspace) {
+              setWorkspaceType(workspace.type || 'organization')
+              console.log('🔄 Workspace changé:', finalWorkspaceId, 'Type:', workspace.type)
+            } else {
+              setWorkspaceType('personal')
+            }
+          }
+        } catch (error) {
+          console.error('❌ Erreur lors du rechargement du type:', error)
+          setWorkspaceType('personal')
+        }
+      } else {
+        setWorkspaceType('personal')
+      }
+      
       setIsInitialized(true)
-      console.log('🔄 Workspace changé:', workspaceId, 'Normalisé:', normalizedId)
       fetchEmailAccounts()
     }
     
@@ -336,11 +380,11 @@ function SettingsPageContent() {
                 </Button>
               )}
               {/* Afficher le message d'erreur UNIQUEMENT si :
-                  1. On est dans un workspace d'organisation (normalizedWorkspaceId !== null) ET
+                  1. On est dans un workspace d'organisation (workspaceType === 'organization') ET
                   2. On n'a pas les permissions ET
                   3. Le workspace est initialisé
                   IMPORTANT: Pour un espace personnel, on n'affiche JAMAIS ce message */}
-              {normalizedWorkspaceId !== null && 
+              {workspaceType === 'organization' && 
                isInitialized && 
                !permissions.canManageEmailConnections && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
@@ -407,11 +451,11 @@ function SettingsPageContent() {
                 </Button>
               )}
               {/* Afficher le message d'erreur UNIQUEMENT si :
-                  1. On est dans un workspace d'organisation (normalizedWorkspaceId !== null) ET
+                  1. On est dans un workspace d'organisation (workspaceType === 'organization') ET
                   2. On n'a pas les permissions ET
                   3. Le workspace est initialisé
                   IMPORTANT: Pour un espace personnel, on n'affiche JAMAIS ce message */}
-              {normalizedWorkspaceId !== null && 
+              {workspaceType === 'organization' && 
                isInitialized && 
                !permissions.canManageEmailConnections && (
                 <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
