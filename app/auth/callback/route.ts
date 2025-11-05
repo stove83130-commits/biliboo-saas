@@ -35,15 +35,22 @@ export async function GET(request: NextRequest) {
   // Mais normalement Supabase devrait toujours envoyer type=recovery pour reset password
 
   // Gérer la confirmation d'email
-  if (code && type === 'signup') {
+  // IMPORTANT: type=signup OU pas de type ET pas de code verifier dans les cookies
+  // Les confirmations email n'ont généralement pas de code verifier (sauf si PKCE est activé)
+  // Les OAuth ont toujours un code verifier
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+  const hasCodeVerifier = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-code-verifier')?.value
+  const isSignupFlow = type === 'signup' || (!type && !hasCodeVerifier && code)
+  
+  if (code && isSignupFlow) {
     console.log('📧 Email confirmation detected')
     console.log('📧 Code:', code.substring(0, 20) + '...')
-    console.log('📧 Type:', type)
+    console.log('📧 Type:', type || 'none (détecté comme signup)')
     console.log('📧 Origin:', origin)
     
     // Créer un client SSR pour échanger le code et confirmer l'email
     let response = NextResponse.next()
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+    // supabaseUrl est déjà défini plus haut
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -60,11 +67,48 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code)
-    if (error) {
-      console.error('❌ Erreur lors de la confirmation email:', error)
+    // IMPORTANT: Pour les confirmations email (signup), on n'a PAS besoin de code verifier
+    // Le code verifier est seulement pour OAuth avec PKCE
+    // Essayer d'abord sans code verifier, puis avec si nécessaire
+    let sessionData = null
+    let error = null
+    
+    // Tentative 1: Sans code verifier (standard pour email confirmation)
+    const { data: session, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
+    
+    if (sessionError) {
+      console.warn('⚠️ Première tentative échouée:', sessionError.message)
+      
+      // Si l'erreur mentionne code verifier, essayer de récupérer le code verifier depuis les cookies
+      if (sessionError.message?.includes('code verifier') || sessionError.message?.includes('code_verifier')) {
+        console.log('⚠️ Erreur code verifier détectée, tentative avec code verifier...')
+        const codeVerifier = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-code-verifier')?.value
+        
+        if (codeVerifier) {
+          // Réessayer avec le code verifier (peut-être que Supabase a besoin du code verifier même pour signup)
+          const { data: sessionWithVerifier, error: errorWithVerifier } = await supabase.auth.exchangeCodeForSession(code)
+          if (!errorWithVerifier && sessionWithVerifier) {
+            sessionData = sessionWithVerifier
+            console.log('✅ Code échangé avec succès avec code verifier')
+          } else {
+            error = errorWithVerifier || sessionError
+          }
+        } else {
+          error = sessionError
+        }
+      } else {
+        error = sessionError
+      }
+    } else {
+      sessionData = session
+      console.log('✅ Code échangé avec succès sans code verifier')
+    }
+    
+    if (error || !sessionData) {
+      console.error('❌ Erreur lors de la confirmation email:', error || 'Session data is null')
       console.error('❌ Détails erreur:', JSON.stringify(error, null, 2))
-      return buildRedirectResponse(`${origin}/auth/login?error=confirmation_failed`)
+      // Ne pas rediriger vers login, rediriger vers verify-email pour permettre une nouvelle tentative
+      return buildRedirectResponse(`${origin}/verify-email?error=confirmation_failed`)
     }
 
     console.log('✅ Code échangé avec succès, session créée')
@@ -142,7 +186,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Gérer les codes d'authentification standard (OAuth, etc.) - mais PAS recovery/signup qui sont gérés plus haut
-  if (code && type !== 'recovery' && type !== 'signup') {
+  // IMPORTANT: Ne traiter que si ce n'est PAS un flux signup (déjà traité ci-dessus)
+  if (code && type !== 'recovery' && !isSignupFlow) {
     console.log('Standard auth flow (OAuth, etc.)')
     console.log('📧 Code présent:', code ? 'yes' : 'no', 'Type:', type)
     

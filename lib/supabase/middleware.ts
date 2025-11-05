@@ -67,8 +67,23 @@ export async function updateSession(request: NextRequest) {
   )
 
   try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
     const pathname = request.nextUrl.pathname
+    
+    // Log des cookies présents pour debug
+    const authCookie = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-auth-token')
+    const hasAuthCookie = !!authCookie?.value
+    console.log('🔍 Middleware check:', {
+      pathname,
+      hasAuthCookie,
+      cookieLength: authCookie?.value?.length || 0
+    })
+    
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError) {
+      console.error('❌ Erreur auth middleware:', authError.message)
+      console.error('❌ Détails:', JSON.stringify(authError, null, 2))
+    }
     
     // Routes publiques (accessibles sans authentification)
     const publicRoutes = [
@@ -102,7 +117,11 @@ export async function updateSession(request: NextRequest) {
       }
       
       // Pour les routes pages, rediriger vers login
-      console.log('🔒 Utilisateur non authentifié, redirection vers /auth/login')
+      console.log('🔒 Utilisateur non authentifié, redirection vers /auth/login', {
+        pathname,
+        hasAuthCookie,
+        authError: authError?.message || 'none'
+      })
       const redirectUrl = new URL('/auth/login', request.url)
       return NextResponse.redirect(redirectUrl)
     }
