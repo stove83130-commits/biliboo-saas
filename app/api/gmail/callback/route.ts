@@ -12,9 +12,28 @@ export async function GET(request: Request) {
   const stateParams = new URLSearchParams(state)
   let workspaceId = stateParams.get('workspaceId') || null
   
-  // Si workspaceId est 'personal' ou vide, on le met à null pour un compte personnel
+  // IMPORTANT: Pour un workspace personnel, on met toujours workspace_id à null
+  // Vérifier si c'est un workspace personnel en vérifiant le type depuis l'API
+  // Si workspaceId est 'personal', vide, ou si c'est un workspace personnel, on met null
   if (workspaceId === 'personal' || workspaceId?.trim() === '') {
     workspaceId = null
+  } else if (workspaceId) {
+    // Si workspaceId est fourni, vérifier si c'est un workspace personnel
+    try {
+      const workspaceCheck = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || origin}/api/workspaces`)
+      if (workspaceCheck.ok) {
+        const workspaceData = await workspaceCheck.json()
+        const workspace = workspaceData.workspaces?.find((w: any) => w.id === workspaceId)
+        if (workspace && workspace.type === 'personal') {
+          console.log('✅ Workspace personnel détecté, workspace_id = null')
+          workspaceId = null
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Erreur lors de la vérification du type de workspace:', error)
+      // En cas d'erreur, considérer comme personnel par défaut
+      workspaceId = null
+    }
   }
 
   if (error) {
@@ -138,7 +157,7 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/dashboard/settings?error=database_error`)
     }
 
-    console.log('Gmail account saved successfully for user:', user.id, 'email:', userInfo.email)
+    console.log('✅ Gmail account saved successfully for user:', user.id, 'email:', userInfo.email, 'workspace_id:', workspaceId)
 
     return NextResponse.redirect(`${origin}/dashboard/settings?success=gmail_connected`)
   } catch (err) {
