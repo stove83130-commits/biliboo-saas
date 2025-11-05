@@ -122,93 +122,12 @@ function SettingsPageContent() {
     normalizedWorkspaceId
   })
   
-  // Écouter les changements de workspace
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    
-    const handleWorkspaceChange = async (event?: any) => {
-      const workspaceId = localStorage.getItem('active_workspace_id')
-      const workspaceIdFromEvent = event?.detail?.id
-      const finalWorkspaceId = workspaceIdFromEvent || workspaceId
-      
-      setActiveWorkspaceId(finalWorkspaceId && finalWorkspaceId.trim() !== '' ? finalWorkspaceId : null)
-      
-      // Recharger le type du workspace
-      if (finalWorkspaceId && finalWorkspaceId.trim() !== '') {
-        try {
-          const response = await fetch('/api/workspaces')
-          if (response.ok) {
-            const data = await response.json()
-            const workspace = data.workspaces?.find((w: any) => w.id === finalWorkspaceId)
-            if (workspace) {
-              setWorkspaceType(workspace.type || 'organization')
-              console.log('🔄 Workspace changé:', finalWorkspaceId, 'Type:', workspace.type)
-            } else {
-              setWorkspaceType('personal')
-            }
-          }
-        } catch (error) {
-          console.error('❌ Erreur lors du rechargement du type:', error)
-          setWorkspaceType('personal')
-        }
-      } else {
-        setWorkspaceType('personal')
-      }
-      
-      setIsInitialized(true)
-      fetchEmailAccounts()
-    }
-    
-    window.addEventListener('workspace:changed', handleWorkspaceChange as any)
-    return () => {
-      window.removeEventListener('workspace:changed', handleWorkspaceChange as any)
-    }
-  }, [])
-  
   const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
 
-  useEffect(() => {
-    // Ne charger les comptes que si le workspace est initialisé
-    if (isInitialized) {
-      fetchEmailAccounts()
-    }
-    const handler = () => fetchEmailAccounts()
-    if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
-    return () => { if (typeof window !== 'undefined') window.removeEventListener('workspace:changed', handler as any) }
-  }, [isInitialized, fetchEmailAccounts])
-
-  useEffect(() => {
-    // Check for success/error messages
-    const success = searchParams.get('success')
-    const error = searchParams.get('error')
-    const upgrade = searchParams.get('upgrade')
-    
-    if (success === 'gmail_connected') {
-      alert('✅ Gmail connecté avec succès !')
-      // Remove query params and refresh accounts
-      router.replace('/dashboard/settings')
-      // Wait a bit before refreshing to ensure DB has updated
-      setTimeout(() => {
-        fetchEmailAccounts()
-      }, 500)
-    } else if (success === 'outlook_connected') {
-      alert('✅ Outlook connecté avec succès !')
-      router.replace('/dashboard/settings')
-      setTimeout(() => {
-        fetchEmailAccounts()
-      }, 500)
-    } else if (error) {
-      alert(`❌ Erreur: ${error}`)
-      router.replace('/dashboard/settings')
-    } else if (upgrade === 'true') {
-      setShowUpgradeModal(true)
-      router.replace('/dashboard/settings')
-    }
-  }, [searchParams])
-
+  // IMPORTANT: Définir fetchEmailAccounts AVANT les useEffect qui l'utilisent
   const fetchEmailAccounts = useCallback(async () => {
     try {
       setLoading(true)
@@ -253,6 +172,88 @@ function SettingsPageContent() {
       setLoading(false)
     }
   }, [supabase, currentWorkspaceId, workspaceType])
+  
+  // Écouter les changements de workspace
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const handleWorkspaceChange = async (event?: any) => {
+      const workspaceId = localStorage.getItem('active_workspace_id')
+      const workspaceIdFromEvent = event?.detail?.id
+      const finalWorkspaceId = workspaceIdFromEvent || workspaceId
+      
+      setActiveWorkspaceId(finalWorkspaceId && finalWorkspaceId.trim() !== '' ? finalWorkspaceId : null)
+      
+      // Recharger le type du workspace
+      if (finalWorkspaceId && finalWorkspaceId.trim() !== '') {
+        try {
+          const response = await fetch('/api/workspaces')
+          if (response.ok) {
+            const data = await response.json()
+            const workspace = data.workspaces?.find((w: any) => w.id === finalWorkspaceId)
+            if (workspace) {
+              setWorkspaceType(workspace.type || 'organization')
+              console.log('🔄 Workspace changé:', finalWorkspaceId, 'Type:', workspace.type)
+            } else {
+              setWorkspaceType('personal')
+            }
+          }
+        } catch (error) {
+          console.error('❌ Erreur lors du rechargement du type:', error)
+          setWorkspaceType('personal')
+        }
+      } else {
+        setWorkspaceType('personal')
+      }
+      
+      setIsInitialized(true)
+      fetchEmailAccounts()
+    }
+    
+    window.addEventListener('workspace:changed', handleWorkspaceChange as any)
+    return () => {
+      window.removeEventListener('workspace:changed', handleWorkspaceChange as any)
+    }
+  }, [fetchEmailAccounts])
+
+  useEffect(() => {
+    // Ne charger les comptes que si le workspace est initialisé
+    if (isInitialized) {
+      fetchEmailAccounts()
+    }
+    const handler = () => fetchEmailAccounts()
+    if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
+    return () => { if (typeof window !== 'undefined') window.removeEventListener('workspace:changed', handler as any) }
+  }, [isInitialized, fetchEmailAccounts])
+
+  useEffect(() => {
+    // Check for success/error messages
+    const success = searchParams.get('success')
+    const error = searchParams.get('error')
+    const upgrade = searchParams.get('upgrade')
+    
+    if (success === 'gmail_connected') {
+      alert('✅ Gmail connecté avec succès !')
+      // Remove query params and refresh accounts
+      router.replace('/dashboard/settings')
+      // Wait a bit before refreshing to ensure DB has updated
+      setTimeout(() => {
+        fetchEmailAccounts()
+      }, 500)
+    } else if (success === 'outlook_connected') {
+      alert('✅ Outlook connecté avec succès !')
+      router.replace('/dashboard/settings')
+      setTimeout(() => {
+        fetchEmailAccounts()
+      }, 500)
+    } else if (error) {
+      alert(`❌ Erreur: ${error}`)
+      router.replace('/dashboard/settings')
+    } else if (upgrade === 'true') {
+      setShowUpgradeModal(true)
+      router.replace('/dashboard/settings')
+    }
+  }, [searchParams, fetchEmailAccounts])
 
   const handleConnectGmail = () => {
     // Pour ajouter un compte Gmail, on utilise toujours 'personal' ou on ne passe pas de workspaceId
