@@ -73,56 +73,11 @@ export default function SignupPage() {
 
       setSuccess(true);
       
-      // Vérifier si un plan a été sélectionné
-      const selectedPlan = localStorage.getItem('selected_plan');
-      const shouldRedirect = localStorage.getItem('plan_redirect');
-      
-      if (selectedPlan && shouldRedirect === 'true') {
-        // Nettoyer le localStorage
-        localStorage.removeItem('selected_plan');
-        localStorage.removeItem('plan_redirect');
-        
-        // Rediriger vers le paiement du plan choisi après 2 secondes
-        setTimeout(async () => {
-          try {
-            const response = await fetch('/api/billing/checkout', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                planId: selectedPlan,
-                isAnnual: false,
-                source: 'signup',
-                returnUrl: window.location.pathname + window.location.search
-              }),
-            });
-
-            if (response.ok) {
-              const { url } = await response.json();
-              window.location.href = url;
-            } else {
-              const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' }))
-              console.error('❌ Erreur création session Stripe:', errorData)
-              alert(`Erreur lors de la création de la session de paiement: ${errorData.error || 'Erreur inconnue'}`)
-              // En cas d'erreur, rediriger vers l'onboarding
-              router.push('/onboarding');
-              router.refresh();
-            }
-          } catch (error: any) {
-            console.error('❌ Erreur lors de la redirection vers le paiement:', error);
-            alert(`Erreur: ${error?.message || 'Erreur réseau'}`)
-            router.push('/onboarding');
-            router.refresh();
-          }
-        }, 2000);
-      } else {
-        // Pas de plan sélectionné, rediriger vers l'onboarding normalement
-        setTimeout(() => {
-          // Utiliser window.location.href pour forcer une navigation complète
-          window.location.href = '/onboarding';
-        }, 2000);
-      }
+      // Rediriger vers la page de vérification d'email
+      // L'utilisateur devra confirmer son email avant d'accéder à l'application
+      setTimeout(() => {
+        window.location.href = '/verify-email';
+      }, 2000);
     } catch (err: any) {
       setError(err.message || 'Erreur lors de l\'inscription');
     } finally {

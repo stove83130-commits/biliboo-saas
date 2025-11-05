@@ -67,7 +67,37 @@ export async function updateSession(request: NextRequest) {
   )
 
   try {
-    await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Si l'utilisateur est authentifié mais que son email n'est pas confirmé,
+    // rediriger vers /verify-email (sauf pour certaines routes publiques)
+    // Note: Les utilisateurs OAuth (Google, Azure) ont déjà leur email confirmé automatiquement
+    if (user && !user.email_confirmed_at) {
+      const pathname = request.nextUrl.pathname
+      
+      // Routes autorisées même sans email confirmé
+      const publicRoutes = [
+        '/auth/login',
+        '/auth/signup',
+        '/auth/forgot-password',
+        '/auth/reset-password',
+        '/auth/callback',
+        '/verify-email',
+        '/api/auth',
+        '/api/billing/checkout', // Permettre le checkout même sans email confirmé
+      ]
+      
+      // Vérifier si la route est publique
+      const isPublicRoute = publicRoutes.some(route => 
+        pathname === route || pathname.startsWith(route + '/')
+      )
+      
+      // Si ce n'est pas une route publique, rediriger vers /verify-email
+      if (!isPublicRoute) {
+        const redirectUrl = new URL('/verify-email', request.url)
+        return NextResponse.redirect(redirectUrl)
+      }
+    }
   } catch (error) {
     console.error('❌ Erreur auth middleware:', error)
     // Continuer même en cas d'erreur d'auth

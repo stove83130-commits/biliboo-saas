@@ -78,6 +78,17 @@ export async function GET(request: NextRequest) {
 
     const { data: { user } } = await supabaseAfterAuth.auth.getUser()
 
+    // Vérifier si l'email est confirmé
+    // Si l'email n'est pas encore confirmé, rediriger vers /verify-email
+    if (!user?.email_confirmed_at) {
+      console.log('⚠️ Email non confirmé après confirmation, redirection vers /verify-email')
+      const redirectResponse = buildRedirectResponse(`${origin}/verify-email`)
+      response.cookies.getAll().forEach((c) => {
+        redirectResponse.cookies.set(c)
+      })
+      return redirectResponse
+    }
+
     // Vérifier si l'utilisateur a complété l'onboarding
     const onboardingCompleted = user?.user_metadata?.onboarding_completed || false
     
@@ -87,6 +98,7 @@ export async function GET(request: NextRequest) {
     
     console.log('🔀 Redirection après confirmation email:', {
       userId: user?.id,
+      emailConfirmed: !!user?.email_confirmed_at,
       onboardingCompleted,
       redirectPath
     })
