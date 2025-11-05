@@ -60,6 +60,19 @@ export default function PlansPage() {
     }
   }
 
+  // Vérifier si l'utilisateur a déjà consommé son essai gratuit
+  const trialConsumed = user?.user_metadata?.trial_consumed || user?.user_metadata?.trial_started_at
+
+  // Fonction pour obtenir le texte du bouton selon l'état de l'essai
+  const getButtonText = (defaultText: string) => {
+    // Si l'utilisateur n'a pas encore utilisé son essai, afficher "Essai gratuit de 7 jours"
+    if (!trialConsumed && user) {
+      return "Essai gratuit de 7 jours"
+    }
+    // Sinon, afficher le texte par défaut
+    return defaultText
+  }
+
   const pricingPlans = [
     {
       name: "Starter",
@@ -304,7 +317,7 @@ export default function PlansPage() {
                         <span
                           className={`text-center text-sm font-medium leading-tight ${plan.name === "Starter" ? "text-gray-800" : plan.name === "Pro" ? "text-primary" : plan.name === "Business" ? "text-zinc-950" : "text-gray-800"}`}
                         >
-                          {plan.buttonText}
+                          {plan.name === "Entreprise" ? plan.buttonText : getButtonText(plan.buttonText)}
                         </span>
                       </div>
                     </SmartCTAButton>
