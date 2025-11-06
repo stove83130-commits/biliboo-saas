@@ -292,11 +292,11 @@ async function processExtractionInBackground(
                          (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail);
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
-        if (!isInvoice && emailsAnalyzed <= 10) {
-          // Logger les 10 premiers emails rejetés pour debug
+        if (!isInvoice) {
+          emailsRejected++;
           let reason = '';
-          if (hasPdfAttachment) {
-            reason = 'PDF exclu par pattern';
+          if (pdfExcluded) {
+            reason = pdfExcludedReason;
           } else if (hasInvoiceKeywordInSubject) {
             if (isPersonalEmail) {
               reason = 'Email personnel avec mot-clé facture (rejeté)';
@@ -306,7 +306,10 @@ async function processExtractionInBackground(
           } else {
             reason = 'Pas de PDF ni mot-clé facture';
           }
-          console.log(`🔍 Email ${emailsAnalyzed} rejeté: "${subject}" de ${from} - Raison: ${reason}`);
+          // Logger tous les emails rejetés pour debug (limité aux 20 premiers pour éviter trop de logs)
+          if (emailsRejected <= 20) {
+            console.log(`🔍 Email ${emailsAnalyzed} rejeté: "${subject.substring(0, 50)}" de ${from.substring(0, 40)} - Raison: ${reason}`);
+          }
         }
 
         if (isInvoice) {
@@ -325,7 +328,7 @@ async function processExtractionInBackground(
               if (attachment.data.data) {
                 pdfBuffer = Buffer.from(attachment.data.data, 'base64');
                 
-                const fileName = `${user.id}/${message.id}_${pdfAttachment.filename}`;
+                const fileName = `${userId}/${message.id}_${pdfAttachment.filename}`;
                 const { data: uploadData, error: uploadError } = await supabaseService.storage
                   .from('invoices')
                   .upload(fileName, pdfBuffer, {
@@ -483,7 +486,28 @@ Retourne un JSON avec :
           const { error: insertError } = await supabaseService
             .from('invoices')
             .insert({
-              user_id: user.id,
+          // Vérifier que le workspace_id existe avant de l'insérer
+          let workspaceIdToUse = null;
+          if (job.workspace_id) {
+            const { data: workspaceExists } = await supabaseService
+              .from('workspaces')
+              .select('id')
+              .eq('id', job.workspace_id)
+              .single();
+            if (workspaceExists) {
+              workspaceIdToUse = job.workspace_id;
+            } else {
+              console.warn(`⚠️ Workspace ${job.workspace_id} n'existe pas, utilisation de null`);
+            }
+          }
+
+          const { error: insertError } = await supabaseService
+            .from('invoices')
+            .insert({
+              user_id: userId,
+              connection_id: job.connection_id,
+              email_id: message.id,
+              workspace_id: workspaceIdToUse,
               connection_id: job.connection_id,
               email_id: message.id,
               workspace_id: job.workspace_id || null,
