@@ -3,7 +3,7 @@
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { RefreshCw, CheckCircle2, X } from "lucide-react"
+import { RefreshCw, CheckCircle2, X, ChevronDown, Plus } from "lucide-react"
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -12,6 +12,12 @@ import { GoogleLogo, MicrosoftLogo } from "@/components/ui/brand-logos"
 import { usePlan } from '@/contexts/plan-context'
 import { cleanEmailDisplay } from "@/utils/email-cleaner"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -344,8 +350,6 @@ function SettingsPageContent() {
     }
   }
 
-  const gmailAccount = emailAccounts.find(acc => acc.provider === 'gmail' && acc.is_active)
-  const outlookAccount = emailAccounts.find(acc => acc.provider === 'outlook' && acc.is_active)
 
   const handleConnectOutlook = () => {
     window.location.href = '/api/outlook/connect'
@@ -373,24 +377,35 @@ function SettingsPageContent() {
             )}
           </div>
           <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')} 
-              className="gap-2"
-              disabled={!hasActivePlan}
-            >
-              <GoogleLogo className="h-4 w-4" /> Ajouter un compte Gmail
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')} 
-              className="gap-2"
-              disabled={!hasActivePlan}
-            >
-              <MicrosoftLogo className="h-4 w-4" /> Ajouter un compte Outlook
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="gap-2"
+                  disabled={!hasActivePlan}
+                >
+                  <Plus className="h-4 w-4" /> Ajouter un compte
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')}
+                  disabled={!hasActivePlan}
+                  className="gap-2"
+                >
+                  <GoogleLogo className="h-4 w-4" /> Gmail
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')}
+                  disabled={!hasActivePlan}
+                  className="gap-2"
+                >
+                  <MicrosoftLogo className="h-4 w-4" /> Outlook
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div className="flex flex-col gap-2">
@@ -400,155 +415,30 @@ function SettingsPageContent() {
           </p>
         </div>
 
-        {/* Gmail Connection (premier compte) */}
-        <Card className="p-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : gmailAccount ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-background">
-                  <GoogleLogo className="h-7 w-7" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-foreground">{gmailAccount.email}</p>
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {gmailAccount.last_sync_at
-                      ? `Dernière synchro: ${new Date(gmailAccount.last_sync_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                      : 'Jamais synchronisé'}
-                  </p>
-                </div>
-              </div>
-              {permissions.canManageEmailConnections && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDisconnectAccount(gmailAccount.id)}
-                  className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-background">
-                  <GoogleLogo className="h-7 w-7" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Gmail</p>
-                  <p className="text-xs text-muted-foreground">Non connecté</p>
-                </div>
-              </div>
-              {permissions.canManageEmailConnections && (
-                <Button
-                  onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={!hasActivePlan}
-                >
-                  Connecter
-                </Button>
-              )}
-              {/* Afficher le message d'erreur UNIQUEMENT si :
-                  1. On est dans un workspace d'organisation (workspaceType === 'organization') ET
-                  2. On n'a pas les permissions ET
-                  3. Le workspace est initialisé
-                  IMPORTANT: Pour un espace personnel, on n'affiche JAMAIS ce message */}
-              {workspaceType === 'organization' && 
-               isInitialized && 
-               !permissions.canManageEmailConnections && (
-                <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
-              )}
-            </div>
-          )}
-        </Card>
-
-        {/* Outlook Connection (premier compte) */}
-        <Card className="p-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : outlookAccount ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-background">
-                  <MicrosoftLogo className="h-7 w-7" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-foreground">{outlookAccount.email}</p>
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {outlookAccount.last_sync_at
-                      ? `Dernière synchro: ${new Date(outlookAccount.last_sync_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-                      : 'Jamais synchronisé'}
-                  </p>
-                </div>
-              </div>
-              {permissions.canManageEmailConnections && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleDisconnectAccount(outlookAccount.id)}
-                  className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-background">
-                  <MicrosoftLogo className="h-7 w-7" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Outlook</p>
-                  <p className="text-xs text-muted-foreground">Non connecté</p>
-                </div>
-              </div>
-              {permissions.canManageEmailConnections && (
-                <Button
-                  onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={!hasActivePlan}
-                >
-                  Connecter
-                </Button>
-              )}
-              {/* Afficher le message d'erreur UNIQUEMENT si :
-                  1. On est dans un workspace d'organisation (workspaceType === 'organization') ET
-                  2. On n'a pas les permissions ET
-                  3. Le workspace est initialisé
-                  IMPORTANT: Pour un espace personnel, on n'affiche JAMAIS ce message */}
-              {workspaceType === 'organization' && 
-               isInitialized && 
-               !permissions.canManageEmailConnections && (
-                <p className="text-xs text-muted-foreground">Seuls les propriétaires et administrateurs peuvent gérer les connexions</p>
-              )}
-            </div>
-          )}
-        </Card>
-
         {/* Liste multi-comptes Gmail */}
         <Card className="p-6">
-          <div className="mb-4 text-sm font-medium text-foreground">Comptes Gmail connectés</div>
-          <div className="flex flex-col gap-3">
-            {emailAccounts.filter(a=>a.provider==='gmail').length === 0 && (
-              <div className="text-sm text-muted-foreground">Aucun compte Gmail connecté.</div>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-sm font-medium text-foreground">Comptes Gmail connectés</div>
+            {permissions.canManageEmailConnections && emailAccounts.filter(a=>a.provider==='gmail').length === 0 && (
+              <Button
+                onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={!hasActivePlan}
+              >
+                <Plus className="h-4 w-4" /> Ajouter Gmail
+              </Button>
             )}
+          </div>
+          <div className="flex flex-col gap-3">
+            {loading ? (
+              <div className="flex items-center justify-center py-4">
+                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : emailAccounts.filter(a=>a.provider==='gmail').length === 0 ? (
+              <div className="text-sm text-muted-foreground">Aucun compte Gmail connecté.</div>
+            ) : null}
             {emailAccounts.filter(a=>a.provider==='gmail').map(acc => (
               <div key={acc.id} className="flex items-center justify-between border rounded-md px-3 py-2">
                 <div className="flex items-center gap-3">
@@ -572,11 +462,28 @@ function SettingsPageContent() {
 
         {/* Liste multi-comptes Outlook */}
         <Card className="p-6">
-          <div className="mb-4 text-sm font-medium text-foreground">Comptes Outlook connectés</div>
-          <div className="flex flex-col gap-3">
-            {emailAccounts.filter(a=>a.provider==='outlook').length === 0 && (
-              <div className="text-sm text-muted-foreground">Aucun compte Outlook connecté.</div>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-sm font-medium text-foreground">Comptes Outlook connectés</div>
+            {permissions.canManageEmailConnections && emailAccounts.filter(a=>a.provider==='outlook').length === 0 && (
+              <Button
+                onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={!hasActivePlan}
+              >
+                <Plus className="h-4 w-4" /> Ajouter Outlook
+              </Button>
             )}
+          </div>
+          <div className="flex flex-col gap-3">
+            {loading ? (
+              <div className="flex items-center justify-center py-4">
+                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+              </div>
+            ) : emailAccounts.filter(a=>a.provider==='outlook').length === 0 ? (
+              <div className="text-sm text-muted-foreground">Aucun compte Outlook connecté.</div>
+            ) : null}
             {emailAccounts.filter(a=>a.provider==='outlook').map(acc => (
               <div key={acc.id} className="flex items-center justify-between border rounded-md px-3 py-2">
                 <div className="flex items-center gap-3">
