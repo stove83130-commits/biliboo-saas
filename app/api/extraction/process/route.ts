@@ -585,6 +585,100 @@ Retourne un JSON avec :
             }
           }
 
+          // ========== VÉRIFICATION DE DOUBLONS AVANT INSERTION ==========
+          // Vérifier si cette facture existe déjà dans la base de données
+          // Critères de détection de doublon :
+          // 1. Même email_id (même email traité plusieurs fois)
+          // 2. Même vendor + invoice_number + amount + date (même facture)
+          // 3. Même vendor + amount + date (si pas de numéro de facture)
+          
+          const invoiceDate = cleanedData.date ? new Date(cleanedData.date).toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
+          const invoiceAmount = cleanedData.amount || null;
+          const invoiceNumber = cleanedData.invoice_number || cleanedSubject;
+          
+          // Vérification 1: Même email_id (même email = doublon garanti)
+          const { data: existingByEmailId } = await supabaseService
+            .from('invoices')
+            .select('id, vendor, invoice_number, amount, date, payment_status')
+            .eq('user_id', userId)
+            .eq('email_id', message.id)
+            .limit(1);
+          
+          if (existingByEmailId && existingByEmailId.length > 0) {
+            console.log(`⚠️ Doublon détecté (même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}), ignorée`);
+            continue;
+          }
+          
+          // Vérification 2: Même vendor + invoice_number + amount + date (même facture, même workspace)
+          // Note: On ignore le payment_status car c'est la même facture même si le statut change
+          if (cleanedVendor && invoiceNumber && invoiceAmount) {
+            // Charger toutes les factures correspondantes, puis filtrer côté client
+            const { data: allMatchingInvoices } = await supabaseService
+              .from('invoices')
+              .select('id, vendor, invoice_number, amount, date, payment_status, workspace_id')
+              .eq('user_id', userId)
+              .eq('vendor', cleanedVendor)
+              .eq('invoice_number', invoiceNumber)
+              .eq('amount', invoiceAmount)
+              .eq('date', invoiceDate);
+            
+            // Filtrer par workspace côté client
+            let existingByDetails = (allMatchingInvoices || []).filter((inv: any) => {
+              if (workspaceIdToUse) {
+                return inv.workspace_id === workspaceIdToUse;
+              } else {
+                return inv.workspace_id === null || inv.workspace_id === 'personal' || !inv.workspace_id;
+              }
+            });
+            
+            if (existingByDetails && existingByDetails.length > 0) {
+              console.log(`⚠️ Doublon détecté (vendor + numéro + montant + date): ${cleanedVendor} - ${invoiceNumber} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByDetails[0].id}, statut: ${existingByDetails[0].payment_status}), ignorée`);
+              continue;
+            }
+          }
+          
+          // Vérification 3: Même vendor + amount + date (si pas de numéro de facture fiable)
+          // Note: On ignore le payment_status car c'est la même facture même si le statut change
+          if (cleanedVendor && invoiceAmount && (!invoiceNumber || invoiceNumber === cleanedSubject)) {
+            // Tolérance de ±0.01 pour les montants (arrondis)
+            const amountMin = parseFloat(invoiceAmount.toString()) - 0.01;
+            const amountMax = parseFloat(invoiceAmount.toString()) + 0.01;
+            
+            // Charger toutes les factures correspondantes, puis filtrer côté client
+            const { data: allMatchingInvoices } = await supabaseService
+              .from('invoices')
+              .select('id, vendor, invoice_number, amount, date, payment_status, workspace_id')
+              .eq('user_id', userId)
+              .eq('vendor', cleanedVendor)
+              .gte('amount', amountMin)
+              .lte('amount', amountMax)
+              .eq('date', invoiceDate)
+              .limit(10); // Limiter à 10 pour éviter trop de résultats
+            
+            // Filtrer par workspace côté client
+            let existingByVendorAmountDate = (allMatchingInvoices || []).filter((inv: any) => {
+              if (workspaceIdToUse) {
+                return inv.workspace_id === workspaceIdToUse;
+              } else {
+                return inv.workspace_id === null || inv.workspace_id === 'personal' || !inv.workspace_id;
+              }
+            });
+            
+            if (existingByVendorAmountDate && existingByVendorAmountDate.length > 0) {
+              // Vérifier si c'est vraiment un doublon (même montant exact)
+              const exactMatch = existingByVendorAmountDate.find((inv: any) => 
+                Math.abs(parseFloat(inv.amount?.toString() || '0') - parseFloat(invoiceAmount.toString())) < 0.01
+              );
+              
+              if (exactMatch) {
+                console.log(`⚠️ Doublon détecté (vendor + montant + date): ${cleanedVendor} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${exactMatch.id}, statut: ${exactMatch.payment_status}), ignorée`);
+                continue;
+              }
+            }
+          }
+
+          console.log(`✅ Aucun doublon détecté, insertion de la facture: ${cleanedVendor} - ${invoiceNumber} - ${invoiceAmount} ${cleanedData.currency || 'EUR'}`);
+
           const { error: insertError } = await supabaseService
             .from('invoices')
             .insert({
