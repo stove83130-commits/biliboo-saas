@@ -221,6 +221,32 @@ async function processExtractionInBackground(
     let emailsAnalyzed = 0;
     let emailsRejected = 0;
     let rejectionReasons: { [key: string]: number } = {};
+    let lastProgressUpdate = Date.now();
+
+    // Fonction pour mettre à jour le progress périodiquement
+    const updateProgress = async (force = false) => {
+      const now = Date.now();
+      // Mettre à jour toutes les 5 secondes ou si forcé
+      if (force || now - lastProgressUpdate > 5000) {
+        try {
+          await supabaseService
+            .from('extraction_jobs')
+            .update({
+              progress: {
+                emailsAnalyzed,
+                invoicesFound,
+                invoicesDetected,
+                emailsRejected,
+              },
+            })
+            .eq('id', jobId);
+          lastProgressUpdate = now;
+          console.log(`📊 Progress mis à jour: ${invoicesFound} factures sauvegardées, ${emailsAnalyzed} emails analysés`);
+        } catch (error) {
+          console.error('❌ Erreur mise à jour progress:', error);
+        }
+      }
+    };
 
     // 10. Traiter TOUS les emails
     for (const message of messages) {
@@ -811,12 +837,19 @@ Retourne un JSON avec :
           if (!insertError) {
             invoicesFound++;
             console.log(`✅ Facture sauvegardée: ${extractedData.vendor || from}`);
+            // Mettre à jour le progress après chaque facture sauvegardée
+            await updateProgress();
           } else {
             console.error(`❌ Erreur insertion facture:`, insertError);
           }
         }
       } catch (error) {
         console.error(`❌ Erreur traitement email:`, error);
+      }
+      
+      // Mettre à jour le progress périodiquement (tous les 10 emails)
+      if (emailsAnalyzed % 10 === 0) {
+        await updateProgress();
       }
     }
 
@@ -828,14 +861,17 @@ Retourne un JSON avec :
     console.log(`   📈 Taux de détection: ${emailsAnalyzed > 0 ? ((invoicesDetected / emailsAnalyzed) * 100).toFixed(2) : 0}%`);
     console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%\n`);
 
-    // 11. Mettre à jour le job
+    // 11. Mettre à jour le job (dernière mise à jour avec tous les compteurs)
+    await updateProgress(true); // Forcer la mise à jour finale
     await supabaseService
       .from('extraction_jobs')
       .update({
         status: 'completed',
         progress: {
-          emailsAnalyzed: messages.length,
+          emailsAnalyzed,
           invoicesFound,
+          invoicesDetected,
+          emailsRejected,
         },
         completed_at: new Date().toISOString(),
       })
