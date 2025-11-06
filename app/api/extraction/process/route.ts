@@ -532,8 +532,11 @@ Retourne un JSON avec :
       }
     }
 
-    console.log(`💰 ${invoicesFound} factures détectées sur ${emailsAnalyzed} emails analysés`);
-    console.log(`📊 Statistiques: ${emailsRejected} emails rejetés`);
+    console.log(`\n📊 RÉSUMÉ EXTRACTION:`);
+    console.log(`   ✅ ${invoicesFound} factures détectées`);
+    console.log(`   📧 ${emailsAnalyzed} emails analysés`);
+    console.log(`   ❌ ${emailsRejected} emails rejetés`);
+    console.log(`   📈 Taux de détection: ${emailsAnalyzed > 0 ? ((invoicesFound / emailsAnalyzed) * 100).toFixed(2) : 0}%\n`);
 
     // 11. Mettre à jour le job
     await supabaseService
