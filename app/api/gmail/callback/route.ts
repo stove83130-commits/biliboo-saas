@@ -11,30 +11,6 @@ export async function GET(request: Request) {
   const state = searchParams.get('state') || ''
   const stateParams = new URLSearchParams(state)
   let workspaceId = stateParams.get('workspaceId') || null
-  
-  // IMPORTANT: Pour un workspace personnel, on met toujours workspace_id à null
-  // Vérifier si c'est un workspace personnel en vérifiant le type depuis l'API
-  // Si workspaceId est 'personal', vide, ou si c'est un workspace personnel, on met null
-  if (workspaceId === 'personal' || workspaceId?.trim() === '') {
-    workspaceId = null
-  } else if (workspaceId) {
-    // Si workspaceId est fourni, vérifier si c'est un workspace personnel
-    try {
-      const workspaceCheck = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || origin}/api/workspaces`)
-      if (workspaceCheck.ok) {
-        const workspaceData = await workspaceCheck.json()
-        const workspace = workspaceData.workspaces?.find((w: any) => w.id === workspaceId)
-        if (workspace && workspace.type === 'personal') {
-          console.log('✅ Workspace personnel détecté, workspace_id = null')
-          workspaceId = null
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ Erreur lors de la vérification du type de workspace:', error)
-      // En cas d'erreur, considérer comme personnel par défaut
-      workspaceId = null
-    }
-  }
 
   if (error) {
     return NextResponse.redirect(`${origin}/dashboard?error=gmail_connection_failed`)
@@ -53,6 +29,47 @@ export async function GET(request: Request) {
   if (!user) {
     return NextResponse.redirect(`${origin}/auth/login`)
   }
+
+  // IMPORTANT: Pour un workspace personnel, on met toujours workspace_id à null
+  // Vérifier si c'est un workspace personnel en vérifiant le type depuis la DB
+  // Si workspaceId est 'personal', vide, ou si c'est un workspace personnel, on met null
+  // STRATÉGIE: Par défaut, considérer comme personnel (workspace_id = null) sauf si on peut prouver que c'est une organisation
+  if (workspaceId === 'personal' || workspaceId?.trim() === '' || !workspaceId) {
+    workspaceId = null
+    console.log('✅ Workspace personnel détecté (personal/vide/null), workspace_id = null')
+  } else if (workspaceId) {
+    // Si workspaceId est fourni, vérifier si c'est un workspace personnel
+    // Utiliser directement Supabase pour vérifier le type
+    try {
+      console.log('🔍 Vérification type workspace pour ID:', workspaceId)
+      const { data: workspace, error: workspaceError } = await supabase
+        .from('workspaces')
+        .select('type')
+        .eq('id', workspaceId)
+        .eq('owner_id', user.id)
+        .single()
+      
+      if (!workspaceError && workspace) {
+        if (workspace.type === 'personal') {
+          console.log('✅ Workspace personnel détecté via DB, workspace_id = null')
+          workspaceId = null
+        } else {
+          console.log('✅ Workspace organisation détecté, workspace_id =', workspaceId)
+          // Garder le workspaceId pour les organisations
+        }
+      } else {
+        // Workspace non trouvé ou erreur, considérer comme personnel par défaut
+        console.log('⚠️ Workspace non trouvé ou erreur DB, considéré comme personnel (workspace_id = null)')
+        workspaceId = null
+      }
+    } catch (error) {
+      console.warn('⚠️ Erreur lors de la vérification du type de workspace:', error)
+      // En cas d'erreur, considérer comme personnel par défaut (sécurité)
+      workspaceId = null
+    }
+  }
+  
+  console.log('📋 Workspace ID final pour sauvegarde:', workspaceId)
 
   try {
     // Déterminer l'URI de callback pour OAuth

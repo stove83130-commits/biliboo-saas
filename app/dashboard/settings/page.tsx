@@ -132,20 +132,16 @@ function SettingsPageContent() {
     try {
       setLoading(true)
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        console.warn('⚠️ Pas d\'utilisateur, arrêt du chargement des comptes')
+        return
+      }
       
       // Utiliser le workspaceType et currentWorkspaceId pour déterminer la requête
       // Charger l'ID depuis localStorage si nécessaire
       const workspaceIdFromStorage = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
       const workspaceIdToUse = currentWorkspaceId || workspaceIdFromStorage
       
-      let query = supabase
-        .from('email_accounts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-
       // IMPORTANT: Utiliser le TYPE du workspace pour déterminer la requête
       // Si c'est un workspace personnel (type === 'personal'), charger les comptes sans workspace_id
       // Si c'est un workspace d'organisation, charger uniquement les comptes de ce workspace
@@ -157,25 +153,54 @@ function SettingsPageContent() {
         workspaceIdToUse,
         isPersonal,
         currentWorkspaceId,
-        isInitialized
+        isInitialized,
+        userId: user.id
       })
       
+      let query = supabase
+        .from('email_accounts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+
+      // STRATÉGIE 1: Essayer avec le filtre de workspace approprié
+      let queryResult
       if (isPersonal || workspaceType === null) {
         // Pour un workspace personnel OU si workspaceType n'est pas encore chargé, charger les comptes avec workspace_id = null
         // Cela garantit qu'on trouve les comptes personnels même si workspaceType n'est pas encore chargé
-        query = query.or('workspace_id.is.null,workspace_id.eq.personal')
+        queryResult = await query.or('workspace_id.is.null,workspace_id.eq.personal')
         console.log('✅ Requête workspace personnel: workspace_id = null ou personal')
       } else if (workspaceIdToUse && workspaceIdToUse.trim() !== '') {
         // Pour un workspace d'organisation, charger uniquement les comptes de ce workspace
-        query = query.eq('workspace_id', workspaceIdToUse)
+        queryResult = await query.eq('workspace_id', workspaceIdToUse)
         console.log('✅ Requête workspace organisation:', workspaceIdToUse)
       } else {
         // Par défaut, charger les comptes personnels
-        query = query.or('workspace_id.is.null,workspace_id.eq.personal')
+        queryResult = await query.or('workspace_id.is.null,workspace_id.eq.personal')
         console.log('✅ Requête par défaut: workspace_id = null ou personal')
       }
 
-      const { data, error } = await query
+      let { data, error } = queryResult
+
+      // STRATÉGIE 2: Si aucun compte trouvé, essayer de charger TOUS les comptes actifs (fallback)
+      // Cela permet de récupérer les comptes même si le workspace_id n'est pas correctement défini
+      if ((!data || data.length === 0) && !error) {
+        console.log('⚠️ Aucun compte trouvé avec le filtre workspace, tentative sans filtre...')
+        const fallbackQuery = await supabase
+          .from('email_accounts')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+        
+        const fallbackResult = await fallbackQuery
+        if (fallbackResult.data && fallbackResult.data.length > 0) {
+          console.log('✅ Comptes trouvés avec requête fallback:', fallbackResult.data.length)
+          data = fallbackResult.data
+          error = fallbackResult.error
+        }
+      }
 
       if (error) {
         console.error('❌ Erreur requête email_accounts:', error)
@@ -183,15 +208,26 @@ function SettingsPageContent() {
       }
       
       console.log('📧 Comptes email récupérés:', data?.length || 0, 'comptes')
-      console.log('📧 Détails comptes:', data?.map(a => ({ id: a.id, email: a.email, provider: a.provider, workspace_id: a.workspace_id })))
+      if (data && data.length > 0) {
+        console.log('📧 Détails comptes:', data.map(a => ({ 
+          id: a.id, 
+          email: a.email, 
+          provider: a.provider, 
+          workspace_id: a.workspace_id,
+          is_active: a.is_active
+        })))
+      } else {
+        console.warn('⚠️ Aucun compte email trouvé pour cet utilisateur')
+      }
       
       setEmailAccounts(data || [])
     } catch (error) {
-      console.error('Error fetching email accounts:', error)
+      console.error('❌ Error fetching email accounts:', error)
+      setEmailAccounts([])
     } finally {
       setLoading(false)
     }
-  }, [supabase, currentWorkspaceId, workspaceType])
+  }, [supabase, currentWorkspaceId, workspaceType, isInitialized])
   
   // Écouter les changements de workspace
   useEffect(() => {
