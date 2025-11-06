@@ -333,22 +333,31 @@ export default function ExtractionPage() {
         setJobStatus({ status: 'processing' })
         
         // IMPORTANT: Appeler directement l'endpoint de traitement depuis le client
-        // Cela garantit que l'extraction démarre vraiment sur Vercel
-        // (l'appel fetch interne depuis le serveur ne fonctionne pas toujours)
+        // Ne PAS attendre la réponse (non bloquant) car l'extraction peut prendre plusieurs minutes
+        // Le polling vérifiera le statut du job
         console.log('🚀 Lancement extraction depuis le client pour job:', result.jobId)
+        
+        // Appel non bloquant - ne pas attendre la réponse
         fetch(`/api/extraction/process?jobId=${result.jobId}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
+          // Ne pas attendre la réponse - l'extraction peut prendre plusieurs minutes
+          signal: AbortSignal.timeout(5000), // Timeout de 5 secondes pour l'appel HTTP seulement
         }).then((processResponse) => {
           if (processResponse.ok) {
             console.log('✅ Extraction process démarrée avec succès')
           } else {
-            console.error('❌ Erreur démarrage extraction process:', processResponse.status)
+            console.warn('⚠️ Réponse extraction process:', processResponse.status, '- Le traitement continue en arrière-plan')
           }
         }).catch((processError) => {
-          console.error('❌ Erreur appel extraction process:', processError)
+          // Ignorer les erreurs de timeout - l'extraction continue en arrière-plan
+          if (processError.name === 'TimeoutError' || processError.name === 'AbortError') {
+            console.log('⏰ Appel extraction process timeout (normal) - Le traitement continue en arrière-plan')
+          } else {
+            console.error('❌ Erreur appel extraction process:', processError)
+          }
         })
       } else {
         setError(result.error || 'Erreur lors de l\'extraction')

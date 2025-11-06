@@ -129,6 +129,38 @@ export async function POST(req: NextRequest) {
         .eq('id', jobId);
     }
 
+    // IMPORTANT: Retourner immédiatement une réponse pour éviter le timeout 504
+    // L'extraction sera traitée en arrière-plan
+    const extractionPromise = processExtractionInBackground(jobId, user.id, job, emailAccount).catch((error) => {
+      console.error(`❌ Erreur extraction job ${jobId}:`, error);
+    });
+
+    // Retourner immédiatement pour éviter le timeout
+    return NextResponse.json({
+      success: true,
+      message: 'Extraction démarrée en arrière-plan',
+      jobId: jobId,
+    });
+  } catch (error: any) {
+    console.error(`❌ Erreur API extraction process:`, error);
+    return NextResponse.json(
+      {
+        error: 'Erreur lors du démarrage de l\'extraction',
+        details: error.message,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// Fonction séparée pour traiter l'extraction en arrière-plan (peut prendre plusieurs minutes)
+async function processExtractionInBackground(
+  jobId: string,
+  userId: string,
+  job: any,
+  emailAccount: any
+) {
+  try {
     // 7. Configurer OAuth2 pour Gmail
     const { google } = await import('googleapis');
     const oauth2Client = new google.auth.OAuth2(
@@ -493,38 +525,20 @@ Retourne un JSON avec :
       .eq('id', jobId);
 
     console.log(`✅ Job ${jobId} terminé avec succès`);
-
-    return NextResponse.json({
-      success: true,
-      message: 'Extraction terminée',
-      invoicesFound,
-    });
   } catch (error: any) {
     console.error(`❌ Erreur traitement extraction:`, error);
 
     // Mettre à jour le job en erreur
-    const { searchParams } = new URL(req.url);
-    const jobId = searchParams.get('jobId');
-    if (jobId) {
-      await supabaseService
-        .from('extraction_jobs')
-        .update({
-          status: 'failed',
-          error_message: error.message || String(error),
-        })
-        .eq('id', jobId)
-        .catch((updateError) => {
-          console.error('❌ Erreur mise à jour statut job:', updateError);
-        });
-    }
-
-    return NextResponse.json(
-      {
-        error: 'Erreur lors du traitement de l\'extraction',
-        details: error.message,
-      },
-      { status: 500 }
-    );
+    await supabaseService
+      .from('extraction_jobs')
+      .update({
+        status: 'failed',
+        error_message: error.message || String(error),
+      })
+      .eq('id', jobId)
+      .catch((updateError) => {
+        console.error('❌ Erreur mise à jour statut job:', updateError);
+      });
   }
 }
 
