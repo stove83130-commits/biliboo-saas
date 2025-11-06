@@ -151,20 +151,37 @@ function SettingsPageContent() {
       // Si c'est un workspace d'organisation, charger uniquement les comptes de ce workspace
       const isPersonal = workspaceType === 'personal' || workspaceType === null || !workspaceIdToUse
       
+      console.log('🔍 fetchEmailAccounts debug:', {
+        workspaceType,
+        workspaceIdToUse,
+        isPersonal,
+        currentWorkspaceId
+      })
+      
       if (isPersonal) {
         // Pour un workspace personnel, on charge les comptes avec workspace_id = null ou 'personal'
         query = query.or('workspace_id.is.null,workspace_id.eq.personal')
+        console.log('✅ Requête workspace personnel: workspace_id = null ou personal')
       } else if (workspaceIdToUse && workspaceIdToUse.trim() !== '') {
         // Pour un workspace d'organisation, charger uniquement les comptes de ce workspace
         query = query.eq('workspace_id', workspaceIdToUse)
+        console.log('✅ Requête workspace organisation:', workspaceIdToUse)
       } else {
         // Par défaut, charger les comptes personnels
         query = query.or('workspace_id.is.null,workspace_id.eq.personal')
+        console.log('✅ Requête par défaut: workspace_id = null ou personal')
       }
 
       const { data, error } = await query
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Erreur requête email_accounts:', error)
+        throw error
+      }
+      
+      console.log('📧 Comptes email récupérés:', data?.length || 0, 'comptes')
+      console.log('📧 Détails comptes:', data?.map(a => ({ id: a.id, email: a.email, provider: a.provider, workspace_id: a.workspace_id })))
+      
       setEmailAccounts(data || [])
     } catch (error) {
       console.error('Error fetching email accounts:', error)
