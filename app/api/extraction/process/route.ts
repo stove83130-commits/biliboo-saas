@@ -164,6 +164,12 @@ async function processExtractionInBackground(
   emailAccount: any
 ) {
   try {
+    console.log('\n🟢 ========== processExtractionInBackground DÉMARRÉE ==========')
+    console.log(`📋 Job ID: ${jobId}`)
+    console.log(`👤 User ID: ${userId}`)
+    console.log(`📧 Email Account: ${emailAccount.email}`)
+    console.log(`📅 Période: ${job.start_date} → ${job.end_date}`)
+    
     // 7. Configurer OAuth2 pour Gmail
     const { google } = await import('googleapis');
     const oauth2Client = new google.auth.OAuth2(
