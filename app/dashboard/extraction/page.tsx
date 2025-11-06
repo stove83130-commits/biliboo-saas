@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout'
 import { AuthGuard } from '@/components/auth-guard'
 import { Card } from '@/components/ui/card'
@@ -32,6 +32,111 @@ export default function ExtractionPage() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [jobStatus, setJobStatus] = useState<any>(null)
 
+  // Définir loadEmailConfigs AVANT le useEffect qui l'utilise
+  const loadEmailConfigs = useCallback(async () => {
+    try {
+      // Récupérer le workspace actif
+      const activeWorkspaceId = typeof window !== 'undefined' 
+        ? localStorage.getItem('active_workspace_id') 
+        : null
+
+      // Déterminer le type de workspace
+      let workspaceType: 'personal' | 'organization' | null = null
+      let isPersonalWorkspace = false
+
+      if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
+        try {
+          const workspaceResponse = await fetch('/api/workspaces')
+          if (workspaceResponse.ok) {
+            const workspaceData = await workspaceResponse.json()
+            const workspace = workspaceData.workspaces?.find((w: any) => w.id === activeWorkspaceId)
+            if (workspace) {
+              workspaceType = workspace.type || 'organization'
+              isPersonalWorkspace = workspaceType === 'personal'
+            } else {
+              // Workspace non trouvé, considérer comme personnel par défaut
+              isPersonalWorkspace = true
+            }
+          } else {
+            // Erreur API, considérer comme personnel par défaut
+            isPersonalWorkspace = true
+          }
+        } catch (error) {
+          console.warn('⚠️ Erreur lors de la vérification du type de workspace:', error)
+          // En cas d'erreur, considérer comme personnel par défaut
+          isPersonalWorkspace = true
+        }
+      } else {
+        // Pas de workspace actif = workspace personnel
+        isPersonalWorkspace = true
+      }
+
+      console.log('🔍 Extraction - Workspace debug:', {
+        activeWorkspaceId,
+        workspaceType,
+        isPersonalWorkspace
+      })
+
+      // Utiliser l'endpoint /api/connections
+      const response = await fetch('/api/connections')
+      const result = await response.json()
+
+      if (result.success && result.data) {
+        // Filtrer les connexions selon le type de workspace
+        let filteredConnections = result.data
+
+        if (isPersonalWorkspace) {
+          // Pour un workspace personnel, charger les comptes avec workspace_id = null
+          filteredConnections = result.data.filter((conn: any) => 
+            conn.workspace_id === null || conn.workspace_id === 'personal' || !conn.workspace_id
+          )
+          console.log('✅ Extraction - Filtre workspace personnel:', filteredConnections.length, 'comptes')
+        } else if (activeWorkspaceId) {
+          // Pour un workspace d'organisation, charger uniquement les comptes de ce workspace
+          filteredConnections = result.data.filter((conn: any) => 
+            conn.workspace_id === activeWorkspaceId
+          )
+          console.log('✅ Extraction - Filtre workspace organisation:', filteredConnections.length, 'comptes')
+        }
+
+        // STRATÉGIE DE FALLBACK: Si aucun compte trouvé avec le filtre, charger tous les comptes
+        if (filteredConnections.length === 0 && result.data.length > 0) {
+          console.warn('⚠️ Aucun compte trouvé avec le filtre workspace, utilisation de tous les comptes (fallback)')
+          filteredConnections = result.data
+        }
+
+        // Adapter le format des connexions au format attendu
+        const adaptedConfigs = filteredConnections.map((conn: any) => ({
+          id: conn.id,
+          imap_email: conn.email,
+          email_provider: conn.provider,
+          is_active: conn.is_active,
+          last_sync_at: conn.last_synced_at,
+        }))
+
+        console.log('📧 Extraction - Comptes email chargés:', adaptedConfigs.length, 'comptes')
+        if (adaptedConfigs.length > 0) {
+          console.log('📧 Extraction - Détails comptes:', adaptedConfigs.map(c => ({ 
+            id: c.id, 
+            email: c.imap_email, 
+            provider: c.email_provider 
+          })))
+        }
+
+        setEmailConfigs(adaptedConfigs)
+        if (adaptedConfigs.length > 0) {
+          setSelectedConfig(adaptedConfigs[0].id)
+        }
+      } else {
+        console.warn('⚠️ Extraction - Aucune connexion trouvée dans la réponse API')
+        setEmailConfigs([])
+      }
+    } catch (err) {
+      console.error('❌ Erreur chargement configs extraction:', err)
+      setEmailConfigs([])
+    }
+  }, [])
+
   // Charger les configurations email au montage du composant
   useEffect(() => {
     loadEmailConfigs()
@@ -50,7 +155,20 @@ export default function ExtractionPage() {
     const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
     setSearchSince(first.toISOString().split('T')[0])
     setSearchUntil(last.toISOString().split('T')[0])
-  }, [])
+
+    // Écouter les changements de workspace
+    const handleWorkspaceChange = () => {
+      console.log('🔄 Workspace changé, rechargement des comptes email...')
+      loadEmailConfigs()
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('workspace:changed', handleWorkspaceChange)
+      return () => {
+        window.removeEventListener('workspace:changed', handleWorkspaceChange)
+      }
+    }
+  }, [loadEmailConfigs])
 
   // (Périodes prédéfinies supprimées pour un flux minimaliste)
 
@@ -162,44 +280,6 @@ export default function ExtractionPage() {
     const interval = setInterval(pollJobStatus, 2000)
     return () => clearInterval(interval)
   }, [currentJobId])
-
-  const loadEmailConfigs = async () => {
-    try {
-      // Récupérer le workspace actif - ISOLATION STRICTE
-      const activeWorkspaceId = typeof window !== 'undefined' 
-        ? localStorage.getItem('active_workspace_id') 
-        : null
-
-      if (!activeWorkspaceId) {
-        setEmailConfigs([])
-        return
-      }
-
-      // Utiliser l'ancien endpoint /api/connections qui existe déjà
-      const response = await fetch('/api/connections')
-      const result = await response.json()
-
-      if (result.success && result.data) {
-        // Adapter le format des anciennes connexions au nouveau format
-        // ET FILTRER PAR WORKSPACE
-        const adaptedConfigs = result.data
-          .filter((conn: any) => conn.workspace_id === activeWorkspaceId)
-          .map((conn: any) => ({
-            id: conn.id,
-            imap_email: conn.email,
-            email_provider: conn.provider,
-            is_active: conn.is_active,
-            last_sync_at: conn.last_synced_at,
-          }))
-        setEmailConfigs(adaptedConfigs)
-        if (adaptedConfigs.length > 0) {
-          setSelectedConfig(adaptedConfigs[0].id)
-        }
-      }
-    } catch (err) {
-      console.error('Erreur chargement configs:', err)
-    }
-  }
 
   const handleExtract = async () => {
     if (!selectedConfig) {
