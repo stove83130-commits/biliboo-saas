@@ -282,22 +282,34 @@ export default function ExtractionPage() {
   }, [currentJobId])
 
   const handleExtract = async () => {
+    console.log('🔴 ========== CLIENT: handleExtract appelé ==========')
+    console.log('📋 Paramètres:', {
+      selectedConfig,
+      searchSince,
+      searchUntil,
+      emailConfigsLength: emailConfigs.length
+    })
+    
     if (!selectedConfig) {
+      console.error('❌ Pas de configuration sélectionnée')
       setError('Veuillez sélectionner une configuration email')
       return
     }
 
     if (!searchSince) {
+      console.error('❌ Pas de date de début')
       setError('Veuillez sélectionner une date de début')
       return
     }
 
     if (!searchUntil) {
+      console.error('❌ Pas de date de fin')
       setError('Veuillez sélectionner une date de fin')
       return
     }
 
     try {
+      console.log('🚀 Démarrage extraction...')
       setIsProcessing(true)
       setError(null)
       setLastResult(null)
@@ -306,6 +318,13 @@ export default function ExtractionPage() {
       const activeWorkspaceId = typeof window !== 'undefined' 
         ? localStorage.getItem('active_workspace_id') 
         : null
+
+      console.log('📡 Appel API /api/extraction/start avec:', {
+        emailConfigId: selectedConfig,
+        searchSince,
+        searchUntil,
+        workspaceId: activeWorkspaceId
+      })
 
       const response = await fetch('/api/extraction/start', {
         method: 'POST',
@@ -321,9 +340,13 @@ export default function ExtractionPage() {
         }),
       })
 
+      console.log('📥 Réponse reçue, status:', response.status)
+
       const result = await response.json()
+      console.log('📦 Résultat:', result)
 
       if (!response.ok) {
+        console.error('❌ Erreur HTTP:', response.status, result)
         throw new Error(result.error || 'Erreur lors de l\'extraction')
       }
 
@@ -364,6 +387,7 @@ export default function ExtractionPage() {
         setIsProcessing(false)
       }
     } catch (err) {
+      console.error('❌ Erreur dans handleExtract:', err)
       setError(err instanceof Error ? err.message : 'Erreur inconnue')
       setIsProcessing(false)
     }
