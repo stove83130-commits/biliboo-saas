@@ -622,8 +622,8 @@ Retourne un JSON avec :
 
     // IMPORTANT: Sur Vercel, les fonctions serverless se terminent dès que la réponse est envoyée
     // waitUntil n'existe pas dans Next.js API routes (c'est une API Edge/Cloudflare)
-    // SOLUTION: Traiter l'extraction de manière synchrone avec un timeout
-    // Si ça prend trop de temps, on retourne la réponse et on continue via l'endpoint séparé
+    // SOLUTION: Appeler DIRECTEMENT l'endpoint /api/extraction/process qui traite l'extraction
+    // Cela garantit que l'extraction s'exécute dans une fonction séparée qui ne sera pas interrompue
     
     // Mettre à jour le statut à 'processing' immédiatement
     await supabaseService
@@ -635,56 +635,44 @@ Retourne un JSON avec :
     
     console.log('✅ Statut mis à jour à "processing"');
 
-    // STRATÉGIE: Traiter l'extraction de manière synchrone avec un timeout de 25 secondes
-    // Si ça prend plus de 25 secondes, on retourne la réponse et on continue via l'endpoint séparé
-    // Cela garantit que l'extraction démarre au moins, même si elle n'est pas terminée
+    // Appeler DIRECTEMENT l'endpoint de traitement (non bloquant)
+    // Cet endpoint s'exécutera dans une fonction séparée qui ne sera pas interrompue
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.headers.get('origin') || 'https://bilibou.com';
     
-    const extractionTimeout = 25000; // 25 secondes (laisser 5 secondes de marge avant le timeout Vercel)
+    // Construire l'URL complète
+    const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
     
-    try {
-      // Lancer l'extraction avec un timeout
-      await Promise.race([
-        extractionPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout: extraction prend trop de temps')), extractionTimeout)
-        )
-      ]);
-      
-      console.log('✅ Extraction terminée dans le délai');
-    } catch (error: any) {
-      if (error.message?.includes('Timeout')) {
-        console.log('⏰ Extraction en cours, timeout atteint - continuation via endpoint séparé');
-        
-        // Lancer l'extraction via l'endpoint séparé pour continuer
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.headers.get('origin') || 'https://bilibou.com';
-        
-        // Appeler l'endpoint de traitement en arrière-plan (non bloquant)
-        fetch(`${baseUrl}/api/extraction/process?jobId=${job.id}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Cookie': req.headers.get('cookie') || '',
-            'Authorization': `Bearer ${req.headers.get('authorization') || ''}`,
-          },
-        }).catch((fetchError) => {
-          console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', fetchError);
-          // Si l'appel échoue, continuer l'extraction en arrière-plan
-          extractionPromise.catch((extractionError) => {
-            console.error('❌ Erreur extraction en arrière-plan:', extractionError);
-          });
-        });
-      } else {
-        console.error('❌ Erreur extraction:', error);
-        // En cas d'erreur, mettre à jour le statut du job
-        await supabaseService
-          .from('extraction_jobs')
-          .update({
-            status: 'failed',
-            error_message: error.message || String(error),
-          })
-          .eq('id', job.id);
+    console.log(`🚀 Appel endpoint extraction process: ${processUrl}`);
+    
+    // Appeler l'endpoint de traitement en arrière-plan (non bloquant)
+    // Ne pas attendre la réponse pour ne pas bloquer la requête HTTP
+    fetch(processUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': req.headers.get('cookie') || '',
+        'Authorization': req.headers.get('authorization') || '',
+        'User-Agent': req.headers.get('user-agent') || 'Bilibou-Extraction',
+      },
+      // Ne pas attendre la réponse
+    }).then((response) => {
+      console.log(`✅ Endpoint /api/extraction/process appelé avec succès, status: ${response.status}`);
+      if (!response.ok) {
+        console.error(`❌ Erreur HTTP endpoint process: ${response.status} ${response.statusText}`);
       }
-    }
+    }).catch((error) => {
+      console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
+      // En cas d'erreur, essayer de lancer l'extraction directement comme fallback
+      console.log('⚠️ Fallback: lancement extraction directe');
+      extractionPromise.catch((extractionError) => {
+        console.error('❌ Erreur extraction directe:', extractionError);
+      });
+    });
+    
+    // Aussi lancer la promesse directement en parallèle (double sécurité)
+    extractionPromise.catch((error) => {
+      console.error('❌ Erreur extraction promise directe:', error);
+    });
 
     return NextResponse.json({
       success: true,

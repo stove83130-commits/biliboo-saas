@@ -331,6 +331,25 @@ export default function ExtractionPage() {
         setLastResult(result.message)
         setCurrentJobId(result.jobId)
         setJobStatus({ status: 'processing' })
+        
+        // IMPORTANT: Appeler directement l'endpoint de traitement depuis le client
+        // Cela garantit que l'extraction démarre vraiment sur Vercel
+        // (l'appel fetch interne depuis le serveur ne fonctionne pas toujours)
+        console.log('🚀 Lancement extraction depuis le client pour job:', result.jobId)
+        fetch(`/api/extraction/process?jobId=${result.jobId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }).then((processResponse) => {
+          if (processResponse.ok) {
+            console.log('✅ Extraction process démarrée avec succès')
+          } else {
+            console.error('❌ Erreur démarrage extraction process:', processResponse.status)
+          }
+        }).catch((processError) => {
+          console.error('❌ Erreur appel extraction process:', processError)
+        })
       } else {
         setError(result.error || 'Erreur lors de l\'extraction')
         setIsProcessing(false)
