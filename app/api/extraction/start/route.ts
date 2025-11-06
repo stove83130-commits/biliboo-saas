@@ -130,7 +130,8 @@ export async function POST(req: NextRequest) {
 
     // 5. Lancer l'extraction en arrière-plan (extraction DIRECTE avec Gmail API)
     // IMPORTANT: Utiliser une promesse pour garantir l'exécution sur Vercel
-    // Au lieu de setImmediate() qui ne fonctionne pas en serverless, on utilise waitUntil
+    // Au lieu de setImmediate() qui ne fonctionne pas en serverless, on utilise une approche synchrone
+    // avec waitUntil pour garantir l'exécution même après la réponse HTTP
     const extractionPromise = (async () => {
       try {
         console.log(`🚀 Démarrage extraction job ${job.id}`);
@@ -620,8 +621,8 @@ Retourne un JSON avec :
     })();
 
     // IMPORTANT: Sur Vercel, les fonctions serverless se terminent dès que la réponse est envoyée
-    // Pour garantir l'exécution, on appelle un endpoint séparé qui traite l'extraction
-    // Cela garantit que l'extraction s'exécute même si cette fonction se termine
+    // Pour garantir l'exécution, on utilise waitUntil si disponible
+    // Sinon, on lance la promesse de manière asynchrone ET on appelle l'endpoint séparé
     
     // Mettre à jour le statut à 'processing' immédiatement
     await supabaseService
@@ -633,35 +634,35 @@ Retourne un JSON avec :
     
     console.log('✅ Statut mis à jour à "processing"');
 
-    // Lancer l'extraction via un appel HTTP interne (non bloquant)
-    // Cela garantit que l'extraction s'exécute même si cette fonction se termine
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.headers.get('origin') || 'http://localhost:3001';
+    // STRATÉGIE DOUBLE : 
+    // 1. Utiliser waitUntil si disponible (garantit l'exécution sur Vercel)
+    // 2. Appeler l'endpoint séparé en complément (fallback si waitUntil ne fonctionne pas)
     
-    // Appeler l'endpoint de traitement en arrière-plan
-    fetch(`${baseUrl}/api/extraction/process?jobId=${job.id}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Passer les cookies pour l'authentification
-        'Cookie': req.headers.get('cookie') || '',
-      },
-    }).catch((error) => {
-      console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
-      // Si l'appel échoue, lancer l'extraction directement comme fallback
-      extractionPromise.catch((extractionError) => {
-        console.error('❌ Erreur extraction directe:', extractionError);
-      });
-    });
-
-    // Aussi utiliser waitUntil si disponible pour double sécurité
+    // 1. Utiliser waitUntil si disponible
     if (typeof (req as any).waitUntil === 'function') {
       (req as any).waitUntil(extractionPromise);
-      console.log('✅ waitUntil utilisé en complément');
+      console.log('✅ waitUntil utilisé pour garantir l\'exécution sur Vercel');
     } else {
-      // Fallback: lancer la promesse de manière asynchrone
+      // 2. Fallback: appeler l'endpoint séparé ET lancer la promesse
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.headers.get('origin') || 'http://localhost:3001';
+      
+      // Appeler l'endpoint de traitement en arrière-plan
+      fetch(`${baseUrl}/api/extraction/process?jobId=${job.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': req.headers.get('cookie') || '',
+        },
+      }).catch((error) => {
+        console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
+      });
+      
+      // Aussi lancer la promesse directement comme fallback
       extractionPromise.catch((error) => {
         console.error('❌ Erreur extraction non gérée:', error);
       });
+      
+      console.log('⚠️ waitUntil non disponible, utilisation endpoint séparé + promesse directe');
     }
 
     return NextResponse.json({
