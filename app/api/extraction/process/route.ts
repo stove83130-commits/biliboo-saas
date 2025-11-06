@@ -15,7 +15,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
-import { extractLogoImageFromPDF } from '@/lib/services/logo-image-extractor';
+import { extractLogoFromPDFImages } from '@/lib/services/logo-pdf-extractor';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -542,23 +542,26 @@ async function processExtractionInBackground(
                 vendor_logo_description: fullExtraction.vendor_logo_description,
                 vendor_logo_colors: fullExtraction.vendor_logo_colors,
                 vendor_logo_text: fullExtraction.vendor_logo_text,
+                vendor_logo_is_embedded_image: fullExtraction.vendor_logo_is_embedded_image,
+                vendor_logo_image_position: fullExtraction.vendor_logo_image_position,
                 extraction_status: fullExtraction.extraction_status,
                 confidence_score: fullExtraction.confidence_score,
                 ocr_text: fullExtraction.ocr_text,
               };
               
-              // 🎨 Extraire le logo depuis le PDF (image réelle)
-              // DÉSACTIVÉ TEMPORAIREMENT : Puppeteer prend trop de temps et peut bloquer le processus
-              // TODO: Réactiver avec un timeout et en mode asynchrone
-              /*
-              if (pdfBuffer && extractedData.vendor) {
+              // 🎨 Extraire le logo depuis les images embarquées du PDF (rapide avec pdf-lib)
+              if (pdfBuffer && extractedData.vendor && extractedData.vendor_logo_is_embedded_image) {
                 try {
                   console.log(`🎨 Extraction du logo pour ${extractedData.vendor}...`);
-                  const logoUrl = await extractLogoImageFromPDF(
+                  const logoUrl = await extractLogoFromPDFImages(
                     pdfBuffer,
                     userId,
                     message.id!,
-                    extractedData.vendor
+                    {
+                      vendor_logo_is_embedded_image: extractedData.vendor_logo_is_embedded_image,
+                      vendor_logo_image_position: extractedData.vendor_logo_image_position,
+                      vendor_logo_description: extractedData.vendor_logo_description,
+                    }
                   );
                   
                   if (logoUrl) {
@@ -572,7 +575,6 @@ async function processExtractionInBackground(
                   // Ne pas bloquer l'extraction si l'extraction du logo échoue
                 }
               }
-              */
             } catch (error) {
               console.error(`❌ Erreur extraction complète:`, error);
               extractedData = {
