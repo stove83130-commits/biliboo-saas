@@ -249,7 +249,44 @@ async function processExtractionInBackground(
           }
         }
 
-        // Vérifier si c'est une facture (PDF attaché OU mots-clés)
+        // ========== VALIDATION PRÉALABLE STRICTE ==========
+        const subjectLower = subject.toLowerCase();
+        const fromLower = from.toLowerCase();
+        
+        // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
+        const excludedSenders = [
+          'receiptor', 'automation', 'noreply@qonto', 'no-reply@qonto',
+          'notifications@qonto', 'support@qonto'
+        ];
+        const isExcludedSender = excludedSenders.some(excluded => fromLower.includes(excluded));
+        
+        // 2. EXCLUSION DE PATTERNS DANS LE SUJET (automation, notification, etc.)
+        const excludedSubjectPatterns = [
+          'automation', 'notification', 'alert', 'reminder', 'update', 'newsletter',
+          'confirmation', 'welcome', 'account', 'security', 'password', 'verify',
+          'conditions générales', 'cgv', 'cgu', 'terms and conditions', 'privacy policy',
+          'politique de confidentialité', 'mentions légales'
+        ];
+        const hasExcludedSubjectPattern = excludedSubjectPatterns.some(pattern => 
+          subjectLower.includes(pattern)
+        );
+        
+        // 3. DÉTECTION DES MOTS-CLÉS FACTURE (mots entiers uniquement)
+        // Utiliser des regex pour détecter les mots entiers, pas des sous-chaînes
+        const invoiceKeywordPatterns = [
+          /\bfacture\b/i,
+          /\binvoice\b/i,
+          /\breceipt\b/i,
+          /\breçu\b/i,
+          /\bbill\b/i,
+          /\bdevis\b/i,
+          /\bquote\b/i
+        ];
+        const hasInvoiceKeywordInSubject = invoiceKeywordPatterns.some(pattern => 
+          pattern.test(subject)
+        );
+        
+        // 4. VÉRIFICATION DES PDFS ATTACHÉS
         const parts = fullMessage.data.payload?.parts || [];
         let hasPdfAttachment = false;
         let pdfAttachment: any = null;
@@ -262,49 +299,80 @@ async function processExtractionInBackground(
             part.filename?.toLowerCase().endsWith('.pdf')
           ) {
             const filename = part.filename?.toLowerCase() || '';
-            const excludedPatterns = [
+            
+            // Patterns d'exclusion pour les PDFs (CGU, CGV, etc.)
+            const excludedPdfPatterns = [
               'condition', 'cgu', 'cgv', 'terms', 'tcu', 'policy', 'politique',
               'contrat', 'contract', 'agreement', 'accord', 'legal', 'privacy',
-              'confidentialit', 'rgpd', 'gdpr', 'mention', 'statut'
+              'confidentialit', 'rgpd', 'gdpr', 'mention', 'statut', 'regulation',
+              'règlement', 'guide', 'manual', 'manuel', 'tutorial', 'tutoriel'
             ];
             
-            const isExcludedFile = excludedPatterns.some(pattern => filename.includes(pattern));
+            const isExcludedPdf = excludedPdfPatterns.some(pattern => filename.includes(pattern));
             
-            if (!isExcludedFile) {
-              hasPdfAttachment = true;
-              pdfAttachment = part;
-              break;
-            } else {
+            // Vérifier aussi si le sujet contient des patterns d'exclusion
+            const isSubjectExcluded = excludedSubjectPatterns.some(pattern => 
+              subjectLower.includes(pattern)
+            );
+            
+            if (isExcludedPdf || isSubjectExcluded) {
               pdfExcluded = true;
-              pdfExcludedReason = `PDF exclu: ${part.filename}`;
+              pdfExcludedReason = isExcludedPdf 
+                ? `PDF exclu (nom fichier): ${part.filename}`
+                : `PDF exclu (sujet): ${subject.substring(0, 50)}`;
+            } else {
+              // Vérifier que le nom du PDF contient des indicateurs de facture
+              const invoicePdfPatterns = [
+                'facture', 'invoice', 'receipt', 'reçu', 'bill', 'devis', 'quote'
+              ];
+              const hasInvoiceIndicator = invoicePdfPatterns.some(pattern => 
+                filename.includes(pattern)
+              );
+              
+              // Si le PDF n'a pas d'indicateur de facture dans le nom, vérifier le sujet
+              if (!hasInvoiceIndicator && !hasInvoiceKeywordInSubject) {
+                pdfExcluded = true;
+                pdfExcludedReason = `PDF sans indicateur facture: ${part.filename}`;
+              } else {
+                hasPdfAttachment = true;
+                pdfAttachment = part;
+                break;
+              }
             }
           }
         }
-
-        // Détection des factures
-        const subjectLower = subject.toLowerCase();
-        const fromLower = from.toLowerCase();
         
-        const invoiceKeywords = ['facture', 'invoice', 'receipt', 'reçu', 'bill'];
-        const hasInvoiceKeywordInSubject = invoiceKeywords.some(kw => subjectLower.includes(kw));
-        
+        // 5. DÉTECTION DES EXPÉDITEURS DE CONFIANCE
         const trustedDomains = [
           'stripe.com', 'paypal.com', 'square.com', 'invoice', 'billing',
           'noreply', 'no-reply', 'notifications', 'receipts'
         ];
         const isTrustedSender = trustedDomains.some(domain => fromLower.includes(domain));
         
+        // 6. EXCLUSION DES EMAILS PERSONNELS
         const personalDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com', '@icloud.com'];
         const isPersonalEmail = personalDomains.some(domain => fromLower.includes(domain));
         
-        const isInvoice = hasPdfAttachment || 
-                         (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail);
+        // ========== RÈGLES DE DÉTECTION FINALE ==========
+        // RÈGLE 1: PDF attaché avec indicateur de facture = ACCEPTÉ
+        // RÈGLE 2: Mot-clé facture + expéditeur de confiance + pas email personnel = ACCEPTÉ
+        // RÈGLE 3: Expéditeur exclu = REJETÉ
+        // RÈGLE 4: Pattern d'exclusion dans sujet = REJETÉ
+        
+        const isInvoice = !isExcludedSender && 
+                         !hasExcludedSubjectPattern &&
+                         (hasPdfAttachment || 
+                          (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail));
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
         if (!isInvoice) {
           emailsRejected++;
           let reason = '';
-          if (pdfExcluded) {
+          if (isExcludedSender) {
+            reason = `Expéditeur exclu: ${from}`;
+          } else if (hasExcludedSubjectPattern) {
+            reason = `Pattern d'exclusion dans sujet: ${subject.substring(0, 50)}`;
+          } else if (pdfExcluded) {
             reason = pdfExcludedReason;
           } else if (hasInvoiceKeywordInSubject) {
             if (isPersonalEmail) {
@@ -372,10 +440,20 @@ async function processExtractionInBackground(
               if (fullExtraction.document_type && 
                   fullExtraction.document_type !== 'invoice' && 
                   fullExtraction.document_type !== 'receipt') {
+                console.log(`❌ PDF rejeté après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
                 continue;
               }
               
+              // Validation stricte: doit avoir au moins un numéro de facture OU un montant
               if (!fullExtraction.invoice_number && !fullExtraction.total_amount) {
+                console.log(`❌ PDF rejeté après extraction GPT: pas de numéro de facture ni de montant`);
+                continue;
+              }
+              
+              // Validation supplémentaire: score de confiance minimum
+              const minConfidenceScore = 50; // Score minimum de 50%
+              if (fullExtraction.confidence_score !== undefined && fullExtraction.confidence_score < minConfidenceScore) {
+                console.log(`❌ PDF rejeté après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
                 continue;
               }
               
