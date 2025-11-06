@@ -234,14 +234,14 @@ function SettingsPageContent() {
   }, [fetchEmailAccounts])
 
   useEffect(() => {
-    // Ne charger les comptes que si le workspace est initialisé
-    if (isInitialized) {
+    // Ne charger les comptes que si le workspace est initialisé ET que workspaceType est chargé
+    if (isInitialized && workspaceType !== null) {
       fetchEmailAccounts()
     }
     const handler = () => fetchEmailAccounts()
     if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
     return () => { if (typeof window !== 'undefined') window.removeEventListener('workspace:changed', handler as any) }
-  }, [isInitialized, fetchEmailAccounts])
+  }, [isInitialized, workspaceType, fetchEmailAccounts])
 
   useEffect(() => {
     // Check for success/error messages
