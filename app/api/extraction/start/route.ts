@@ -5,6 +5,7 @@
 
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // 5 minutes maximum pour Vercel Pro (60s pour Hobby)
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
@@ -128,17 +129,14 @@ export async function POST(req: NextRequest) {
     console.log(`✅ Job créé: ${job.id}`);
 
     // 5. Lancer l'extraction en arrière-plan (extraction DIRECTE avec Gmail API)
-    setImmediate(async () => {
+    // IMPORTANT: Utiliser une promesse pour garantir l'exécution sur Vercel
+    // Au lieu de setImmediate() qui ne fonctionne pas en serverless, on utilise waitUntil
+    const extractionPromise = (async () => {
       try {
         console.log(`🚀 Démarrage extraction job ${job.id}`);
 
-        // Mettre à jour le statut
-        await supabaseService
-          .from('extraction_jobs')
-          .update({
-            status: 'processing',
-          })
-          .eq('id', job.id);
+        // Le statut a déjà été mis à 'processing' avant le lancement de cette promesse
+        // Pas besoin de le mettre à jour à nouveau ici
 
         // Configurer OAuth2 pour Gmail
         const { google } = await import('googleapis');
@@ -615,11 +613,56 @@ Retourne un JSON avec :
           .from('extraction_jobs')
           .update({
             status: 'failed',
-            error_message: error.message,
+            error_message: error.message || String(error),
           })
           .eq('id', job.id);
       }
+    })();
+
+    // IMPORTANT: Sur Vercel, les fonctions serverless se terminent dès que la réponse est envoyée
+    // Pour garantir l'exécution, on appelle un endpoint séparé qui traite l'extraction
+    // Cela garantit que l'extraction s'exécute même si cette fonction se termine
+    
+    // Mettre à jour le statut à 'processing' immédiatement
+    await supabaseService
+      .from('extraction_jobs')
+      .update({
+        status: 'processing',
+      })
+      .eq('id', job.id);
+    
+    console.log('✅ Statut mis à jour à "processing"');
+
+    // Lancer l'extraction via un appel HTTP interne (non bloquant)
+    // Cela garantit que l'extraction s'exécute même si cette fonction se termine
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.headers.get('origin') || 'http://localhost:3001';
+    
+    // Appeler l'endpoint de traitement en arrière-plan
+    fetch(`${baseUrl}/api/extraction/process?jobId=${job.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Passer les cookies pour l'authentification
+        'Cookie': req.headers.get('cookie') || '',
+      },
+    }).catch((error) => {
+      console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
+      // Si l'appel échoue, lancer l'extraction directement comme fallback
+      extractionPromise.catch((extractionError) => {
+        console.error('❌ Erreur extraction directe:', extractionError);
+      });
     });
+
+    // Aussi utiliser waitUntil si disponible pour double sécurité
+    if (typeof (req as any).waitUntil === 'function') {
+      (req as any).waitUntil(extractionPromise);
+      console.log('✅ waitUntil utilisé en complément');
+    } else {
+      // Fallback: lancer la promesse de manière asynchrone
+      extractionPromise.catch((error) => {
+        console.error('❌ Erreur extraction non gérée:', error);
+      });
+    }
 
     return NextResponse.json({
       success: true,
