@@ -3,6 +3,9 @@
  * 
  * Utilise pdf-lib pour extraire les images embarquées du PDF
  * et identifie le logo grâce aux informations de GPT-4o
+ * 
+ * APPROCHE SIMPLIFIÉE : Extraire toutes les images de la première page
+ * et prendre la première (généralement le logo)
  */
 
 import { PDFDocument } from 'pdf-lib';
@@ -52,47 +55,43 @@ export async function extractLogoFromPDFImages(
 
     const firstPage = pages[0];
     
-    // pdf-lib ne fournit pas de méthode directe pour extraire les images
-    // On doit accéder aux objets internes du PDF
-    // Méthode alternative : utiliser les opérateurs de contenu de la page
-    
-    // Accéder au dictionnaire de la page
+    // Accéder aux ressources de la page
     const pageDict = firstPage.node;
-    const contents = pageDict.get('Contents');
+    const resources = pageDict.get('Resources');
     
-    // Si Contents est un array (plusieurs streams de contenu)
-    const contentStreams = Array.isArray(contents) ? contents : [contents];
-    
-    // Parcourir les ressources de la page pour trouver les images
-    const resources = firstPage.node.get('Resources');
     if (!resources) {
       console.log(`⚠️ [LOGO] Aucune ressource trouvée dans la page`);
       return null;
     }
     
+    // Accéder aux XObjects (images)
     const xObject = resources.get('XObject');
     if (!xObject) {
       console.log(`⚠️ [LOGO] Aucune image XObject trouvée dans la page`);
       return null;
     }
     
-    // Parcourir les objets XObject pour trouver les images
+    // Parcourir les XObjects pour trouver les images
     const xObjectDict = xObject.dict;
-    const imageKeys = xObjectDict.keys();
+    const imageNames = xObjectDict.keys();
     
     let logoImage: any = null;
     let logoImageName: string | null = null;
     
     // Chercher la première image (généralement le logo est la première)
-    for (const key of imageKeys) {
-      const obj = xObjectDict.get(key);
-      if (obj) {
-        const subtype = obj.dict?.get('Subtype');
-        if (subtype?.toString() === '/Image') {
-          logoImage = obj;
-          logoImageName = key.toString();
-          console.log(`✅ [LOGO] Image trouvée: ${logoImageName}`);
-          break;
+    for (const name of imageNames) {
+      const xObjectRef = xObjectDict.get(name);
+      if (xObjectRef) {
+        // Résoudre la référence
+        const xObjectObj = pdfDoc.context.lookup(xObjectRef);
+        if (xObjectObj) {
+          const subtype = xObjectObj.dict?.get('Subtype');
+          if (subtype?.toString() === '/Image') {
+            logoImage = xObjectObj;
+            logoImageName = name.toString();
+            console.log(`✅ [LOGO] Image trouvée: ${logoImageName}`);
+            break;
+          }
         }
       }
     }
@@ -114,7 +113,7 @@ export async function extractLogoFromPDFImages(
       return null;
     }
     
-    // Obtenir les bytes de l'image
+    // Obtenir les bytes de l'image (déjà décodés par pdf-lib)
     const imageBytes = imageStream.getBytes();
     const imageBuffer = Buffer.from(imageBytes);
     
@@ -124,7 +123,9 @@ export async function extractLogoFromPDFImages(
     let extension = 'png';
     
     if (filter) {
-      const filterStr = filter.toString();
+      const filterArray = Array.isArray(filter) ? filter : [filter];
+      const filterStr = filterArray.map((f: any) => f?.toString() || '').join(' ');
+      
       if (filterStr.includes('/DCTDecode') || filterStr.includes('/DCT')) {
         mimeType = 'image/jpeg';
         extension = 'jpg';
