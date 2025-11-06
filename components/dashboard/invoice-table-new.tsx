@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { Checkbox } from "@/components/ui/checkbox"
 import { FilterState } from "./invoice-filters"
-import { getVendorLogoWithFallback } from "@/lib/utils/logo-generator"
+import { getVendorLogoWithFallback, generateLogoFromDescription } from "@/lib/utils/logo-generator"
 
 interface Invoice {
   id: string
@@ -580,22 +580,33 @@ export function InvoiceTable({
                         invoice.vendor_logo_text
                       );
                       
+                      // Générer un logo SVG comme fallback final si Clearbit n'est pas disponible
+                      const svgFallback = generateLogoFromDescription(
+                        vendorName,
+                        invoice.vendor_logo_description,
+                        invoice.vendor_logo_colors,
+                        invoice.vendor_logo_text
+                      );
+                      
                       return (
                         <img
                           src={primary}
                           alt={vendorName}
-                          className="h-8 w-8 object-contain rounded"
+                          className="h-8 w-8 object-contain rounded border border-border"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
+                            // Essayer le fallback Google Favicon
                             if (fallback && target.src !== fallback) {
-                              // Essayer le fallback Google Favicon
                               target.src = fallback;
+                            } else if (target.src !== svgFallback) {
+                              // Si tout échoue, utiliser le SVG généré
+                              target.src = svgFallback;
                             } else {
-                              // Si tout échoue, afficher l'icône par défaut
+                              // Si même le SVG échoue, afficher l'icône par défaut
                               target.style.display = 'none';
                               const parent = target.parentElement;
                               if (parent) {
-                                parent.innerHTML = '<div class="h-8 w-8 rounded border border-border bg-muted flex items-center justify-center"><svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg></div>';
+                                parent.innerHTML = `<div class="h-8 w-8 rounded border border-border bg-muted flex items-center justify-center"><svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg></div>`;
                               }
                             }
                           }}

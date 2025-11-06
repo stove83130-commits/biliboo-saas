@@ -126,7 +126,12 @@ ${emailContext ? `CONTEXTE EMAIL:
 
 IMPORTANT : 
 1. **IDENTIFIE D'ABORD LE TYPE DE DOCUMENT** (voir ci-dessous)
-2. Analyse le LOGO du fournisseur en haut du document et décris-le précisément.
+2. **ANALYSE LE LOGO EN DÉTAIL** : Le logo est généralement en haut à gauche ou au centre de la première page. Décris-le PRÉCISÉMENT :
+   - Les couleurs principales (codes hex si possible, ex: #FF5733, #0066CC)
+   - La forme/design (circulaire, carré, rectangulaire, icône stylisée, etc.)
+   - Le texte visible dans le logo (initiales, nom complet, etc.)
+   - Le style (moderne, classique, minimaliste, etc.)
+   - La position (haut gauche, haut centre, etc.)
 3. Si c'est une facture/reçu, catégorise selon le type de dépense.
 
 🔍 TYPE DE DOCUMENT (OBLIGATOIRE - choisis le plus approprié) :
@@ -202,9 +207,9 @@ Retourne un JSON avec cette structure EXACTE:
   "payment_method": "méthode" ou null,
   "payment_date": "YYYY-MM-DD" ou null,
   "line_items": [{"description": "...", "quantity": 1, "unit_price": 10, "total": 10}] ou null,
-  "vendor_logo_description": "description du logo visible en haut (ex: logo circulaire bleu avec texte blanc, icône stylisée, etc.)" ou null,
-  "vendor_logo_colors": ["#couleur1", "#couleur2"] (codes hex des couleurs principales du logo) ou null,
-  "vendor_logo_text": "texte ou lettres visibles dans le logo" ou null,
+  "vendor_logo_description": "description DÉTAILLÉE du logo visible en haut (ex: logo circulaire bleu foncé #0066CC avec icône blanche stylisée représentant une flèche, texte 'REPLIT' en blanc en dessous, style moderne et minimaliste, position haut gauche)" ou null,
+  "vendor_logo_colors": ["#0066CC", "#FFFFFF"] (codes hex EXACTS des 2-3 couleurs principales du logo, toujours en format hex avec #) ou null,
+  "vendor_logo_text": "REPLIT" (texte ou lettres EXACTES visibles dans le logo, en majuscules) ou null,
   "confidence_score": 0-100
 }
 
