@@ -394,6 +394,9 @@ async function processExtractionInBackground(
           // Télécharger le PDF si présent
           let fileUrl = null;
           let pdfBuffer: Buffer | null = null;
+          let htmlImageUrl = null;
+          let htmlMimeType = null;
+          
           if (hasPdfAttachment && pdfAttachment.body?.attachmentId) {
             try {
               const attachment = await gmail.users.messages.attachments.get({
@@ -423,6 +426,54 @@ async function processExtractionInBackground(
               }
             } catch (error) {
               console.error(`❌ Erreur upload PDF:`, error);
+            }
+          } else if (emailHtml && emailHtml.trim().length > 0) {
+            // Si pas de PDF mais HTML disponible, sauvegarder le HTML comme image ou HTML
+            try {
+              console.log(`📸 Conversion HTML en image pour email ${message.id}...`);
+              
+              // Nettoyer le HTML pour le screenshot
+              const cleanedHtml = cleanHtmlForScreenshot(emailHtml);
+              
+              // Convertir le HTML en image PNG
+              const imageBuffer = await convertHtmlToImage(cleanedHtml, 1200);
+              
+              // Uploader l'image dans Supabase Storage
+              const imageFileName = `${userId}/${message.id}_email_screenshot.png`;
+              const { data: uploadData, error: uploadError } = await supabaseService.storage
+                .from('invoices')
+                .upload(imageFileName, imageBuffer, {
+                  contentType: 'image/png',
+                  upsert: true,
+                });
+
+              if (!uploadError && uploadData) {
+                const { data: urlData } = supabaseService.storage
+                  .from('invoices')
+                  .getPublicUrl(imageFileName);
+                
+                htmlImageUrl = urlData.publicUrl;
+                htmlMimeType = 'image/png';
+                console.log(`✅ Screenshot HTML sauvegardé: ${htmlImageUrl}`);
+              } else {
+                console.error(`❌ Erreur upload screenshot HTML:`, uploadError);
+                // Fallback: sauvegarder le HTML en base64
+                const htmlBase64 = Buffer.from(emailHtml).toString('base64');
+                htmlImageUrl = `data:text/html;base64,${htmlBase64}`;
+                htmlMimeType = 'text/html';
+                console.log(`⚠️ Fallback: HTML sauvegardé en base64`);
+              }
+            } catch (error) {
+              console.error(`❌ Erreur conversion HTML en image:`, error);
+              // Fallback: sauvegarder le HTML en base64 si la conversion échoue
+              try {
+                const htmlBase64 = Buffer.from(emailHtml).toString('base64');
+                htmlImageUrl = `data:text/html;base64,${htmlBase64}`;
+                htmlMimeType = 'text/html';
+                console.log(`⚠️ Fallback: HTML sauvegardé en base64 après erreur conversion`);
+              } catch (fallbackError) {
+                console.error(`❌ Erreur fallback HTML base64:`, fallbackError);
+              }
             }
           }
 
@@ -717,9 +768,9 @@ Retourne un JSON avec :
               payment_method: cleanedData.payment_method || null,
               payment_date: cleanedData.payment_date ? new Date(cleanedData.payment_date).toISOString() : null,
               due_date: cleanedData.due_date ? new Date(cleanedData.due_date).toISOString() : null,
-              original_file_name: cleanedData.original_file_name || pdfAttachment?.filename || null,
-              original_mime_type: cleanedData.original_mime_type || (pdfAttachment ? 'application/pdf' : null),
-              original_file_url: cleanedData.original_file_url || fileUrl,
+              original_file_name: cleanedData.original_file_name || pdfAttachment?.filename || (htmlImageUrl ? `${message.id}_email_screenshot.png` : null),
+              original_mime_type: cleanedData.original_mime_type || (pdfAttachment ? 'application/pdf' : (htmlMimeType || null)),
+              original_file_url: cleanedData.original_file_url || fileUrl || htmlImageUrl,
               source: 'gmail',
               extracted_data: cleanedData,
             });
