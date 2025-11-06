@@ -836,11 +836,14 @@ Retourne un JSON avec :
 
           if (!insertError) {
             invoicesFound++;
-            console.log(`✅ Facture sauvegardée: ${extractedData.vendor || from}`);
+            console.log(`✅ Facture #${invoicesFound} sauvegardée: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} - Workspace: ${workspaceIdToUse || 'null (personnel)'}`);
             // Mettre à jour le progress après chaque facture sauvegardée
             await updateProgress();
           } else {
-            console.error(`❌ Erreur insertion facture:`, insertError);
+            console.error(`❌ Erreur insertion facture #${invoicesDetected}:`, insertError);
+            console.error(`   Vendor: ${cleanedVendor}`);
+            console.error(`   Amount: ${invoiceAmount}`);
+            console.error(`   Workspace: ${workspaceIdToUse || 'null'}`);
           }
         }
       } catch (error) {
