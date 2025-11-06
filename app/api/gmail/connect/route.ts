@@ -17,19 +17,41 @@ export async function GET(request: Request) {
   }
 
   // Déterminer l'URL de base pour le callback OAuth
-  // Utiliser NEXT_PUBLIC_APP_URL comme Microsoft (simple et fiable)
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/gmail/callback`
-  
-  // Normaliser pour bilibou.com (sans www)
-  const normalizedRedirectUri = redirectUri.includes('bilibou.com')
-    ? redirectUri.replace(/https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com')
-    : redirectUri
-  
-  console.log('🔗 URI de redirection Gmail:', normalizedRedirectUri)
-  
-  // Pour les redirections internes, utiliser l'origin de la requête
+  // PRIORITÉ: Utiliser l'origin de la requête pour détecter automatiquement le domaine
   const requestUrl = new URL(request.url)
   const origin = request.headers.get('origin') || requestUrl.origin
+  
+  // Déterminer l'URI de redirection pour OAuth
+  let redirectUri: string
+  
+  // PRIORITÉ 1: Si l'origin contient bilibou.com, utiliser bilibou.com (sans www)
+  if (origin.includes('bilibou.com')) {
+    redirectUri = 'https://bilibou.com/api/gmail/callback'
+    console.log('✅ Production détectée (bilibou.com), utilisation:', redirectUri)
+  }
+  // PRIORITÉ 2: Si NEXT_PUBLIC_APP_URL est définie et ne contient pas localhost, l'utiliser
+  else if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
+    redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/gmail/callback`
+    // Normaliser pour bilibou.com (sans www)
+    if (redirectUri.includes('bilibou.com')) {
+      redirectUri = redirectUri.replace(/https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com')
+    }
+    console.log('✅ Utilisation NEXT_PUBLIC_APP_URL:', redirectUri)
+  }
+  // PRIORITÉ 3: Utiliser l'origin de la requête
+  else if (origin && !origin.includes('localhost')) {
+    redirectUri = `${origin}/api/gmail/callback`
+    console.log('✅ Utilisation origin de la requête:', redirectUri)
+  }
+  // FALLBACK: localhost uniquement en développement
+  else {
+    redirectUri = 'http://localhost:3001/api/gmail/callback'
+    console.log('⚠️ Fallback localhost:', redirectUri)
+  }
+  
+  console.log('🔗 URI de redirection Gmail finale:', redirectUri)
+  
+  // Pour les redirections internes, utiliser l'origin de la requête
   const baseUrl = origin
 
   // Vérifier les permissions du plan (mais ne pas bloquer si erreur)
@@ -66,10 +88,10 @@ export async function GET(request: Request) {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    normalizedRedirectUri
+    redirectUri
   )
   
-  console.log('🔗 Callback URI configuré:', normalizedRedirectUri)
+  console.log('🔗 Callback URI configuré:', redirectUri)
 
   const statePayload = new URLSearchParams()
   // Ne passer workspaceId dans le state que s'il est valide et n'est pas 'personal'

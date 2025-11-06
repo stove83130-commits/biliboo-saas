@@ -55,45 +55,47 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Déterminer l'URL de base (production ou local)
-    // Priorité : NEXT_PUBLIC_APP_URL (domaine personnalisé) > origin > localhost
-    // IMPORTANT: Privilégier le domaine personnalisé (bilibou.com) plutôt que le domaine Vercel
-    const envAppUrl = process.env.NEXT_PUBLIC_APP_URL
+    // Déterminer l'URI de callback pour OAuth
+    // IMPORTANT: Cette URI doit correspondre EXACTEMENT à celle utilisée dans /api/gmail/connect
+    // et à celle configurée dans Google Cloud Console
     
-    let baseUrl: string
+    let callbackUri: string
     
-    // PRIORITÉ 1: Utiliser NEXT_PUBLIC_APP_URL si c'est un domaine personnalisé
-    if (envAppUrl && !envAppUrl.includes('localhost') && !envAppUrl.includes('vercel.app')) {
-      baseUrl = envAppUrl
-      console.log('✅ Callback: Utilisation NEXT_PUBLIC_APP_URL (domaine personnalisé):', baseUrl)
+    // PRIORITÉ 1: Si l'origin contient bilibou.com, utiliser bilibou.com (sans www)
+    // Même si Google redirige vers localhost, on force bilibou.com pour la cohérence
+    if (origin.includes('bilibou.com') || process.env.NEXT_PUBLIC_APP_URL?.includes('bilibou.com')) {
+      callbackUri = 'https://bilibou.com/api/gmail/callback'
+      console.log('✅ Callback: Production détectée (bilibou.com), utilisation:', callbackUri)
     }
-    // PRIORITÉ 2: Utiliser origin si c'est un domaine personnalisé
-    else if (origin && !origin.includes('vercel.app') && !origin.includes('localhost')) {
-      baseUrl = origin
-      console.log('✅ Callback: Utilisation origin (domaine personnalisé):', baseUrl)
-    }
-    // PRIORITÉ 3: Fallback sur origin ou localhost
-    else {
-      baseUrl = origin || (envAppUrl && !envAppUrl.includes('localhost') ? envAppUrl : 'http://localhost:3001')
-      console.log('⚠️ Callback: Utilisation fallback:', baseUrl)
-    }
-    
-    // IMPORTANT: Normaliser l'URL pour bilibou.com (toujours sans www pour la cohérence)
-    // L'URI de redirection doit correspondre EXACTEMENT à celle configurée dans Google Cloud Console
-    if (baseUrl.includes('bilibou.com')) {
-      baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?/, 'https://')
-      // Si c'est bilibou.com, on retire le www pour la cohérence
-      if (baseUrl.startsWith('https://www.bilibou.com')) {
-        baseUrl = 'https://bilibou.com'
+    // PRIORITÉ 2: Si NEXT_PUBLIC_APP_URL est définie et ne contient pas localhost, l'utiliser
+    else if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
+      callbackUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/gmail/callback`
+      // Normaliser pour bilibou.com (sans www)
+      if (callbackUri.includes('bilibou.com')) {
+        callbackUri = callbackUri.replace(/https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com')
       }
+      console.log('✅ Callback: Utilisation NEXT_PUBLIC_APP_URL:', callbackUri)
+    }
+    // PRIORITÉ 3: Utiliser l'origin de la requête (mais seulement si ce n'est pas localhost)
+    else if (origin && !origin.includes('localhost')) {
+      callbackUri = `${origin}/api/gmail/callback`
+      console.log('✅ Callback: Utilisation origin de la requête:', callbackUri)
+    }
+    // FALLBACK: localhost uniquement en développement
+    else {
+      callbackUri = 'http://localhost:3001/api/gmail/callback'
+      console.log('⚠️ Callback: Fallback localhost:', callbackUri)
     }
     
-    console.log('🔗 URI de redirection callback Gmail finale:', `${baseUrl}/api/gmail/callback`)
+    console.log('🔗 URI de callback OAuth finale:', callbackUri)
+    
+    // Pour les redirections internes, utiliser l'origin de la requête
+    const baseUrl = origin.includes('bilibou.com') ? 'https://bilibou.com' : origin
     
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      `${baseUrl}/api/gmail/callback`
+      callbackUri
     )
 
     // Exchange code for tokens
