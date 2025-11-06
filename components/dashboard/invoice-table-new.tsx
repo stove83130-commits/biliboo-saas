@@ -90,17 +90,6 @@ export function InvoiceTable({
         return
       }
 
-  const fetchInvoices = async () => {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-      if (authError || !user) {
-        console.error('❌ Erreur authentification:', authError)
-        setInvoices([])
-        setLoading(false)
-        return
-      }
-
       // Scope par espace de travail
       const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
       
