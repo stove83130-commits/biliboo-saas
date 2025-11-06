@@ -548,6 +548,9 @@ async function processExtractionInBackground(
               };
               
               // 🎨 Extraire le logo depuis le PDF (image réelle)
+              // DÉSACTIVÉ TEMPORAIREMENT : Puppeteer prend trop de temps et peut bloquer le processus
+              // TODO: Réactiver avec un timeout et en mode asynchrone
+              /*
               if (pdfBuffer && extractedData.vendor) {
                 try {
                   console.log(`🎨 Extraction du logo pour ${extractedData.vendor}...`);
@@ -569,6 +572,7 @@ async function processExtractionInBackground(
                   // Ne pas bloquer l'extraction si l'extraction du logo échoue
                 }
               }
+              */
             } catch (error) {
               console.error(`❌ Erreur extraction complète:`, error);
               extractedData = {
