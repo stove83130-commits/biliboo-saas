@@ -217,6 +217,7 @@ async function processExtractionInBackground(
     console.log(`✅ TOTAL: ${messages.length} emails trouvés sur la période`);
 
     let invoicesFound = 0;
+    let invoicesDetected = 0; // Compteur pour les factures détectées (même si rejetées ensuite)
     let emailsAnalyzed = 0;
     let emailsRejected = 0;
     let rejectionReasons: { [key: string]: number } = {};
@@ -391,7 +392,8 @@ async function processExtractionInBackground(
         }
 
         if (isInvoice) {
-          console.log(`✅ Facture détectée: "${subject}" de ${from}${hasPdfAttachment ? ' (PDF attaché)' : ' (mot-clé + expéditeur de confiance)'}`);
+          invoicesDetected++; // Incrémenter le compteur de factures détectées
+          console.log(`✅ Facture détectée (#${invoicesDetected}): "${subject}" de ${from}${hasPdfAttachment ? ' (PDF attaché)' : ' (mot-clé + expéditeur de confiance)'}`);
           // Télécharger le PDF si présent
           let fileUrl = null;
           let pdfBuffer: Buffer | null = null;
@@ -492,20 +494,20 @@ async function processExtractionInBackground(
               if (fullExtraction.document_type && 
                   fullExtraction.document_type !== 'invoice' && 
                   fullExtraction.document_type !== 'receipt') {
-                console.log(`❌ PDF rejeté après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
+                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
                 continue;
               }
               
               // Validation stricte: doit avoir au moins un numéro de facture OU un montant
               if (!fullExtraction.invoice_number && !fullExtraction.total_amount) {
-                console.log(`❌ PDF rejeté après extraction GPT: pas de numéro de facture ni de montant`);
+                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: pas de numéro de facture ni de montant`);
                 continue;
               }
               
               // Validation supplémentaire: score de confiance minimum
               const minConfidenceScore = 50; // Score minimum de 50%
               if (fullExtraction.confidence_score !== undefined && fullExtraction.confidence_score < minConfidenceScore) {
-                console.log(`❌ PDF rejeté après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
+                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
                 continue;
               }
               
@@ -679,10 +681,10 @@ Retourne un JSON avec :
             .eq('email_id', message.id)
             .limit(1);
           
-          if (existingByEmailId && existingByEmailId.length > 0) {
-            console.log(`⚠️ Doublon détecté (même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}), ignorée`);
-            continue;
-          }
+              if (existingByEmailId && existingByEmailId.length > 0) {
+                console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}), ignorée`);
+                continue;
+              }
           
           // Vérification 2: Même vendor + invoice_number + amount + date (même facture, même workspace)
           // Note: On ignore le payment_status car c'est la même facture même si le statut change
@@ -707,7 +709,7 @@ Retourne un JSON avec :
             });
             
             if (existingByDetails && existingByDetails.length > 0) {
-              console.log(`⚠️ Doublon détecté (vendor + numéro + montant + date): ${cleanedVendor} - ${invoiceNumber} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByDetails[0].id}, statut: ${existingByDetails[0].payment_status}), ignorée`);
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + numéro + montant + date): ${cleanedVendor} - ${invoiceNumber} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByDetails[0].id}, statut: ${existingByDetails[0].payment_status}), ignorée`);
               continue;
             }
           }
@@ -746,7 +748,7 @@ Retourne un JSON avec :
               );
               
               if (exactMatch) {
-                console.log(`⚠️ Doublon détecté (vendor + montant + date): ${cleanedVendor} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${exactMatch.id}, statut: ${exactMatch.payment_status}), ignorée`);
+                console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + montant + date): ${cleanedVendor} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${exactMatch.id}, statut: ${exactMatch.payment_status}), ignorée`);
                 continue;
               }
             }
@@ -813,10 +815,12 @@ Retourne un JSON avec :
     }
 
     console.log(`\n📊 RÉSUMÉ EXTRACTION:`);
-    console.log(`   ✅ ${invoicesFound} factures détectées`);
+    console.log(`   🔍 ${invoicesDetected} factures détectées`);
+    console.log(`   ✅ ${invoicesFound} factures sauvegardées`);
     console.log(`   📧 ${emailsAnalyzed} emails analysés`);
     console.log(`   ❌ ${emailsRejected} emails rejetés`);
-    console.log(`   📈 Taux de détection: ${emailsAnalyzed > 0 ? ((invoicesFound / emailsAnalyzed) * 100).toFixed(2) : 0}%\n`);
+    console.log(`   📈 Taux de détection: ${emailsAnalyzed > 0 ? ((invoicesDetected / emailsAnalyzed) * 100).toFixed(2) : 0}%`);
+    console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%\n`);
 
     // 11. Mettre à jour le job
     await supabaseService
