@@ -116,10 +116,10 @@ export default function InvoiceDetailsPage() {
   }
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col">
-      <div className="max-w-7xl mx-auto w-full flex flex-col h-full p-8">
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+      <div className="w-full flex flex-col h-full p-6">
         {/* Header - FIXE */}
-        <div className="flex items-center justify-between mb-6 flex-shrink-0">
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
           <Button
             variant="ghost"
             onClick={() => router.back()}
@@ -145,9 +145,9 @@ export default function InvoiceDetailsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-6 flex-1 overflow-hidden">
-          {/* GAUCHE : DONNÉES EXTRAITES (MODIFIABLES) - SCROLLABLE */}
-          <div className="space-y-6 overflow-y-auto pr-4" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+        <div className="grid grid-cols-[40%_60%] gap-6 flex-1 overflow-hidden min-h-0">
+          {/* GAUCHE : DONNÉES EXTRAITES (MODIFIABLES) - SCROLLABLE - 40% */}
+          <div className="space-y-6 overflow-y-auto pr-2 min-h-0">
             <Card className="p-6">
               <h2 className="text-xl font-semibold mb-4">Informations générales</h2>
 
@@ -498,26 +498,25 @@ export default function InvoiceDetailsPage() {
             </Card>
           </div>
 
-          {/* DROITE : PRÉVISUALISATION FICHIER - FIXE */}
-          <div className="flex flex-col h-full">
-            <Card className="p-6 flex flex-col h-full">
+          {/* DROITE : PRÉVISUALISATION FICHIER - FIXE - 60% */}
+          <div className="flex flex-col h-full min-h-0">
+            <Card className="p-6 flex flex-col h-full min-h-0">
               <h2 className="text-xl font-semibold mb-4 flex-shrink-0">Document original</h2>
               
               {invoice.original_file_url ? (
-                <div className="border rounded-lg overflow-hidden bg-gray-50 flex-1 flex flex-col">
+                <div className="border rounded-lg overflow-hidden bg-gray-50 flex-1 flex flex-col min-h-0">
                   {/* PDF */}
                   {invoice.original_mime_type === 'application/pdf' && (
-                    <div className="relative flex-1 flex flex-col">
+                    <div className="relative flex-1 flex flex-col min-h-0">
                       <iframe
                         src={invoice.original_file_url}
-                        className="w-full flex-1"
-                        style={{ minHeight: 'calc(100vh - 280px)' }}
+                        className="w-full h-full flex-1"
                         title="Facture PDF"
                       />
                       <a
                         href={invoice.original_file_url}
                         download={invoice.original_file_name || 'facture.pdf'}
-                        className="absolute top-4 right-4 bg-white px-4 py-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
+                        className="absolute top-4 right-4 bg-white px-4 py-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors z-10"
                       >
                         📥 Télécharger PDF
                       </a>
@@ -526,7 +525,7 @@ export default function InvoiceDetailsPage() {
                   
                   {/* IMAGE */}
                   {invoice.original_mime_type?.startsWith('image/') && (
-                    <div className="relative">
+                    <div className="relative flex-1 flex flex-col min-h-0 overflow-auto">
                       <img
                         src={invoice.original_file_url}
                         alt="Facture"
@@ -535,7 +534,7 @@ export default function InvoiceDetailsPage() {
                       <a
                         href={invoice.original_file_url}
                         download={invoice.original_file_name || 'facture.jpg'}
-                        className="absolute top-4 right-4 bg-white px-4 py-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors"
+                        className="absolute top-4 right-4 bg-white px-4 py-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors z-10"
                       >
                         📥 Télécharger Image
                       </a>
@@ -544,14 +543,14 @@ export default function InvoiceDetailsPage() {
                   
                   {/* HTML (email) */}
                   {invoice.original_mime_type === 'text/html' && (
-                    <div className="relative">
+                    <div className="relative flex-1 flex flex-col min-h-0">
                       <iframe
                         srcDoc={atob(invoice.original_file_url.split(',')[1])}
-                        className="w-full h-[800px] bg-white"
+                        className="w-full h-full bg-white"
                         title="Email original"
                         sandbox="allow-same-origin"
                       />
-                      <div className="absolute top-4 right-4 bg-blue-50 px-4 py-2 rounded-lg shadow-lg">
+                      <div className="absolute top-4 right-4 bg-blue-50 px-4 py-2 rounded-lg shadow-lg z-10">
                         📧 Email original
                       </div>
                     </div>
