@@ -46,6 +46,9 @@ function sanitizeForPostgres(value: any): any {
 
 export async function POST(req: NextRequest) {
   try {
+    console.log('\n🔵 ========== API: Extraction Process ==========');
+    console.log('📅 Timestamp:', new Date().toISOString());
+    
     // 1. Authentification utilisateur
     const supabase = createClient();
     const {

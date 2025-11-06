@@ -47,7 +47,8 @@ function sanitizeForPostgres(value: any): any {
 
 export async function POST(req: NextRequest) {
   try {
-    console.log('🚀 API: Démarrage extraction nouvelle architecture');
+    console.log('\n🚀 ========== API: Démarrage extraction ==========');
+    console.log('📅 Timestamp:', new Date().toISOString());
 
     // 1. Authentification utilisateur
     const supabase = createClient();
@@ -127,6 +128,10 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`✅ Job créé: ${job.id}`);
+    console.log(`📋 Paramètres extraction:`);
+    console.log(`   - Email Config ID: ${emailConfigId}`);
+    console.log(`   - Période: ${searchSince || '90 jours'} → ${searchUntil}`);
+    console.log(`   - Workspace ID: ${workspaceId || 'null (personnel)'}`);
 
     // 5. Lancer l'extraction en arrière-plan (extraction DIRECTE avec Gmail API)
     // IMPORTANT: Utiliser une promesse pour garantir l'exécution sur Vercel
