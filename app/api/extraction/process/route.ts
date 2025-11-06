@@ -244,6 +244,8 @@ async function processExtractionInBackground(
         const parts = fullMessage.data.payload?.parts || [];
         let hasPdfAttachment = false;
         let pdfAttachment: any = null;
+        let pdfExcluded = false;
+        let pdfExcludedReason = '';
 
         for (const part of parts) {
           if (
@@ -263,6 +265,9 @@ async function processExtractionInBackground(
               hasPdfAttachment = true;
               pdfAttachment = part;
               break;
+            } else {
+              pdfExcluded = true;
+              pdfExcludedReason = `PDF exclu: ${part.filename}`;
             }
           }
         }
