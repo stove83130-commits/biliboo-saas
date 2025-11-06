@@ -483,9 +483,6 @@ Retourne un JSON avec :
           const cleanedVendor = sanitizeForPostgres(extractedData.vendor || from);
           const cleanedSubject = sanitizeForPostgres(subject);
 
-          const { error: insertError } = await supabaseService
-            .from('invoices')
-            .insert({
           // Vérifier que le workspace_id existe avant de l'insérer
           let workspaceIdToUse = null;
           if (job.workspace_id) {
@@ -508,9 +505,6 @@ Retourne un JSON avec :
               connection_id: job.connection_id,
               email_id: message.id,
               workspace_id: workspaceIdToUse,
-              connection_id: job.connection_id,
-              email_id: message.id,
-              workspace_id: job.workspace_id || null,
               account_email: emailAccount.email,
               vendor: cleanedVendor,
               amount: cleanedData.amount || null,
