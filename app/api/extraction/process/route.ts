@@ -207,9 +207,13 @@ async function processExtractionInBackground(
     console.log(`✅ TOTAL: ${messages.length} emails trouvés sur la période`);
 
     let invoicesFound = 0;
+    let emailsAnalyzed = 0;
+    let emailsRejected = 0;
+    let rejectionReasons: { [key: string]: number } = {};
 
     // 10. Traiter TOUS les emails
     for (const message of messages) {
+      emailsAnalyzed++;
       try {
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
@@ -282,7 +286,26 @@ async function processExtractionInBackground(
         const isInvoice = hasPdfAttachment || 
                          (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail);
 
+        // Logs détaillés pour comprendre pourquoi un email est rejeté
+        if (!isInvoice && emailsAnalyzed <= 10) {
+          // Logger les 10 premiers emails rejetés pour debug
+          let reason = '';
+          if (hasPdfAttachment) {
+            reason = 'PDF exclu par pattern';
+          } else if (hasInvoiceKeywordInSubject) {
+            if (isPersonalEmail) {
+              reason = 'Email personnel avec mot-clé facture (rejeté)';
+            } else if (!isTrustedSender) {
+              reason = `Mot-clé facture mais expéditeur non de confiance: ${from}`;
+            }
+          } else {
+            reason = 'Pas de PDF ni mot-clé facture';
+          }
+          console.log(`🔍 Email ${emailsAnalyzed} rejeté: "${subject}" de ${from} - Raison: ${reason}`);
+        }
+
         if (isInvoice) {
+          console.log(`✅ Facture détectée: "${subject}" de ${from}${hasPdfAttachment ? ' (PDF attaché)' : ' (mot-clé + expéditeur de confiance)'}`);
           // Télécharger le PDF si présent
           let fileUrl = null;
           let pdfBuffer: Buffer | null = null;
@@ -509,7 +532,8 @@ Retourne un JSON avec :
       }
     }
 
-    console.log(`💰 ${invoicesFound} factures détectées`);
+    console.log(`💰 ${invoicesFound} factures détectées sur ${emailsAnalyzed} emails analysés`);
+    console.log(`📊 Statistiques: ${emailsRejected} emails rejetés`);
 
     // 11. Mettre à jour le job
     await supabaseService
