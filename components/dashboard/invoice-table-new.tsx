@@ -90,26 +90,84 @@ export function InvoiceTable({
         return
       }
 
+  const fetchInvoices = async () => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+      if (authError || !user) {
+        console.error('❌ Erreur authentification:', authError)
+        setInvoices([])
+        setLoading(false)
+        return
+      }
+
       // Scope par espace de travail
       const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
-      let query = supabase
+      
+      // Déterminer le type de workspace
+      let isPersonalWorkspace = false
+      if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
+        try {
+          const workspaceResponse = await fetch('/api/workspaces')
+          if (workspaceResponse.ok) {
+            const workspaceData = await workspaceResponse.json()
+            const workspace = workspaceData.workspaces?.find((w: any) => w.id === activeWorkspaceId)
+            if (workspace) {
+              isPersonalWorkspace = workspace.type === 'personal'
+            } else {
+              // Workspace non trouvé, considérer comme personnel par défaut
+              isPersonalWorkspace = true
+            }
+          } else {
+            isPersonalWorkspace = true
+          }
+        } catch (error) {
+          console.warn('⚠️ Erreur lors de la vérification du type de workspace:', error)
+          isPersonalWorkspace = true
+        }
+      } else {
+        // Pas de workspace actif = workspace personnel
+        isPersonalWorkspace = true
+      }
+
+      // STRATÉGIE: Charger TOUTES les factures de l'utilisateur, puis filtrer côté client
+      // Cela évite les problèmes de syntaxe Supabase avec .or() et garantit la récupération des factures
+      const { data: allInvoices, error } = await supabase
         .from('invoices')
         .select('*')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false }) as any
+        .order('created_at', { ascending: false })
 
       console.log('🔍 [DEBUG] Récupération factures - activeWorkspaceId:', activeWorkspaceId)
+      console.log('🔍 [DEBUG] isPersonalWorkspace:', isPersonalWorkspace)
+      console.log('🔍 [DEBUG] Total factures récupérées:', allInvoices?.length || 0)
       
-      // Filtrer par workspace - ISOLATION STRICTE
-      if (activeWorkspaceId) {
-        // Chaque workspace (personnel ou organisation) affiche UNIQUEMENT ses factures
-        query = query.eq('workspace_id', activeWorkspaceId)
+      // Filtrer les factures selon le type de workspace (côté client)
+      let data = allInvoices || []
+      
+      if (isPersonalWorkspace) {
+        // Pour un workspace personnel, charger les factures avec workspace_id = null ou 'personal'
+        data = (allInvoices || []).filter((invoice: any) => 
+          invoice.workspace_id === null || 
+          invoice.workspace_id === 'personal' || 
+          !invoice.workspace_id
+        )
+        console.log('🔍 [DEBUG] Filtre workspace personnel appliqué:', data.length, 'factures sur', allInvoices?.length || 0)
+      } else if (activeWorkspaceId) {
+        // Pour un workspace d'organisation, charger uniquement les factures de ce workspace
+        data = (allInvoices || []).filter((invoice: any) => 
+          invoice.workspace_id === activeWorkspaceId
+        )
+        console.log('🔍 [DEBUG] Filtre workspace organisation appliqué:', data.length, 'factures sur', allInvoices?.length || 0)
       } else {
-        // Si aucun workspace actif, ne rien afficher (sécurité)
-        query = query.eq('workspace_id', '00000000-0000-0000-0000-000000000000') // ID impossible
+        // Par défaut, charger les factures personnelles
+        data = (allInvoices || []).filter((invoice: any) => 
+          invoice.workspace_id === null || 
+          invoice.workspace_id === 'personal' || 
+          !invoice.workspace_id
+        )
+        console.log('🔍 [DEBUG] Filtre par défaut (personnel) appliqué:', data.length, 'factures sur', allInvoices?.length || 0)
       }
-
-      const { data, error } = await query
 
       if (error) {
         console.error('❌ Erreur récupération factures:', error)
