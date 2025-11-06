@@ -60,6 +60,7 @@ export interface ExtractedInvoiceData {
   }> | null;
   
   // 🎨 LOGO (NOUVEAU !)
+  vendor_logo_url: string | null; // URL du logo extrait depuis le PDF (image réelle)
   vendor_logo_description: string | null; // Description du logo pour identification
   vendor_logo_colors: string[] | null; // Couleurs principales du logo
   vendor_logo_text: string | null; // Texte visible dans le logo
@@ -210,6 +211,7 @@ Retourne un JSON avec cette structure EXACTE:
   "vendor_logo_description": "description DÉTAILLÉE du logo visible en haut (ex: logo circulaire bleu foncé #0066CC avec icône blanche stylisée représentant une flèche, texte 'REPLIT' en blanc en dessous, style moderne et minimaliste, position haut gauche)" ou null,
   "vendor_logo_colors": ["#0066CC", "#FFFFFF"] (codes hex EXACTS des 2-3 couleurs principales du logo, toujours en format hex avec #) ou null,
   "vendor_logo_text": "REPLIT" (texte ou lettres EXACTES visibles dans le logo, en majuscules) ou null,
+  NOTE: Le logo sera extrait automatiquement comme image séparée, pas besoin de le décrire ici.
   "confidence_score": 0-100
 }
 

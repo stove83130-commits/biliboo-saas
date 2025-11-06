@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { Checkbox } from "@/components/ui/checkbox"
 import { FilterState } from "./invoice-filters"
-import { getVendorLogoWithFallback, generateLogoFromDescription } from "@/lib/utils/logo-generator"
+// Pas de génération SVG - on utilise uniquement les vrais logos extraits
 
 interface Invoice {
   id: string
@@ -22,6 +22,7 @@ interface Invoice {
   vendor: string | null
   vendor_email?: string | null
   vendor_website?: string | null
+  vendor_logo_url?: string | null // URL du logo réel extrait depuis le PDF
   vendor_logo_description?: string | null
   vendor_logo_colors?: string[] | null
   vendor_logo_text?: string | null
@@ -571,47 +572,25 @@ export function InvoiceTable({
                   <div className="flex items-center gap-2">
                     {(() => {
                       const vendorName = getVendorName(invoice);
-                      const { primary, fallback } = getVendorLogoWithFallback(
-                        vendorName,
-                        invoice.vendor_website,
-                        invoice.vendor_email,
-                        invoice.vendor_logo_description,
-                        invoice.vendor_logo_colors,
-                        invoice.vendor_logo_text
-                      );
                       
-                      // Générer un logo SVG comme fallback final si Clearbit n'est pas disponible
-                      const svgFallback = generateLogoFromDescription(
-                        vendorName,
-                        invoice.vendor_logo_description,
-                        invoice.vendor_logo_colors,
-                        invoice.vendor_logo_text
-                      );
-                      
-                      return (
-                        <img
-                          src={primary}
-                          alt={vendorName}
-                          className="h-8 w-8 object-contain rounded border border-border"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            // Essayer le fallback Google Favicon
-                            if (fallback && target.src !== fallback) {
-                              target.src = fallback;
-                            } else if (target.src !== svgFallback) {
-                              // Si tout échoue, utiliser le SVG généré
-                              target.src = svgFallback;
-                            } else {
-                              // Si même le SVG échoue, afficher l'icône par défaut
+                      // Utiliser uniquement le logo réel extrait depuis le PDF
+                      if (invoice.vendor_logo_url) {
+                        return (
+                          <img
+                            src={invoice.vendor_logo_url}
+                            alt={vendorName}
+                            className="h-8 w-8 object-contain rounded border border-border"
+                            onError={(e) => {
+                              // Si le logo ne charge pas, le masquer
+                              const target = e.target as HTMLImageElement;
                               target.style.display = 'none';
-                              const parent = target.parentElement;
-                              if (parent) {
-                                parent.innerHTML = `<div class="h-8 w-8 rounded border border-border bg-muted flex items-center justify-center"><svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg></div>`;
-                              }
-                            }
-                          }}
-                        />
-                      );
+                            }}
+                          />
+                        );
+                      }
+                      
+                      // Pas de logo disponible - ne rien afficher (pas de SVG généré)
+                      return null;
                     })()}
                     <span className="text-sm font-medium text-foreground">
                       {getVendorName(invoice)}

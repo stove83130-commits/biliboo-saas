@@ -15,6 +15,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
+import { extractLogoImageFromPDF } from '@/lib/services/logo-image-extractor';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -543,6 +544,29 @@ async function processExtractionInBackground(
                 confidence_score: fullExtraction.confidence_score,
                 ocr_text: fullExtraction.ocr_text,
               };
+              
+              // 🎨 Extraire le logo depuis le PDF (image réelle)
+              if (pdfBuffer && extractedData.vendor) {
+                try {
+                  console.log(`🎨 Extraction du logo pour ${extractedData.vendor}...`);
+                  const logoUrl = await extractLogoImageFromPDF(
+                    pdfBuffer,
+                    userId,
+                    message.id!,
+                    extractedData.vendor
+                  );
+                  
+                  if (logoUrl) {
+                    extractedData.vendor_logo_url = logoUrl;
+                    console.log(`✅ Logo extrait: ${logoUrl}`);
+                  } else {
+                    console.log(`⚠️ Aucun logo extrait pour ${extractedData.vendor}`);
+                  }
+                } catch (logoError) {
+                  console.error(`❌ Erreur extraction logo:`, logoError);
+                  // Ne pas bloquer l'extraction si l'extraction du logo échoue
+                }
+              }
             } catch (error) {
               console.error(`❌ Erreur extraction complète:`, error);
               extractedData = {
@@ -761,6 +785,7 @@ Retourne un JSON avec :
               customer_phone: cleanedData.customer_phone || null,
               customer_email: cleanedData.customer_email || null,
               customer_vat_number: cleanedData.customer_vat_number || null,
+              vendor_logo_url: cleanedData.vendor_logo_url || null,
               vendor_logo_description: cleanedData.vendor_logo_description || null,
               vendor_logo_colors: cleanedData.vendor_logo_colors || null,
               vendor_logo_text: cleanedData.vendor_logo_text || null,
