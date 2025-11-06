@@ -149,17 +149,20 @@ function SettingsPageContent() {
       // IMPORTANT: Utiliser le TYPE du workspace pour déterminer la requête
       // Si c'est un workspace personnel (type === 'personal'), charger les comptes sans workspace_id
       // Si c'est un workspace d'organisation, charger uniquement les comptes de ce workspace
-      const isPersonal = workspaceType === 'personal' || workspaceType === null || !workspaceIdToUse
+      // Si workspaceType n'est pas encore chargé, utiliser une logique de fallback pour charger les comptes personnels
+      const isPersonal = workspaceType === 'personal' || (workspaceType === null && (!workspaceIdToUse || workspaceIdToUse === 'personal'))
       
       console.log('🔍 fetchEmailAccounts debug:', {
         workspaceType,
         workspaceIdToUse,
         isPersonal,
-        currentWorkspaceId
+        currentWorkspaceId,
+        isInitialized
       })
       
-      if (isPersonal) {
-        // Pour un workspace personnel, on charge les comptes avec workspace_id = null ou 'personal'
+      if (isPersonal || workspaceType === null) {
+        // Pour un workspace personnel OU si workspaceType n'est pas encore chargé, charger les comptes avec workspace_id = null
+        // Cela garantit qu'on trouve les comptes personnels même si workspaceType n'est pas encore chargé
         query = query.or('workspace_id.is.null,workspace_id.eq.personal')
         console.log('✅ Requête workspace personnel: workspace_id = null ou personal')
       } else if (workspaceIdToUse && workspaceIdToUse.trim() !== '') {
