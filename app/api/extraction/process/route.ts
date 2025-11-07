@@ -926,15 +926,20 @@ Retourne un JSON avec :
           }
           
           // Vérification 2: Même vendor + invoice_number + amount + date (même facture, même workspace)
-          // IMPORTANT: Utiliser les valeurs normalisées pour éviter les variations
+          // OPTIMISATION: Utiliser une requête plus ciblée au lieu de charger toutes les factures
+          // Filtrer par date récente pour réduire le nombre de factures à charger
           if (normalizedVendor && normalizedInvoiceNumber && normalizedAmount && normalizedInvoiceNumber.length >= 3) {
-            // Charger TOUTES les factures de l'utilisateur avec vendor similaire, puis filtrer côté client
-            // (car la normalisation ne peut pas être faite en SQL)
+            // OPTIMISATION: Charger seulement les factures récentes (derniers 6 mois)
+            // Cela réduit drastiquement le nombre de factures à charger et comparer
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            
             const { data: allInvoices } = await supabaseService
               .from('invoices')
               .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
               .eq('user_id', userId)
-              .limit(1000); // Limiter pour éviter trop de données
+              .gte('date', sixMonthsAgo.toISOString()) // Seulement les factures des 6 derniers mois
+              .limit(500); // Réduire la limite car on filtre déjà par date
             
             // Filtrer côté client avec normalisation
             let existingByDetails = (allInvoices || []).filter((inv: any) => {
