@@ -644,7 +644,7 @@ Retourne un JSON avec :
           })
           .eq('id', job.id);
       }
-    })();
+    }; // Fin de la fonction DISABLED_oldExtractionCode (jamais appelée)
 
     // IMPORTANT: Sur Vercel, les fonctions serverless se terminent dès que la réponse est envoyée
     // waitUntil n'existe pas dans Next.js API routes (c'est une API Edge/Cloudflare)
