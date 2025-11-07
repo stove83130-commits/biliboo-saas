@@ -827,7 +827,7 @@ async function processExtractionInBackground(
               // VÉRIFICATION DE SÉCURITÉ FINALE: Même si le PDF est valide,
               // rejeter si l'expéditeur est dans la liste d'exclusion (sauf Receiptor/Bilibou - on fait confiance à GPT)
               // Receiptor/Bilibou sont analysés par GPT qui déterminera si c'est vraiment une facture
-              const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
+              // NOTE: isReceiptorOrBilibou est déjà défini plus haut dans la boucle
               if ((isExcludedSender || hasExcludedSubjectPattern) && !isReceiptorOrBilibou) {
                 console.error(`❌ [SÉCURITÉ] Email rejeté malgré PDF valide: expéditeur ou sujet exclu`);
                 console.error(`   - Expéditeur: ${from}`);
