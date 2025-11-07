@@ -439,25 +439,9 @@ export default function ExtractionPage() {
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Sélectionner un compte de messagerie">
-                        {selectedConfig ? (
-                          (() => {
-                            const selected = emailConfigs.find(c => c.id === selectedConfig);
-                            return selected ? (
-                              <div className="flex items-center gap-2">
-                                <div className="flex h-5 w-5 items-center justify-center">
-                                  {selected.email_provider === 'gmail' ? (
-                                    <GoogleLogo className="h-4 w-4" />
-                                  ) : (
-                                    <MicrosoftLogo className="h-4 w-4" />
-                                  )}
-                                </div>
-                                <span>{selected.imap_email}</span>
-                              </div>
-                            ) : null;
-                          })()
-                        ) : (
-                          'Sélectionner un compte de messagerie'
-                        )}
+                        {selectedConfig
+                          ? emailConfigs.find(c => c.id === selectedConfig)?.imap_email || 'Sélectionner un compte'
+                          : 'Sélectionner un compte de messagerie'}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
