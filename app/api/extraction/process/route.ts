@@ -456,18 +456,22 @@ async function processExtractionInBackground(
         // DÉTECTION Receiptor/Bilibou (pour traitement spécial)
         const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
         
-        // REJET ABSOLU ET IMMÉDIAT de TOUS les emails Receiptor/Bilibou
-        // Ces outils envoient des notifications, pas de vraies factures
-        // Même si le contenu ressemble à une facture, ce sont des agrégateurs/notifications
-        if (isReceiptorOrBilibou) {
-          console.log(`❌ [EXCLUSION TOTALE] Email Receiptor/Bilibou rejeté`);
+        // Pour Receiptor/Bilibou : rejeter les patterns de notification évidents (history, report, export)
+        // Mais laisser passer le reste pour analyse GPT (au cas où c'est leur propre facture d'abonnement)
+        if (isReceiptorOrBilibou && hasExcludedSubjectPattern) {
+          const matchedPattern = excludedSubjectPatterns.find(p => subjectLower.includes(p));
+          console.log(`❌ [REJET IMMÉDIAT] Email Receiptor/Bilibou avec pattern notification`);
           console.log(`   - Expéditeur: ${from}`);
           console.log(`   - Sujet: "${subject}"`);
-          console.log(`   - Raison: Receiptor/Bilibou sont des agrégateurs, pas des émetteurs de factures`);
-          console.log(`   - Action: Rejeté systématiquement (peu importe le contenu)`);
+          console.log(`   - Pattern détecté: "${matchedPattern}"`);
+          console.log(`   - Action: Notification/rapport système → rejet`);
           emailsRejected++;
-          continue; // Rejeter immédiatement, TOUS les emails de ces expéditeurs
+          continue;
         }
+        
+        // Si Receiptor/Bilibou SANS pattern notification → analyser le contenu avec GPT ULTRA STRICT
+        // GPT devra déterminer si c'est une vraie facture (montant + numéro + transaction)
+        // ou juste un email avec le mot "receipt" dans le nom de la boîte
         
         // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
         // NOTE: Receiptor et Bilibou sont maintenant exclus TOTALEMENT (voir vérification ci-dessus)
@@ -633,6 +637,7 @@ async function processExtractionInBackground(
                                    !hasExcludedSubjectPattern &&
                                    (hasPdfAttachment || 
                                     (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) ||
+                                    (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail) || // Receiptor/Bilibou: analyser le contenu (GPT ULTRA STRICT déterminera si vraie facture)
                                     (isTrustedSender && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Expéditeurs de confiance (Apple, etc.): analyser même sans mot-clé facture
         
         // Log critique si un email exclu passe quand même
@@ -655,6 +660,7 @@ async function processExtractionInBackground(
                                  emailHtml && 
                                  !isPersonalEmail &&
                                  ((hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail)) || 
+                                  (isReceiptorOrBilibou && !hasExcludedSubjectPattern) || // Receiptor/Bilibou: analyser avec GPT ULTRA STRICT
                                   (isTrustedSender && !hasExcludedSubjectPattern)); // Expéditeurs de confiance (Apple, etc.): analyser si pas de pattern notification
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
@@ -916,12 +922,22 @@ async function processExtractionInBackground(
               
               const prompt = `Analyse cet email et détermine s'il s'agit d'une VRAIE facture ou d'un VRAI reçu.
 
-IMPORTANT: Ce n'est une facture/reçu QUE si tu trouves :
-1. Un montant payé (nombre > 0, pas juste "0" ou vide)
-2. Un numéro de facture/reçu valide (pas juste le sujet de l'email, au moins 3 caractères)
-3. Des détails de transaction (date, fournisseur, etc.)
+RÈGLES ULTRA STRICTES - Ce n'est une facture/reçu QUE si tu trouves :
+1. Un montant payé RÉEL (nombre > 0, pas juste "0" ou vide, pas un total de plusieurs factures)
+2. Un numéro de facture/reçu VALIDE (pas juste le sujet de l'email, au moins 3 caractères, pas un ID de rapport)
+3. Des détails de transaction CONCRETS (date, fournisseur qui a émis la facture, description du service/produit)
 
-Si c'est juste une notification, un lien de téléchargement, un rapport, ou autre chose qui n'est PAS une facture/reçu, retourne "is_invoice": false.
+ATTENTION PARTICULIÈRE - Rejette "is_invoice": false si :
+- C'est une NOTIFICATION sur des factures (ex: "Vous avez 5 nouvelles factures")
+- C'est un RAPPORT d'activité (ex: "Receipts History Report", "Export de factures")
+- C'est un LIEN de téléchargement (ex: "Cliquez ici pour télécharger vos reçus")
+- C'est un EMAIL de Receiptor/Bilibou qui liste des factures mais n'est pas une facture lui-même
+- Le montant est une SOMME de plusieurs factures (pas une transaction unique)
+- Il n'y a pas de détails sur le SERVICE/PRODUIT acheté
+
+CAS SPÉCIAL - Si l'expéditeur est Receiptor/Bilibou :
+- C'est une facture UNIQUEMENT si c'est LEUR propre facture d'abonnement
+- Si c'est une notification/rapport sur d'autres factures → "is_invoice": false
 
 CONTEXTE:
 - De: ${from}
@@ -942,16 +958,16 @@ Retourne un JSON avec :
   "payment_status": "paid/unpaid" (si facture),
   "payment_method": "méthode" (si facture),
   "confidence_score": 0-100,
-  "rejection_reason": "raison du rejet si is_invoice=false"
+  "rejection_reason": "raison du rejet si is_invoice=false (requis si is_invoice=false)"
 }`;
 
               const completion = await openai.chat.completions.create({
                 model: 'gpt-4o',
                 messages: [
-                  { role: 'system', content: 'Tu réponds uniquement avec du JSON valide. Sois strict : ce n\'est une facture que si tu trouves un montant réel et un numéro de facture valide.' },
+                  { role: 'system', content: 'Tu réponds uniquement avec du JSON valide. Sois ULTRA STRICT : ce n\'est une facture que si tu trouves un montant réel ET un numéro de facture valide ET une transaction concrète. Rejette les notifications, rapports, et emails d\'agrégateurs comme Receiptor qui ne sont pas leurs propres factures.' },
                   { role: 'user', content: prompt }
                 ],
-                temperature: 0.1,
+                temperature: 0.0, // Température à 0 pour maximum de déterminisme et strictitude
                 max_tokens: 1000,
               });
               
