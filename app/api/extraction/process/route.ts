@@ -448,11 +448,25 @@ async function processExtractionInBackground(
           'receiptor.ai', 'receiptor.com', 'bilibou.com', 'bilibou.ai'
         ];
         
-        // Vérifier si l'expéditeur contient un nom exclu
-        const hasExcludedSenderName = excludedSenders.some(excluded => fromLower.includes(excluded));
+        // Vérifier si l'expéditeur contient un nom exclu (plus strict : doit être présent dans le nom OU l'email)
+        // Format email possible : "Receiptor Automation <noreply@receiptor.ai>" ou "noreply@receiptor.ai"
+        const hasExcludedSenderName = excludedSenders.some(excluded => {
+          // Vérifier dans le nom complet (avant <) et dans l'adresse email (après <)
+          return fromLower.includes(excluded);
+        });
         
-        // Vérifier si l'expéditeur est d'un domaine exclu
-        const hasExcludedDomain = excludedDomains.some(domain => fromLower.includes(domain));
+        // Vérifier si l'expéditeur est d'un domaine exclu (plus strict : doit correspondre exactement au domaine)
+        const hasExcludedDomain = excludedDomains.some(domain => {
+          // Extraire le domaine de l'email (partie après @)
+          const emailMatch = fromLower.match(/@([^\s<>]+)/);
+          if (emailMatch) {
+            const emailDomain = emailMatch[1];
+            // Vérifier si le domaine correspond exactement ou contient le domaine exclu
+            return emailDomain === domain || emailDomain.includes(domain.replace('.', ''));
+          }
+          // Si pas de @ trouvé, vérifier si le domaine est présent dans le texte
+          return fromLower.includes(domain);
+        });
         
         // Exclusion si nom exclu OU domaine exclu
         const isExcludedSender = hasExcludedSenderName || hasExcludedDomain;
@@ -470,7 +484,9 @@ async function processExtractionInBackground(
           'automation', 'notification', 'alert', 'reminder', 'update', 'newsletter',
           'confirmation', 'welcome', 'account', 'security', 'password', 'verify',
           'conditions générales', 'cgv', 'cgu', 'terms and conditions', 'privacy policy',
-          'politique de confidentialité', 'mentions légales'
+          'politique de confidentialité', 'mentions légales',
+          'export', 'csv', 'report', 'history', 'download', 'link', 'expire', // Patterns pour emails système
+          'receipts history', 'exports history', 'data export' // Patterns spécifiques pour Receiptor
         ];
         const hasExcludedSubjectPattern = excludedSubjectPatterns.some(pattern => 
           subjectLower.includes(pattern)
@@ -579,21 +595,27 @@ async function processExtractionInBackground(
         // C'est une entreprise si : domaine personnalisé OU pattern email d'entreprise
         const isBusinessEmail = hasCustomDomain || hasBusinessEmailPattern;
         
-        // ========== RÈGLES DE DÉTECTION FINALE ==========
-        // RÈGLE 1: PDF attaché avec indicateur de facture = ACCEPTÉ
-        // RÈGLE 2: Mot-clé facture + expéditeur de confiance (liste) + pas email personnel = ACCEPTÉ
-        // RÈGLE 3: Mot-clé facture + email d'entreprise (générique) + pas email personnel = ACCEPTÉ (NOUVEAU !)
-        // RÈGLE 4: Expéditeur exclu = REJETÉ
-        // RÈGLE 5: Pattern d'exclusion dans sujet = REJETÉ
+        // ========== RÈGLES DE DÉTECTION FINALE (STRICTES) ==========
+        // RÈGLE 1: PDF attaché avec indicateur de facture = CANDIDAT (sera validé par GPT après extraction)
+        // RÈGLE 2: Mot-clé facture dans sujet + pas email personnel = CANDIDAT (mais OBLIGATOIREMENT analyser le HTML pour confirmer)
+        // RÈGLE 3: Expéditeur exclu = REJETÉ IMMÉDIATEMENT
+        // RÈGLE 4: Pattern d'exclusion dans sujet = REJETÉ IMMÉDIATEMENT
+        // 
+        // IMPORTANT: On ne marque PAS comme facture tant qu'on n'a pas vérifié le contenu (PDF ou HTML)
+        // Un simple mot-clé dans le sujet ne suffit PLUS - il faut une preuve concrète (PDF ou analyse HTML)
         
-        const isInvoice = !isExcludedSender && 
-                         !hasExcludedSubjectPattern &&
-                         (hasPdfAttachment || 
-                          (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail) ||
-                          (hasInvoiceKeywordInSubject && isBusinessEmail && !isPersonalEmail)); // Email d'entreprise avec mot-clé = facture/reçu
+        // Candidat si : PDF attaché OU (mot-clé facture + expéditeur valide + pas email personnel)
+        // Mais on ne marquera comme facture qu'après validation du contenu
+        const isInvoiceCandidate = !isExcludedSender && 
+                                   !hasExcludedSubjectPattern &&
+                                   (hasPdfAttachment || 
+                                    (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml));
+        
+        // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
+        const needsHtmlAnalysis = !hasPdfAttachment && hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml;
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
-        if (!isInvoice) {
+        if (!isInvoiceCandidate) {
           emailsRejected++;
           let reason = '';
           if (isExcludedSender) {
@@ -607,6 +629,8 @@ async function processExtractionInBackground(
               reason = 'Email personnel avec mot-clé facture (rejeté)';
             } else if (!isTrustedSender && !isBusinessEmail) {
               reason = `Mot-clé facture mais expéditeur non reconnu comme entreprise: ${from}`;
+            } else if (!emailHtml) {
+              reason = 'Mot-clé facture mais pas de contenu HTML à analyser';
             }
           } else {
             reason = 'Pas de PDF ni mot-clé facture';
@@ -617,14 +641,13 @@ async function processExtractionInBackground(
           }
         }
 
-        if (isInvoice) {
-          invoicesDetected++; // Incrémenter le compteur de factures détectées
+        // Si c'est un candidat, on va analyser le contenu (PDF ou HTML) pour confirmer
+        if (isInvoiceCandidate) {
+          // Ne pas incrémenter invoicesDetected tout de suite - on attendra la validation du contenu
           const detectionReason = hasPdfAttachment 
-            ? ' (PDF attaché)' 
-            : (isTrustedSender 
-              ? ' (mot-clé + expéditeur de confiance)' 
-              : ' (mot-clé + email d\'entreprise)');
-          console.log(`✅ Facture détectée (#${invoicesDetected}): "${subject}" de ${from}${detectionReason}`);
+            ? ' (PDF attaché - validation en cours)' 
+            : ' (mot-clé détecté - analyse HTML requise)';
+          console.log(`🔍 Candidat facture détecté: "${subject}" de ${from}${detectionReason}`);
           
           // Télécharger le PDF si présent
           let fileUrl = null;
@@ -726,7 +749,8 @@ async function processExtractionInBackground(
               if (fullExtraction.document_type && 
                   fullExtraction.document_type !== 'invoice' && 
                   fullExtraction.document_type !== 'receipt') {
-                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
+                console.log(`❌ Candidat facture rejeté après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
+                emailsRejected++;
                 continue;
               }
               
@@ -751,21 +775,25 @@ async function processExtractionInBackground(
               
               // REJETER si le numéro OU le montant n'est pas valide (les DEUX sont obligatoires)
               if (!isValidInvoiceNumber || !isValidAmount) {
-                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: numéro ET montant obligatoires`);
+                console.log(`❌ Candidat facture rejeté après extraction GPT: numéro ET montant obligatoires`);
                 console.log(`   - Numéro facture: "${invoiceNumber}" (valide: ${isValidInvoiceNumber})`);
                 console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
                 console.log(`   - Raison: ${!isValidInvoiceNumber ? 'Numéro de facture manquant ou invalide' : 'Montant manquant ou invalide'}`);
+                emailsRejected++;
                 continue;
               }
               
               // Validation supplémentaire: score de confiance minimum
               const minConfidenceScore = 50; // Score minimum de 50%
               if (fullExtraction.confidence_score !== undefined && fullExtraction.confidence_score < minConfidenceScore) {
-                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
+                console.log(`❌ Candidat facture rejeté après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
+                emailsRejected++;
                 continue;
               }
               
-              console.log(`✅ Facture #${invoicesDetected} validée: numéro="${invoiceNumber}", montant=${totalAmount} ${fullExtraction.currency || 'EUR'}`);
+              // Si on arrive ici, c'est une vraie facture validée (PDF)
+              invoicesDetected++;
+              console.log(`✅ Facture validée après extraction PDF (#${invoicesDetected}): numéro="${invoiceNumber}", montant=${totalAmount} ${fullExtraction.currency || 'EUR'}`);
               
               extractedData = {
                 vendor: fullExtraction.vendor_name,
@@ -809,8 +837,12 @@ async function processExtractionInBackground(
                 confidence_score: 0,
               };
             }
-          } else if (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) {
+          } else if (needsHtmlAnalysis) {
+            // OBLIGATOIRE: Analyser le HTML pour confirmer que c'est vraiment une facture
+            // On ne peut plus accepter juste sur la base d'un mot-clé dans le sujet
             try {
+              console.log(`🔍 Analyse HTML requise pour confirmer la facture: "${subject}"`);
+              
               const openai = new OpenAI({
                 apiKey: process.env.OPENAI_API_KEY,
               });
@@ -824,7 +856,14 @@ async function processExtractionInBackground(
                 .trim()
                 .substring(0, 30000);
               
-              const prompt = `Analyse cet email de facture et extrait les données:
+              const prompt = `Analyse cet email et détermine s'il s'agit d'une VRAIE facture ou d'un VRAI reçu.
+
+IMPORTANT: Ce n'est une facture/reçu QUE si tu trouves :
+1. Un montant payé (nombre > 0, pas juste "0" ou vide)
+2. Un numéro de facture/reçu valide (pas juste le sujet de l'email, au moins 3 caractères)
+3. Des détails de transaction (date, fournisseur, etc.)
+
+Si c'est juste une notification, un lien de téléchargement, un rapport, ou autre chose qui n'est PAS une facture/reçu, retourne "is_invoice": false.
 
 CONTEXTE:
 - De: ${from}
@@ -836,20 +875,22 @@ ${cleanHtml}
 
 Retourne un JSON avec :
 {
-  "vendor": "nom fournisseur",
-  "amount": montant_ttc,
-  "currency": "EUR/USD",
-  "date": "YYYY-MM-DD",
-  "invoice_number": "numéro",
-  "payment_status": "paid/unpaid",
-  "payment_method": "méthode",
-  "confidence_score": 0-100
+  "is_invoice": true/false,
+  "vendor": "nom fournisseur" (si facture),
+  "amount": montant_ttc (si facture, doit être > 0),
+  "currency": "EUR/USD" (si facture),
+  "date": "YYYY-MM-DD" (si facture),
+  "invoice_number": "numéro" (si facture, doit être valide),
+  "payment_status": "paid/unpaid" (si facture),
+  "payment_method": "méthode" (si facture),
+  "confidence_score": 0-100,
+  "rejection_reason": "raison du rejet si is_invoice=false"
 }`;
 
               const completion = await openai.chat.completions.create({
                 model: 'gpt-4o',
                 messages: [
-                  { role: 'system', content: 'Tu réponds uniquement avec du JSON valide.' },
+                  { role: 'system', content: 'Tu réponds uniquement avec du JSON valide. Sois strict : ce n\'est une facture que si tu trouves un montant réel et un numéro de facture valide.' },
                   { role: 'user', content: prompt }
                 ],
                 temperature: 0.1,
@@ -859,8 +900,27 @@ Retourne un JSON avec :
               const responseText = completion.choices[0].message.content || '{}';
               const jsonMatch = responseText.match(/\{[\s\S]*\}/);
               if (jsonMatch) {
-                extractedData = JSON.parse(jsonMatch[0]);
-                extractedData.extraction_status = 'partial';
+                const analysisResult = JSON.parse(jsonMatch[0]);
+                
+                // Vérifier d'abord si GPT a déterminé que c'est une facture
+                if (!analysisResult.is_invoice) {
+                  console.log(`❌ Email rejeté après analyse HTML: "${subject}" - ${analysisResult.rejection_reason || 'Pas une facture/reçu valide'}`);
+                  emailsRejected++;
+                  continue; // Rejeter l'email
+                }
+                
+                // Si GPT confirme que c'est une facture, extraire les données
+                extractedData = {
+                  vendor: analysisResult.vendor || from,
+                  amount: analysisResult.amount || null,
+                  currency: analysisResult.currency || 'EUR',
+                  date: analysisResult.date || date,
+                  invoice_number: analysisResult.invoice_number || null,
+                  payment_status: analysisResult.payment_status || 'unpaid',
+                  payment_method: analysisResult.payment_method || null,
+                  extraction_status: 'partial',
+                  confidence_score: analysisResult.confidence_score || 0,
+                };
                 
                 // ========== VALIDATION STRICTE POST-EXTRACTION GPT (pour emails HTML) ==========
                 // RÈGLE EN BÉTON : Même validation que pour les PDFs - numéro ET montant OBLIGATOIRES
@@ -877,24 +937,39 @@ Retourne un JSON avec :
                 
                 // REJETER si le numéro OU le montant n'est pas valide (les DEUX sont obligatoires)
                 if (!isValidInvoiceNumber || !isValidAmount) {
-                  console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT (HTML): numéro ET montant obligatoires`);
+                  console.log(`❌ Email rejeté après analyse HTML: numéro ET montant obligatoires`);
                   console.log(`   - Numéro facture: "${invoiceNumber}" (valide: ${isValidInvoiceNumber})`);
                   console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
                   console.log(`   - Raison: ${!isValidInvoiceNumber ? 'Numéro de facture manquant ou invalide' : 'Montant manquant ou invalide'}`);
+                  emailsRejected++;
                   continue; // Sortir de la boucle pour cet email
                 }
                 
-                console.log(`✅ Facture #${invoicesDetected} validée (HTML): numéro="${invoiceNumber}", montant=${totalAmount} ${extractedData.currency || 'EUR'}`);
+                // Si on arrive ici, c'est une vraie facture validée
+                invoicesDetected++;
+                console.log(`✅ Facture validée après analyse HTML (#${invoicesDetected}): numéro="${invoiceNumber}", montant=${totalAmount} ${extractedData.currency || 'EUR'}`);
+              } else {
+                // Impossible de parser la réponse GPT, rejeter par sécurité
+                console.log(`❌ Email rejeté: impossible d'analyser le contenu HTML`);
+                emailsRejected++;
+                continue;
               }
             } catch (error) {
               console.error(`❌ Erreur analyse HTML:`, error);
-              extractedData = {
-                vendor: from,
-                date: date,
-                extraction_status: 'failed',
-              };
+              // En cas d'erreur, rejeter par sécurité
+              console.log(`❌ Email rejeté: erreur lors de l'analyse HTML`);
+              emailsRejected++;
+              continue;
             }
+          } else {
+            // Pas de PDF et pas d'analyse HTML requise = pas une facture
+            console.log(`❌ Email rejeté: pas de PDF et pas de contenu HTML à analyser`);
+            emailsRejected++;
+            continue;
           }
+          
+          // Si on arrive ici, c'est une facture validée (PDF ou HTML)
+          // invoicesDetected a déjà été incrémenté dans les blocs précédents
 
           // Sauvegarder la facture
           const cleanedData = sanitizeForPostgres(extractedData);
