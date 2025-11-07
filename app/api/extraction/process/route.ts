@@ -514,8 +514,8 @@ async function processExtractionInBackground(
           } else if (hasInvoiceKeywordInSubject) {
             if (isPersonalEmail) {
               reason = 'Email personnel avec mot-clé facture (rejeté)';
-            } else if (!isTrustedSender) {
-              reason = `Mot-clé facture mais expéditeur non de confiance: ${from}`;
+            } else if (!isTrustedSender && !isBusinessEmail) {
+              reason = `Mot-clé facture mais expéditeur non reconnu comme entreprise: ${from}`;
             }
           } else {
             reason = 'Pas de PDF ni mot-clé facture';
