@@ -456,25 +456,37 @@ async function processExtractionInBackground(
         // DÉTECTION Receiptor/Bilibou (pour traitement spécial)
         const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
         
-        // Pour Receiptor/Bilibou : rejeter les patterns de notification évidents (history, report, export)
-        // Mais laisser passer le reste pour analyse GPT (au cas où c'est leur propre facture d'abonnement)
-        if (isReceiptorOrBilibou && hasExcludedSubjectPattern) {
-          const matchedPattern = excludedSubjectPatterns.find(p => subjectLower.includes(p));
-          console.log(`❌ [REJET IMMÉDIAT] Email Receiptor/Bilibou avec pattern notification`);
-          console.log(`   - Expéditeur: ${from}`);
+        // LOGIQUE INVERSÉE : Exclure Receiptor/Bilibou PAR DÉFAUT
+        // EXCEPTION : Autoriser UNIQUEMENT si le sujet contient des mots indiquant que c'est LEUR facture
+        if (isReceiptorOrBilibou) {
+          // Mots-clés qui indiquent que c'est la facture de Receiptor lui-même
+          const receiptorInvoiceKeywords = ['invoice', 'subscription', 'billing', 'payment due'];
+          const isReceiptorOwnInvoice = receiptorInvoiceKeywords.some(keyword => 
+            subjectLower.includes(keyword)
+          );
+          
+          if (!isReceiptorOwnInvoice) {
+            // Pas de mot-clé de facture Receiptor → c'est une notification/agrégation → REJET
+            console.log(`❌ [EXCLUSION TOTALE] Email Receiptor/Bilibou rejeté`);
+            console.log(`   - Expéditeur: ${from}`);
+            console.log(`   - Sujet: "${subject}"`);
+            console.log(`   - Raison: Receiptor est un agrégateur, pas un émetteur de factures`);
+            console.log(`   - Exception: Uniquement si sujet contient "invoice", "subscription", "billing"`);
+            console.log(`   - Action: Rejet systématique (notification/rapport)`);
+            emailsRejected++;
+            continue;
+          }
+          
+          // Si le sujet contient "invoice", "subscription", etc. → c'est peut-être leur facture
+          // On laisse passer pour analyse GPT (rare cas de la facture Receiptor elle-même)
+          console.log(`✅ [EXCEPTION] Email Receiptor autorisé pour analyse`);
           console.log(`   - Sujet: "${subject}"`);
-          console.log(`   - Pattern détecté: "${matchedPattern}"`);
-          console.log(`   - Action: Notification/rapport système → rejet`);
-          emailsRejected++;
-          continue;
+          console.log(`   - Raison: Sujet contient un mot-clé de facture Receiptor`);
+          console.log(`   - Action: Analyse GPT pour confirmer que c'est bien leur facture`);
         }
         
-        // Si Receiptor/Bilibou SANS pattern notification → analyser le contenu avec GPT ULTRA STRICT
-        // GPT devra déterminer si c'est une vraie facture (montant + numéro + transaction)
-        // ou juste un email avec le mot "receipt" dans le nom de la boîte
-        
         // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
-        // NOTE: Receiptor et Bilibou sont maintenant exclus TOTALEMENT (voir vérification ci-dessus)
+        // NOTE: Receiptor et Bilibou sont exclus par défaut, sauf si le sujet contient "invoice", "subscription", "billing"
         const excludedSenders = [
           'automation', 'noreply@qonto', 'no-reply@qonto',
           'notifications@qonto', 'support@qonto'
