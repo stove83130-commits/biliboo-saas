@@ -372,13 +372,12 @@ export default function ExtractionPage() {
         console.log('🚀 Lancement extraction depuis le client pour job:', result.jobId)
         
         // Appel non bloquant - ne pas attendre la réponse
+        // Pas de timeout car l'extraction peut prendre du temps et l'appel est déjà non bloquant
         fetch(`/api/extraction/process?jobId=${result.jobId}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          // Ne pas attendre la réponse - l'extraction peut prendre plusieurs minutes
-          signal: AbortSignal.timeout(5000), // Timeout de 5 secondes pour l'appel HTTP seulement
         }).then((processResponse) => {
           if (processResponse.ok) {
             console.log('✅ Extraction process démarrée avec succès')
@@ -386,12 +385,9 @@ export default function ExtractionPage() {
             console.warn('⚠️ Réponse extraction process:', processResponse.status, '- Le traitement continue en arrière-plan')
           }
         }).catch((processError) => {
-          // Ignorer les erreurs de timeout - l'extraction continue en arrière-plan
-          if (processError.name === 'TimeoutError' || processError.name === 'AbortError') {
-            console.log('⏰ Appel extraction process timeout (normal) - Le traitement continue en arrière-plan')
-          } else {
-            console.error('❌ Erreur appel extraction process:', processError)
-          }
+          // Ignorer silencieusement les erreurs - l'extraction continue en arrière-plan de toute façon
+          // Le polling vérifiera le statut du job
+          console.log('ℹ️ Appel extraction process terminé (normal) - Le traitement continue en arrière-plan')
         })
       } else {
         setError(result.error || 'Erreur lors de l\'extraction')
