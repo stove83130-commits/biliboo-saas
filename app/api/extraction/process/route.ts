@@ -625,7 +625,6 @@ async function processExtractionInBackground(
                                     (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Receiptor/Bilibou: analyser même sans mot-clé facture
         
         // Log critique si un email exclu passe quand même (sauf Receiptor/Bilibou qui sont analysés)
-        const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
         if ((isExcludedSender || hasExcludedSubjectPattern) && isInvoiceCandidate && !isReceiptorOrBilibou) {
           console.error(`❌ [ERREUR CRITIQUE] Email exclu est passé comme candidat !`);
           console.error(`   - Expéditeur: ${from}`);
