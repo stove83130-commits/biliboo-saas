@@ -550,6 +550,15 @@ Retourne un JSON avec :
               const cleanedVendor = sanitizeForPostgres(extractedData.vendor || from);
               const cleanedSubject = sanitizeForPostgres(subject);
 
+              // Construire extracted_data avec TOUTES les données (y compris celles qui n'ont pas de colonnes dédiées)
+              const fullExtractedData = {
+                ...cleanedData,
+                // Ajouter les métadonnées supplémentaires
+                workspace_id: workspaceIdToUse,
+                account_email: emailAccount.email,
+                // Les données du logo sont déjà dans cleanedData
+              };
+
               // Sauvegarder dans la base de données avec les données extraites
               const { error: insertError } = await supabaseService
                 .from('invoices')
@@ -557,48 +566,33 @@ Retourne un JSON avec :
                   user_id: user.id,
                   connection_id: emailConfigId,
                   email_id: message.id,
-                  workspace_id: workspaceIdToUse, // 🏢 Utiliser le workspace_id validé
-                  account_email: emailAccount.email, // Email du compte utilisé pour l'extraction
+                  // NOTE: workspace_id, subtotal, tax_amount, tax_rate, customer_*, account_email, vendor_logo_*
+                  // n'existent pas dans la table invoices - toutes ces données sont dans extracted_data (JSONB)
                   vendor: cleanedVendor,
                   amount: cleanedData.amount || null,
                   currency: cleanedData.currency || 'EUR',
                   date: cleanedData.date ? new Date(cleanedData.date).toISOString() : new Date(date).toISOString(),
                   invoice_number: cleanedData.invoice_number || cleanedSubject,
                   description: cleanedData.description || null,
-                  category: cleanedData.category || 'Charges exceptionnelles', // Catégorie GPT-4o ou défaut
-                  subtotal: cleanedData.subtotal || null,
-                  tax_amount: cleanedData.tax_amount || null,
-                  tax_rate: cleanedData.tax_rate || null,
-                  // Coordonnées fournisseur (TOUTES)
+                  category: cleanedData.category || 'Charges exceptionnelles',
+                  // Les colonnes suivantes n'existent pas dans le schéma, stockées dans extracted_data :
+                  // subtotal, tax_amount, tax_rate, customer_*, workspace_id, account_email, vendor_logo_*
                   vendor_address: cleanedData.vendor_address || null,
                   vendor_city: cleanedData.vendor_city || null,
                   vendor_country: cleanedData.vendor_country || null,
                   vendor_phone: cleanedData.vendor_phone || null,
                   vendor_email: cleanedData.vendor_email || null,
                   vendor_website: cleanedData.vendor_website || null,
-                  // Coordonnées client (NOUVEAU !)
-                  customer_name: cleanedData.customer_name || null,
-                  customer_address: cleanedData.customer_address || null,
-                  customer_city: cleanedData.customer_city || null,
-                  customer_country: cleanedData.customer_country || null,
-                  customer_phone: cleanedData.customer_phone || null,
-                  customer_email: cleanedData.customer_email || null,
-                  customer_vat_number: cleanedData.customer_vat_number || null,
-                  // 🎨 Logo fournisseur (NOUVEAU !)
-                  vendor_logo_description: cleanedData.vendor_logo_description || null,
-                  vendor_logo_colors: cleanedData.vendor_logo_colors || null,
-                  vendor_logo_text: cleanedData.vendor_logo_text || null,
-                  // Informations de paiement (TOUTES)
                   payment_status: cleanedData.payment_status || 'unpaid',
                   payment_method: cleanedData.payment_method || null,
                   payment_date: cleanedData.payment_date ? new Date(cleanedData.payment_date).toISOString() : null,
                   due_date: cleanedData.due_date ? new Date(cleanedData.due_date).toISOString() : null,
-                  // Fichier original (PDF ou image HTML)
                   original_file_name: cleanedData.original_file_name || pdfAttachment?.filename || null,
                   original_mime_type: cleanedData.original_mime_type || (pdfAttachment ? 'application/pdf' : null),
                   original_file_url: cleanedData.original_file_url || fileUrl,
                   source: 'gmail',
-                  extracted_data: cleanedData,
+                  items: cleanedData.items || null, // Stocker les items dans la colonne items (JSONB)
+                  extracted_data: fullExtractedData, // Toutes les données supplémentaires dans extracted_data (JSONB)
                 });
 
               if (!insertError) {
