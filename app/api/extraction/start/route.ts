@@ -156,11 +156,10 @@ export async function POST(req: NextRequest) {
     console.log(`   - Période: ${searchSince || '90 jours'} → ${searchUntil}`);
     console.log(`   - Workspace ID: ${workspaceIdToUse || 'null (personnel)'}`);
 
-    // 5. Lancer l'extraction en arrière-plan (extraction DIRECTE avec Gmail API)
-    // IMPORTANT: Utiliser une promesse pour garantir l'exécution sur Vercel
-    // Au lieu de setImmediate() qui ne fonctionne pas en serverless, on utilise une approche synchrone
-    // avec waitUntil pour garantir l'exécution même après la réponse HTTP
-    const extractionPromise = (async () => {
+    // 5. NE PLUS UTILISER LA PROMESSE DIRECTE - DÉLÉGUER À /api/extraction/process
+    // L'extraction sera gérée par /api/extraction/process (nouveau code optimisé)
+    // Cette section est conservée pour référence mais ne sera JAMAIS exécutée
+    const UNUSED_extractionPromise = (async () => {
       try {
         console.log(`🚀 Démarrage extraction job ${job.id}`);
 
@@ -684,17 +683,12 @@ Retourne un JSON avec :
       }
     }).catch((error) => {
       console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
-      // En cas d'erreur, essayer de lancer l'extraction directement comme fallback
-      console.log('⚠️ Fallback: lancement extraction directe');
-      extractionPromise.catch((extractionError) => {
-        console.error('❌ Erreur extraction directe:', extractionError);
-      });
+      // NE PLUS utiliser le fallback - /api/extraction/process gère tout maintenant
+      // Si l'appel échoue, le job restera en "processing" et l'utilisateur pourra réessayer
     });
     
-    // Aussi lancer la promesse directement en parallèle (double sécurité)
-    extractionPromise.catch((error) => {
-      console.error('❌ Erreur extraction promise directe:', error);
-    });
+    // NE PLUS lancer la promesse directe - /api/extraction/process gère tout maintenant
+    // extractionPromise a été désactivé et renommé en UNUSED_extractionPromise
 
     return NextResponse.json({
       success: true,
