@@ -158,8 +158,13 @@ export async function POST(req: NextRequest) {
 
     // 5. NE PLUS UTILISER LA PROMESSE DIRECTE - DÉLÉGUER À /api/extraction/process
     // L'extraction sera gérée par /api/extraction/process (nouveau code optimisé)
-    // Cette section est conservée pour référence mais ne sera JAMAIS exécutée
-    const UNUSED_extractionPromise = (async () => {
+    // ANCIEN CODE DÉSACTIVÉ - Ne sera JAMAIS exécuté
+    const DISABLED_oldExtractionCode = async () => {
+      // CODE DÉSACTIVÉ - Ne jamais exécuter cette fonction
+      console.log('⚠️ ANCIEN CODE DÉSACTIVÉ - Cette fonction ne devrait jamais être appelée');
+      return;
+      
+      // Le code ci-dessous n'est JAMAIS exécuté grâce au return ci-dessus
       try {
         console.log(`🚀 Démarrage extraction job ${job.id}`);
 
@@ -687,8 +692,9 @@ Retourne un JSON avec :
       // Si l'appel échoue, le job restera en "processing" et l'utilisateur pourra réessayer
     });
     
-    // NE PLUS lancer la promesse directe - /api/extraction/process gère tout maintenant
-    // extractionPromise a été désactivé et renommé en UNUSED_extractionPromise
+    // ANCIEN CODE COMPLÈTEMENT DÉSACTIVÉ
+    // La fonction DISABLED_oldExtractionCode existe mais n'est JAMAIS appelée
+    // Seul /api/extraction/process gère maintenant l'extraction (nouveau code optimisé)
 
     return NextResponse.json({
       success: true,
