@@ -54,22 +54,55 @@ export async function GET(req: NextRequest) {
     }
 
     // Logs pour déboguer
+    const progress = job.progress || {};
+    const invoicesFound = typeof progress === 'object' && progress !== null 
+      ? (progress as any).invoicesFound 
+      : null;
+    const emailsAnalyzed = typeof progress === 'object' && progress !== null 
+      ? (progress as any).emailsAnalyzed 
+      : null;
+    
     console.log('📊 [STATUS API] Job progress:', {
       jobId: job.id,
       status: job.status,
-      progress: job.progress,
-      invoicesFound: job.progress?.invoicesFound,
-      emailsAnalyzed: job.progress?.emailsAnalyzed,
+      progressType: typeof job.progress,
+      progressRaw: job.progress,
+      progressParsed: progress,
+      invoicesFound: invoicesFound,
+      emailsAnalyzed: emailsAnalyzed,
     });
+
+    // Si le progress est null ou undefined, essayer de le récupérer directement depuis la DB
+    let finalInvoicesFound = invoicesFound ?? 0;
+    let finalEmailsAnalyzed = emailsAnalyzed ?? 0;
+    
+    if (!invoicesFound && job.status === 'completed') {
+      // Si le job est terminé mais invoicesFound est null, vérifier directement dans la DB
+      const { data: freshJob } = await supabaseService
+        .from('extraction_jobs')
+        .select('progress')
+        .eq('id', jobId)
+        .single();
+      
+      if (freshJob?.progress) {
+        const freshProgress = freshJob.progress as any;
+        finalInvoicesFound = freshProgress.invoicesFound ?? 0;
+        finalEmailsAnalyzed = freshProgress.emailsAnalyzed ?? 0;
+        console.log('📊 [STATUS API] Progress récupéré depuis DB:', {
+          invoicesFound: finalInvoicesFound,
+          emailsAnalyzed: finalEmailsAnalyzed,
+        });
+      }
+    }
 
     return NextResponse.json({
       success: true,
       job: {
         id: job.id,
         status: job.status,
-        emailsFound: job.progress?.emailsAnalyzed || 0,
-        invoicesExtracted: job.progress?.invoicesFound || 0,
-        errorsCount: job.progress?.errors || 0,
+        emailsFound: finalEmailsAnalyzed,
+        invoicesExtracted: finalInvoicesFound,
+        errorsCount: (progress as any)?.errors || 0,
         errorMessage: job.error_message,
         startedAt: job.created_at, // Utiliser created_at comme started_at
         completedAt: job.completed_at,
