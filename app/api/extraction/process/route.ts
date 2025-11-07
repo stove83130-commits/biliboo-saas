@@ -718,7 +718,7 @@ async function processExtractionInBackground(
                 confidence_score: 0,
               };
             }
-          } else if (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail && emailHtml) {
+          } else if (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) {
             try {
               const openai = new OpenAI({
                 apiKey: process.env.OPENAI_API_KEY,
