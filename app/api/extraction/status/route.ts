@@ -76,22 +76,37 @@ export async function GET(req: NextRequest) {
     let finalInvoicesFound = invoicesFound ?? 0;
     let finalEmailsAnalyzed = emailsAnalyzed ?? 0;
     
-    if (!invoicesFound && job.status === 'completed') {
-      // Si le job est terminé mais invoicesFound est null, vérifier directement dans la DB
-      const { data: freshJob } = await supabaseService
-        .from('extraction_jobs')
-        .select('progress')
-        .eq('id', jobId)
-        .single();
+    // Si invoicesFound est 0 ou null, compter directement les factures dans la table invoices
+    // C'est un fallback pour s'assurer qu'on affiche toujours le bon nombre
+    if ((!invoicesFound || invoicesFound === 0) && job.status === 'completed') {
+      // Compter les factures créées pour ce job (via connection_id)
+      const { count: invoicesCount, error: countError } = await supabaseService
+        .from('invoices')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('connection_id', job.connection_id)
+        .gte('created_at', job.created_at); // Factures créées après le début du job
       
-      if (freshJob?.progress) {
-        const freshProgress = freshJob.progress as any;
-        finalInvoicesFound = freshProgress.invoicesFound ?? 0;
-        finalEmailsAnalyzed = freshProgress.emailsAnalyzed ?? 0;
-        console.log('📊 [STATUS API] Progress récupéré depuis DB:', {
-          invoicesFound: finalInvoicesFound,
-          emailsAnalyzed: finalEmailsAnalyzed,
-        });
+      if (!countError && invoicesCount !== null && invoicesCount > 0) {
+        finalInvoicesFound = invoicesCount;
+        console.log(`📊 [STATUS API] Fallback: ${invoicesCount} factures comptées directement dans la table invoices`);
+      } else {
+        // Si le comptage direct ne fonctionne pas, essayer de récupérer le progress depuis la DB
+        const { data: freshJob } = await supabaseService
+          .from('extraction_jobs')
+          .select('progress')
+          .eq('id', jobId)
+          .single();
+        
+        if (freshJob?.progress) {
+          const freshProgress = freshJob.progress as any;
+          finalInvoicesFound = freshProgress.invoicesFound ?? 0;
+          finalEmailsAnalyzed = freshProgress.emailsAnalyzed ?? 0;
+          console.log('📊 [STATUS API] Progress récupéré depuis DB:', {
+            invoicesFound: finalInvoicesFound,
+            emailsAnalyzed: finalEmailsAnalyzed,
+          });
+        }
       }
     }
 
