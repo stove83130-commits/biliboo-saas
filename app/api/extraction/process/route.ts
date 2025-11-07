@@ -277,10 +277,6 @@ async function processExtractionInBackground(
         pageToken,
       });
 
-      const messages = response.data.messages || [];
-      allMessages = allMessages.concat(messages);
-      pageToken = response.data.nextPageToken || undefined;
-
       const batchMessages = response.data.messages || [];
       allMessages = allMessages.concat(batchMessages);
       pageToken = response.data.nextPageToken || undefined;
