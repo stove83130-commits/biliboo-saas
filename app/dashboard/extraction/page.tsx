@@ -630,6 +630,11 @@ export default function ExtractionPage() {
                       {/* Debug: Afficher le statut du job (uniquement en dev) - Retiré pour production */}
                     </div>
                   )}
+                  {isProcessing && (
+                    <div className="text-xs text-blue-600 mt-2 italic">
+                      ⏱️ L'extraction peut prendre plusieurs minutes selon le nombre d'emails. Vous pouvez fermer cette page, l'extraction continuera en arrière-plan.
+                    </div>
+                  )}
                 </Card>
               </div>
             )}
