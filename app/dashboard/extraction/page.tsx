@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Mail, RefreshCw, CheckCircle, XCircle, FileText, Calendar, Database, Check } from 'lucide-react'
 import { GoogleLogo, MicrosoftLogo } from '@/components/ui/brand-logos'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface EmailConfig {
   id: string
@@ -422,45 +423,60 @@ export default function ExtractionPage() {
 
           <Card className="p-6">
             <div className="space-y-6">
-              {/* Sélection de la configuration email */}
+              {/* Sélection du compte de messagerie */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Configuration email
+                  Compte de messagerie
                 </label>
                 {emailConfigs.length === 0 ? (
                   <div className="text-sm text-gray-500">
-                    Aucune configuration. Veuillez d'abord configurer un compte email.
+                    Aucun compte configuré. Veuillez d'abord configurer un compte email.
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {emailConfigs.map((config) => (
-                      <div
-                        key={config.id}
-                        onClick={() => setSelectedConfig(config.id)}
-                        className={`flex items-center justify-between px-3 py-2 border rounded-md cursor-pointer transition-all ${
-                          selectedConfig === config.id
-                            ? 'border-green-500 bg-green-50'
-                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-7 w-7 items-center justify-center rounded border border-border bg-white">
-                            {config.email_provider === 'gmail' ? (
-                              <GoogleLogo className="h-4 w-4" />
-                            ) : (
-                              <MicrosoftLogo className="h-4 w-4" />
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-700">{config.imap_email}</p>
-                        </div>
-                        {selectedConfig === config.id && (
-                          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
-                            <Check className="h-3 w-3 text-white" />
-                          </div>
+                  <Select
+                    value={selectedConfig}
+                    onValueChange={setSelectedConfig}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Sélectionner un compte de messagerie">
+                        {selectedConfig ? (
+                          (() => {
+                            const selected = emailConfigs.find(c => c.id === selectedConfig);
+                            return selected ? (
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-5 w-5 items-center justify-center">
+                                  {selected.email_provider === 'gmail' ? (
+                                    <GoogleLogo className="h-4 w-4" />
+                                  ) : (
+                                    <MicrosoftLogo className="h-4 w-4" />
+                                  )}
+                                </div>
+                                <span>{selected.imap_email}</span>
+                              </div>
+                            ) : null;
+                          })()
+                        ) : (
+                          'Sélectionner un compte de messagerie'
                         )}
-                      </div>
-                    ))}
-                  </div>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {emailConfigs.map((config) => (
+                        <SelectItem key={config.id} value={config.id}>
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-5 w-5 items-center justify-center">
+                              {config.email_provider === 'gmail' ? (
+                                <GoogleLogo className="h-4 w-4" />
+                              ) : (
+                                <MicrosoftLogo className="h-4 w-4" />
+                              )}
+                            </div>
+                            <span>{config.imap_email}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
 
