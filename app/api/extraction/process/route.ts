@@ -979,10 +979,26 @@ Retourne un JSON avec :
             // Mettre à jour le progress immédiatement après chaque facture sauvegardée (force = true)
             await updateProgress(true);
           } else {
-            console.error(`❌ Erreur insertion facture #${invoicesDetected}:`, insertError);
-            console.error(`   Vendor: ${cleanedVendor}`);
-            console.error(`   Amount: ${invoiceAmount}`);
-            console.error(`   Workspace: ${workspaceIdToUse || 'null'}`);
+            // Vérifier si l'erreur est due à la contrainte UNIQUE (doublon)
+            const isDuplicateError = insertError.code === '23505' || // PostgreSQL unique violation
+                                   insertError.message?.includes('duplicate') ||
+                                   insertError.message?.includes('unique') ||
+                                   insertError.message?.includes('UNIQUE') ||
+                                   insertError.message?.includes('violates unique constraint');
+            
+            if (isDuplicateError) {
+              // C'est un doublon détecté par la contrainte UNIQUE de la DB
+              // (race condition ou vérification qui a échoué)
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - contrainte UNIQUE DB): ${message.id} - Facture déjà existante, ignorée`);
+              // Ne pas incrémenter invoicesFound car c'est un doublon
+            } else {
+              // Autre erreur d'insertion
+              console.error(`❌ Erreur insertion facture #${invoicesDetected}:`, insertError);
+              console.error(`   Vendor: ${cleanedVendor}`);
+              console.error(`   Amount: ${cleanedData.amount}`);
+              console.error(`   Workspace: ${workspaceIdToUse || 'null'}`);
+              console.error(`   Email ID: ${message.id}`);
+            }
           }
         }
       } catch (error) {
