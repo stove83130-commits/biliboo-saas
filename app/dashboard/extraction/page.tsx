@@ -191,15 +191,15 @@ export default function ExtractionPage() {
       pollCountRef.current = 0
     }
 
-    const maxPolls = 300 // Maximum 10 minutes (300 * 2 secondes)
-    const maxDuration = 10 * 60 * 1000 // 10 minutes maximum
+    const maxPolls = 1800 // Maximum 60 minutes (1800 * 2 secondes = 3600 secondes = 60 minutes)
+    const maxDuration = 60 * 60 * 1000 // 60 minutes maximum (pour permettre l'extraction de grandes quantités d'emails)
 
     const pollJobStatus = async () => {
       try {
         // Vérifier le timeout
         if (startTimeRef.current && Date.now() - startTimeRef.current > maxDuration) {
-          console.warn('⏰ Timeout polling extraction après 10 minutes')
-          setError('Extraction en cours depuis trop longtemps. Veuillez réessayer.')
+          console.warn('⏰ Timeout polling extraction après 60 minutes')
+          setError('Extraction en cours depuis plus d\'une heure. L\'extraction continue en arrière-plan, vous pouvez fermer cette page et revenir plus tard.')
           setIsProcessing(false)
           setCurrentJobId(null)
           pollCountRef.current = 0
@@ -209,8 +209,8 @@ export default function ExtractionPage() {
 
         pollCountRef.current++
         if (pollCountRef.current > maxPolls) {
-          console.warn('⏰ Limite de polling atteinte')
-          setError('Extraction en cours depuis trop longtemps. Veuillez réessayer.')
+          console.warn('⏰ Limite de polling atteinte (60 minutes)')
+          setError('Extraction en cours depuis plus d\'une heure. L\'extraction continue en arrière-plan, vous pouvez fermer cette page et revenir plus tard.')
           setIsProcessing(false)
           setCurrentJobId(null)
           pollCountRef.current = 0

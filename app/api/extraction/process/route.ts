@@ -1046,9 +1046,14 @@ Retourne un JSON avec :
         console.error(`❌ Erreur traitement email:`, error);
       }
       
-      // Mettre à jour le progress périodiquement (tous les 10 emails, mais pas forcé pour éviter trop de requêtes)
-      if (emailsAnalyzed % 10 === 0) {
+      // Mettre à jour le progress périodiquement (tous les 5 emails pour un feedback plus rapide)
+      if (emailsAnalyzed % 5 === 0) {
         await updateProgress(false);
+      }
+      
+      // Log de progression tous les 50 emails pour suivre l'avancement
+      if (emailsAnalyzed % 50 === 0) {
+        console.log(`📊 Progression: ${emailsAnalyzed}/${messages.length} emails analysés (${((emailsAnalyzed / messages.length) * 100).toFixed(1)}%), ${invoicesFound} factures trouvées`);
       }
     }
 
