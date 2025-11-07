@@ -616,11 +616,16 @@ export default function ExtractionPage() {
                     <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
                     <span className="text-blue-700 font-medium">Extraction en cours...</span>
                   </div>
-                  {jobStatus.emailsFound !== undefined && (
+                  {jobStatus && (
                     <div className="text-sm text-blue-600">
-                      <div>📧 Emails trouvés : {jobStatus.emailsFound || 0}</div>
+                      <div>📧 Emails trouvés : {jobStatus.emailsFound ?? 0}</div>
                       <div className="mt-2 font-semibold">
-                        💰 Factures extraites : {jobStatus.invoicesExtracted || 0}
+                        💰 Factures extraites : {jobStatus.invoicesExtracted ?? 0}
+                      </div>
+                      {/* Debug: Afficher le statut du job */}
+                      <div className="mt-2 text-xs text-gray-500">
+                        Statut: {jobStatus.status || 'unknown'} | 
+                        Progress: {JSON.stringify(jobStatus)}
                       </div>
                     </div>
                   )}
