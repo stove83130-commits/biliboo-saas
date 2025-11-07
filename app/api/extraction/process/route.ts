@@ -45,6 +45,30 @@ function sanitizeForPostgres(value: any): any {
   return value;
 }
 
+/**
+ * Normalise une chaîne pour la comparaison (lowercase, trim, suppression accents)
+ */
+function normalizeString(str: string | null | undefined): string {
+  if (!str) return '';
+  return str
+    .toString()
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Supprimer les accents
+    .replace(/\s+/g, ' '); // Normaliser les espaces
+}
+
+/**
+ * Normalise un montant pour la comparaison (arrondi à 2 décimales)
+ */
+function normalizeAmount(amount: any): number | null {
+  if (amount === null || amount === undefined) return null;
+  const num = parseFloat(amount.toString());
+  if (isNaN(num)) return null;
+  return Math.round(num * 100) / 100; // Arrondir à 2 décimales
+}
+
 export async function POST(req: NextRequest) {
   try {
     console.log('\n🔵 ========== API: Extraction Process ==========');
@@ -802,101 +826,108 @@ Retourne un JSON avec :
 
           // ========== VÉRIFICATION DE DOUBLONS AVANT INSERTION ==========
           // Vérifier si cette facture existe déjà dans la base de données
-          // Critères de détection de doublon :
-          // 1. Même email_id (même email traité plusieurs fois)
-          // 2. Même vendor + invoice_number + amount + date (même facture)
-          // 3. Même vendor + amount + date (si pas de numéro de facture)
+          // Critères de détection de doublon (NORMALISÉS pour éviter les variations) :
+          // 1. Même email_id (même email traité plusieurs fois) - PRIORITÉ ABSOLUE
+          // 2. Même vendor (normalisé) + invoice_number (normalisé) + amount (normalisé) + date (même facture, même workspace)
+          // 3. Même vendor (normalisé) + amount (normalisé) + date (si pas de numéro de facture fiable)
           
+          // Normaliser les valeurs pour la comparaison
+          const normalizedVendor = normalizeString(cleanedVendor);
+          const normalizedInvoiceNumber = normalizeString(cleanedData.invoice_number);
+          const normalizedAmount = normalizeAmount(cleanedData.amount);
           const invoiceDate = cleanedData.date ? new Date(cleanedData.date).toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
-          const invoiceAmount = cleanedData.amount || null;
-          const invoiceNumber = cleanedData.invoice_number || cleanedSubject;
           
-          // Vérification 1: Même email_id (même email = doublon garanti)
+          // Vérification 1: Même email_id (même email = doublon garanti) - PRIORITÉ ABSOLUE
+          // Cette vérification est la plus fiable car email_id est unique par email
           const { data: existingByEmailId } = await supabaseService
             .from('invoices')
-            .select('id, vendor, invoice_number, amount, date, payment_status')
+            .select('id, vendor, invoice_number, amount, date, payment_status, connection_id')
             .eq('user_id', userId)
             .eq('email_id', message.id)
             .limit(1);
           
-              if (existingByEmailId && existingByEmailId.length > 0) {
-                console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}), ignorée`);
-                continue;
-              }
+          if (existingByEmailId && existingByEmailId.length > 0) {
+            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}), ignorée`);
+            continue;
+          }
           
           // Vérification 2: Même vendor + invoice_number + amount + date (même facture, même workspace)
-          // Note: On ignore le payment_status car c'est la même facture même si le statut change
-          if (cleanedVendor && invoiceNumber && invoiceAmount) {
-            // Charger toutes les factures correspondantes, puis filtrer côté client
-            // NOTE: workspace_id n'existe pas dans la table, il est dans extracted_data (JSONB)
-            const { data: allMatchingInvoices } = await supabaseService
+          // IMPORTANT: Utiliser les valeurs normalisées pour éviter les variations
+          if (normalizedVendor && normalizedInvoiceNumber && normalizedAmount && normalizedInvoiceNumber.length >= 3) {
+            // Charger TOUTES les factures de l'utilisateur avec vendor similaire, puis filtrer côté client
+            // (car la normalisation ne peut pas être faite en SQL)
+            const { data: allInvoices } = await supabaseService
               .from('invoices')
-              .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data')
+              .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
               .eq('user_id', userId)
-              .eq('vendor', cleanedVendor)
-              .eq('invoice_number', invoiceNumber)
-              .eq('amount', invoiceAmount)
-              .eq('date', invoiceDate);
+              .limit(1000); // Limiter pour éviter trop de données
             
-            // Filtrer par workspace côté client (récupérer depuis extracted_data)
-            let existingByDetails = (allMatchingInvoices || []).filter((inv: any) => {
+            // Filtrer côté client avec normalisation
+            let existingByDetails = (allInvoices || []).filter((inv: any) => {
+              // Normaliser les valeurs de la facture existante
+              const invVendor = normalizeString(inv.vendor || inv.extracted_data?.vendor);
+              const invInvoiceNumber = normalizeString(inv.invoice_number || inv.extracted_data?.invoice_number);
+              const invAmount = normalizeAmount(inv.amount || inv.extracted_data?.amount);
+              const invDate = inv.date ? new Date(inv.date).toISOString().split('T')[0] : null;
               const invWorkspaceId = inv.extracted_data?.workspace_id || null;
-              if (workspaceIdToUse) {
-                return invWorkspaceId === workspaceIdToUse;
-              } else {
-                return invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId;
-              }
+              
+              // Vérifier si c'est le même workspace
+              const sameWorkspace = workspaceIdToUse 
+                ? invWorkspaceId === workspaceIdToUse
+                : (invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId);
+              
+              // Vérifier si toutes les valeurs correspondent (normalisées)
+              return sameWorkspace &&
+                     invVendor === normalizedVendor &&
+                     invInvoiceNumber === normalizedInvoiceNumber &&
+                     invAmount === normalizedAmount &&
+                     invDate === invoiceDate;
             });
             
             if (existingByDetails && existingByDetails.length > 0) {
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + numéro + montant + date): ${cleanedVendor} - ${invoiceNumber} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByDetails[0].id}, statut: ${existingByDetails[0].payment_status}), ignorée`);
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + numéro + montant + date normalisés): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByDetails[0].id}, email_id: ${existingByDetails[0].email_id}), ignorée`);
               continue;
             }
           }
           
           // Vérification 3: Même vendor + amount + date (si pas de numéro de facture fiable)
-          // Note: On ignore le payment_status car c'est la même facture même si le statut change
-          if (cleanedVendor && invoiceAmount && (!invoiceNumber || invoiceNumber === cleanedSubject)) {
-            // Tolérance de ±0.01 pour les montants (arrondis)
-            const amountMin = parseFloat(invoiceAmount.toString()) - 0.01;
-            const amountMax = parseFloat(invoiceAmount.toString()) + 0.01;
-            
-            // Charger toutes les factures correspondantes, puis filtrer côté client
-            // NOTE: workspace_id n'existe pas dans la table, il est dans extracted_data (JSONB)
-            const { data: allMatchingInvoices } = await supabaseService
+          // Utilisé uniquement si le numéro de facture n'est pas fiable (vide ou = sujet email)
+          const isInvoiceNumberReliable = normalizedInvoiceNumber && 
+                                        normalizedInvoiceNumber.length >= 3 && 
+                                        normalizedInvoiceNumber !== normalizeString(subject);
+          
+          if (normalizedVendor && normalizedAmount && !isInvoiceNumberReliable) {
+            // Charger TOUTES les factures de l'utilisateur avec vendor similaire, puis filtrer côté client
+            const { data: allInvoices } = await supabaseService
               .from('invoices')
-              .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data')
+              .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
               .eq('user_id', userId)
-              .eq('vendor', cleanedVendor)
-              .gte('amount', amountMin)
-              .lte('amount', amountMax)
-              .eq('date', invoiceDate)
-              .limit(10); // Limiter à 10 pour éviter trop de résultats
+              .limit(1000);
             
-            // Filtrer par workspace côté client (récupérer depuis extracted_data)
-            let existingByVendorAmountDate = (allMatchingInvoices || []).filter((inv: any) => {
+            // Filtrer côté client avec normalisation
+            let existingByVendorAmountDate = (allInvoices || []).filter((inv: any) => {
+              const invVendor = normalizeString(inv.vendor || inv.extracted_data?.vendor);
+              const invAmount = normalizeAmount(inv.amount || inv.extracted_data?.amount);
+              const invDate = inv.date ? new Date(inv.date).toISOString().split('T')[0] : null;
               const invWorkspaceId = inv.extracted_data?.workspace_id || null;
-              if (workspaceIdToUse) {
-                return invWorkspaceId === workspaceIdToUse;
-              } else {
-                return invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId;
-              }
+              
+              const sameWorkspace = workspaceIdToUse 
+                ? invWorkspaceId === workspaceIdToUse
+                : (invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId);
+              
+              return sameWorkspace &&
+                     invVendor === normalizedVendor &&
+                     invAmount === normalizedAmount &&
+                     invDate === invoiceDate;
             });
             
             if (existingByVendorAmountDate && existingByVendorAmountDate.length > 0) {
-              // Vérifier si c'est vraiment un doublon (même montant exact)
-              const exactMatch = existingByVendorAmountDate.find((inv: any) => 
-                Math.abs(parseFloat(inv.amount?.toString() || '0') - parseFloat(invoiceAmount.toString())) < 0.01
-              );
-              
-              if (exactMatch) {
-                console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + montant + date): ${cleanedVendor} - ${invoiceAmount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${exactMatch.id}, statut: ${exactMatch.payment_status}), ignorée`);
-                continue;
-              }
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + montant + date normalisés): ${cleanedVendor} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByVendorAmountDate[0].id}, email_id: ${existingByVendorAmountDate[0].email_id}), ignorée`);
+              continue;
             }
           }
 
-          console.log(`✅ Aucun doublon détecté, insertion de la facture: ${cleanedVendor} - ${invoiceNumber} - ${invoiceAmount} ${cleanedData.currency || 'EUR'}`);
+          console.log(`✅ Aucun doublon détecté, insertion de la facture: ${cleanedVendor} - ${cleanedData.invoice_number || 'N/A'} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'}`);
 
           // Construire extracted_data avec TOUTES les données (y compris celles qui n'ont pas de colonnes dédiées)
           const fullExtractedData = {
