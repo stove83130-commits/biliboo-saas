@@ -686,8 +686,12 @@ async function processExtractionInBackground(
             } else if (!emailHtml) {
               reason = 'Mot-clé facture mais pas de contenu HTML à analyser';
             }
+          } else if (isTrustedSender && !emailHtml) {
+            reason = `Expéditeur de confiance (${from}) mais pas de contenu HTML à analyser`;
+          } else if (isReceiptorOrBilibou && !emailHtml) {
+            reason = `Receiptor/Bilibou mais pas de contenu HTML à analyser`;
           } else {
-            reason = 'Pas de PDF ni mot-clé facture';
+            reason = 'Pas de PDF ni mot-clé facture ni expéditeur de confiance';
           }
           // Logger tous les emails rejetés pour debug (limité aux 20 premiers pour éviter trop de logs)
           if (emailsRejected <= 20) {
