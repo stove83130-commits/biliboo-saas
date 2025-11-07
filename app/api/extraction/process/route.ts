@@ -257,14 +257,22 @@ async function processExtractionInBackground(
 
     console.log(`📧 Récupération emails Gmail du ${startDate} au ${endDate}`);
 
-    // 9. Récupérer TOUS les emails avec pagination
+    // 9. Récupérer les emails avec FILTRAGE PRÉALABLE pour optimiser la vitesse
+    // OPTIMISATION: Filtrer directement dans la requête Gmail pour ne récupérer que les emails pertinents
+    // Cela réduit drastiquement le nombre d'emails à traiter
     let allMessages: any[] = [];
     let pageToken: string | undefined = undefined;
+    
+    // Construire une requête de filtrage intelligente pour Gmail
+    // On cherche les emails avec des mots-clés facture/receipt dans le sujet OU avec des PDF attachés
+    const gmailQuery = `after:${Math.floor(startTimestamp / 1000)} before:${Math.floor(endTimestamp / 1000)} (subject:facture OR subject:invoice OR subject:receipt OR subject:reçu OR subject:bill OR has:attachment filename:pdf)`;
+    
+    console.log(`🔍 Recherche emails avec filtre Gmail: ${gmailQuery}`);
     
     do {
       const response = await gmail.users.messages.list({
         userId: 'me',
-        q: `after:${Math.floor(startTimestamp / 1000)} before:${Math.floor(endTimestamp / 1000)}`,
+        q: gmailQuery,
         maxResults: 500,
         pageToken,
       });
@@ -273,11 +281,37 @@ async function processExtractionInBackground(
       allMessages = allMessages.concat(messages);
       pageToken = response.data.nextPageToken || undefined;
 
-      console.log(`📬 ${messages.length} emails récupérés (total: ${allMessages.length})`);
+      console.log(`📬 ${messages.length} emails récupérés avec filtre (total: ${allMessages.length})`);
     } while (pageToken);
 
     const messages = allMessages;
-    console.log(`✅ TOTAL: ${messages.length} emails trouvés sur la période`);
+    console.log(`✅ TOTAL: ${messages.length} emails trouvés sur la période (après filtrage Gmail)`);
+    
+    // Si aucun email trouvé avec le filtre, essayer sans filtre (fallback)
+    if (messages.length === 0) {
+      console.log(`⚠️ Aucun email trouvé avec filtre, recherche sans filtre (fallback)...`);
+      allMessages = [];
+      pageToken = undefined;
+      
+      do {
+        const response = await gmail.users.messages.list({
+          userId: 'me',
+          q: `after:${Math.floor(startTimestamp / 1000)} before:${Math.floor(endTimestamp / 1000)}`,
+          maxResults: 500,
+          pageToken,
+        });
+
+        const fallbackMessages = response.data.messages || [];
+        allMessages = allMessages.concat(fallbackMessages);
+        pageToken = response.data.nextPageToken || undefined;
+
+        console.log(`📬 ${fallbackMessages.length} emails récupérés sans filtre (total: ${allMessages.length})`);
+      } while (pageToken);
+      
+      console.log(`✅ TOTAL: ${allMessages.length} emails trouvés sans filtre`);
+    }
+    
+    const messages = allMessages;
 
     let invoicesFound = 0;
     let invoicesDetected = 0; // Compteur pour les factures détectées (même si rejetées ensuite)
@@ -938,12 +972,16 @@ Retourne un JSON avec :
                                         normalizedInvoiceNumber !== normalizeString(subject);
           
           if (normalizedVendor && normalizedAmount && !isInvoiceNumberReliable) {
-            // Charger TOUTES les factures de l'utilisateur avec vendor similaire, puis filtrer côté client
+            // OPTIMISATION: Charger seulement les factures récentes (derniers 6 mois) avec le même vendor
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            
             const { data: allInvoices } = await supabaseService
               .from('invoices')
               .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
               .eq('user_id', userId)
-              .limit(1000);
+              .gte('date', sixMonthsAgo.toISOString()) // Seulement les factures des 6 derniers mois
+              .limit(500); // Réduire la limite car on filtre déjà par date
             
             // Filtrer côté client avec normalisation
             let existingByVendorAmountDate = (allInvoices || []).filter((inv: any) => {
