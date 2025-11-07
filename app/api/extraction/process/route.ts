@@ -123,20 +123,50 @@ export async function POST(req: NextRequest) {
     }
     
     // Vérifier si le job est déjà en cours de traitement (pour éviter les appels multiples)
+    // IMPORTANT: Si le job est "processing", refuser TOUS les appels supplémentaires
+    // pour éviter les instances parallèles qui créent des doublons
     if (job.status === 'processing') {
-      // Vérifier si le traitement a commencé récemment (moins de 5 secondes)
-      const jobCreatedAt = new Date(job.created_at).getTime();
-      const now = Date.now();
-      const timeSinceCreation = now - jobCreatedAt;
+      // Vérifier si une instance est déjà en cours en regardant le progress
+      // Si progress.processing_started_at existe et est récent (< 2 minutes), c'est qu'une instance tourne
+      const progress = job.progress || {};
+      const processingStartedAt = (progress as any)?.processing_started_at;
       
-      // Si le job a été créé il y a moins de 5 secondes, c'est probablement un appel en double
-      if (timeSinceCreation < 5000) {
-        console.log(`⚠️ Job ${jobId} déjà en cours de traitement (appel en double détecté), ignoré`);
-        return NextResponse.json({
-          success: true,
-          message: 'Job déjà en cours de traitement',
-          status: 'processing',
-        });
+      if (processingStartedAt) {
+        const startedAt = new Date(processingStartedAt).getTime();
+        const now = Date.now();
+        const timeSinceStart = now - startedAt;
+        
+        // Si une instance a démarré il y a moins de 2 minutes, refuser l'appel
+        // (une extraction normale ne devrait pas prendre plus de 2 minutes pour démarrer)
+        if (timeSinceStart < 120000) { // 2 minutes
+          console.log(`⚠️ Job ${jobId} déjà en cours de traitement (instance active détectée depuis ${Math.round(timeSinceStart / 1000)}s), ignoré`);
+          return NextResponse.json({
+            success: true,
+            message: 'Job déjà en cours de traitement',
+            status: 'processing',
+          });
+        } else {
+          // Si plus de 2 minutes, c'est peut-être une instance bloquée, on peut la relancer
+          console.log(`⚠️ Job ${jobId} en "processing" depuis plus de 2 minutes, possible instance bloquée - Relance autorisée`);
+        }
+      } else {
+        // Pas de timestamp, mais status = processing, vérifier l'âge du job
+        const jobCreatedAt = new Date(job.created_at).getTime();
+        const now = Date.now();
+        const timeSinceCreation = now - jobCreatedAt;
+        
+        // Si le job a été créé il y a moins de 30 secondes, c'est probablement un appel en double
+        if (timeSinceCreation < 30000) { // 30 secondes
+          console.log(`⚠️ Job ${jobId} déjà en cours de traitement (créé il y a ${Math.round(timeSinceCreation / 1000)}s), ignoré`);
+          return NextResponse.json({
+            success: true,
+            message: 'Job déjà en cours de traitement',
+            status: 'processing',
+          });
+        } else {
+          // Job en processing depuis plus de 30 secondes sans timestamp, possible instance bloquée
+          console.log(`⚠️ Job ${jobId} en "processing" depuis plus de 30 secondes sans timestamp, possible instance bloquée - Relance autorisée`);
+        }
       }
     }
 
@@ -214,25 +244,24 @@ async function processExtractionInBackground(
     console.log(`📅 Période: ${job.start_date} → ${job.end_date}`)
     console.log(`📊 Progress initial du job:`, job.progress)
     
-    // IMPORTANT: S'assurer que le progress initial est correctement formaté
-    // Si le progress contient seulement workspaceId, l'initialiser avec les compteurs à 0
-    if (job.progress && typeof job.progress === 'object') {
-      if (!('emailsAnalyzed' in job.progress) || !('invoicesFound' in job.progress)) {
-        console.log('⚠️ Progress initial incomplet, initialisation des compteurs à 0')
-        await supabaseService
-          .from('extraction_jobs')
-          .update({
-            progress: {
-              workspaceId: job.progress?.workspaceId || null,
-              emailsAnalyzed: 0,
-              invoicesFound: 0,
-              invoicesDetected: 0,
-              emailsRejected: 0,
-            },
-          })
-          .eq('id', jobId)
-      }
-    }
+    // IMPORTANT: Marquer que le traitement a démarré (verrou pour éviter les instances parallèles)
+    const processingStartedAt = new Date().toISOString();
+    await supabaseService
+      .from('extraction_jobs')
+      .update({
+        progress: {
+          ...(job.progress || {}),
+          processing_started_at: processingStartedAt, // Verrou pour éviter les instances parallèles
+          workspaceId: (job.progress as any)?.workspaceId || null,
+          emailsAnalyzed: (job.progress as any)?.emailsAnalyzed || 0,
+          invoicesFound: (job.progress as any)?.invoicesFound || 0,
+          invoicesDetected: (job.progress as any)?.invoicesDetected || 0,
+          emailsRejected: (job.progress as any)?.emailsRejected || 0,
+        },
+      })
+      .eq('id', jobId);
+    
+    console.log(`🔒 Verrou de traitement activé (processing_started_at: ${processingStartedAt})`);
     
     // 7. Configurer OAuth2 pour Gmail
     const { google } = await import('googleapis');

@@ -416,29 +416,11 @@ export default function ExtractionPage() {
         setCurrentJobId(result.jobId)
         setJobStatus({ status: 'processing' })
         
-        // IMPORTANT: Appeler directement l'endpoint de traitement depuis le client
-        // Ne PAS attendre la réponse (non bloquant) car l'extraction peut prendre plusieurs minutes
-        // Le polling vérifiera le statut du job
-        console.log('🚀 Lancement extraction depuis le client pour job:', result.jobId)
-        
-        // Appel non bloquant - ne pas attendre la réponse
-        // Pas de timeout car l'extraction peut prendre du temps et l'appel est déjà non bloquant
-        fetch(`/api/extraction/process?jobId=${result.jobId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }).then((processResponse) => {
-          if (processResponse.ok) {
-            console.log('✅ Extraction process démarrée avec succès')
-          } else {
-            console.warn('⚠️ Réponse extraction process:', processResponse.status, '- Le traitement continue en arrière-plan')
-          }
-        }).catch((processError) => {
-          // Ignorer silencieusement les erreurs - l'extraction continue en arrière-plan de toute façon
-          // Le polling vérifiera le statut du job
-          console.log('ℹ️ Appel extraction process terminé (normal) - Le traitement continue en arrière-plan')
-        })
+        // IMPORTANT: Ne PAS appeler /api/extraction/process depuis le frontend
+        // car /api/extraction/start l'appelle déjà automatiquement
+        // Cela évite les appels multiples qui créent des instances parallèles
+        console.log('✅ Job d\'extraction créé:', result.jobId, '- Le traitement démarre automatiquement côté serveur')
+        console.log('📊 Le polling vérifiera le statut du job toutes les 2 secondes')
       } else {
         setError(result.error || 'Erreur lors de l\'extraction')
         setIsProcessing(false)
