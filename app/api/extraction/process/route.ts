@@ -281,14 +281,17 @@ async function processExtractionInBackground(
       allMessages = allMessages.concat(messages);
       pageToken = response.data.nextPageToken || undefined;
 
-      console.log(`📬 ${messages.length} emails récupérés avec filtre (total: ${allMessages.length})`);
+      const batchMessages = response.data.messages || [];
+      allMessages = allMessages.concat(batchMessages);
+      pageToken = response.data.nextPageToken || undefined;
+
+      console.log(`📬 ${batchMessages.length} emails récupérés avec filtre (total: ${allMessages.length})`);
     } while (pageToken);
 
-    const messages = allMessages;
-    console.log(`✅ TOTAL: ${messages.length} emails trouvés sur la période (après filtrage Gmail)`);
+    console.log(`✅ TOTAL: ${allMessages.length} emails trouvés sur la période (après filtrage Gmail)`);
     
     // Si aucun email trouvé avec le filtre, essayer sans filtre (fallback)
-    if (messages.length === 0) {
+    if (allMessages.length === 0) {
       console.log(`⚠️ Aucun email trouvé avec filtre, recherche sans filtre (fallback)...`);
       allMessages = [];
       pageToken = undefined;
