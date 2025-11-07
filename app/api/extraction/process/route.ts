@@ -333,9 +333,12 @@ async function processExtractionInBackground(
     };
 
     // Mise à jour initiale pour que le frontend voie immédiatement que l'extraction a commencé
+    console.log(`📊 Mise à jour initiale du progress (0 factures, 0 emails analysés)`)
     await updateProgress(true);
+    console.log(`✅ Progress initial mis à jour avec succès`)
 
     // 10. Traiter TOUS les emails
+    console.log(`🔄 Début du traitement de ${messages.length} emails...`)
     for (const message of messages) {
       emailsAnalyzed++;
       try {
