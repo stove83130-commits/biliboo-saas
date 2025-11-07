@@ -456,22 +456,21 @@ async function processExtractionInBackground(
         // DÉTECTION Receiptor/Bilibou (pour traitement spécial)
         const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
         
-        // REJET IMMÉDIAT si Receiptor/Bilibou ET pattern de notification dans le sujet
-        // Cette vérification est PRIORITAIRE - on rejette AVANT même d'analyser le contenu
-        if (isReceiptorOrBilibou && hasExcludedSubjectPattern) {
-          const matchedPattern = excludedSubjectPatterns.find(p => subjectLower.includes(p));
-          console.log(`❌ [REJET IMMÉDIAT] Email Receiptor/Bilibou rejeté: pattern de notification détecté`);
+        // REJET ABSOLU ET IMMÉDIAT de TOUS les emails Receiptor/Bilibou
+        // Ces outils envoient des notifications, pas de vraies factures
+        // Même si le contenu ressemble à une facture, ce sont des agrégateurs/notifications
+        if (isReceiptorOrBilibou) {
+          console.log(`❌ [EXCLUSION TOTALE] Email Receiptor/Bilibou rejeté`);
           console.log(`   - Expéditeur: ${from}`);
           console.log(`   - Sujet: "${subject}"`);
-          console.log(`   - Pattern détecté: "${matchedPattern}"`);
-          console.log(`   - Action: Rejeté AVANT analyse du contenu (notification système)`);
+          console.log(`   - Raison: Receiptor/Bilibou sont des agrégateurs, pas des émetteurs de factures`);
+          console.log(`   - Action: Rejeté systématiquement (peu importe le contenu)`);
           emailsRejected++;
-          continue; // Rejeter immédiatement, ne pas analyser le contenu
+          continue; // Rejeter immédiatement, TOUS les emails de ces expéditeurs
         }
         
         // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
-        // NOTE: Receiptor et Bilibou ne sont PLUS exclus complètement car ils peuvent envoyer de vraies factures
-        // On filtre plutôt par le CONTENU (patterns dans le sujet + analyse HTML/PDF)
+        // NOTE: Receiptor et Bilibou sont maintenant exclus TOTALEMENT (voir vérification ci-dessus)
         const excludedSenders = [
           'automation', 'noreply@qonto', 'no-reply@qonto',
           'notifications@qonto', 'support@qonto'
@@ -507,14 +506,7 @@ async function processExtractionInBackground(
         // Exclusion si nom exclu OU domaine exclu
         const isExcludedSender = hasExcludedSenderName || hasExcludedDomain;
         
-        // Log pour déboguer les emails de Receiptor/Bilibou (pour suivre leur traitement)
-        if (isReceiptorOrBilibou) {
-          console.log(`🔍 [DEBUG] Email Receiptor/Bilibou détecté: "${subject.substring(0, 50)}" de ${from}`);
-          console.log(`   - fromLower: "${fromLower}"`);
-          console.log(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
-          console.log(`   - subjectLower: "${subjectLower}"`);
-          console.log(`   - Action: ${hasExcludedSubjectPattern ? 'Rejeté (pattern notification)' : 'Analyse du contenu requise'}`);
-        }
+        // NOTE: Plus besoin de log ici car Receiptor/Bilibou sont déjà rejetés plus haut
         
         // 3. DÉTECTION DES MOTS-CLÉS FACTURE (mots entiers uniquement)
         // Utiliser des regex pour détecter les mots entiers, pas des sous-chaînes
@@ -633,20 +625,18 @@ async function processExtractionInBackground(
         // si c'est une vraie facture (montant + numéro) ou une notification (lien de téléchargement, rapport, etc.)
         
         // Candidat si : PDF attaché OU (mot-clé facture + expéditeur valide + pas email personnel)
-        // OU (Receiptor/Bilibou + pas de pattern notification + contenu HTML disponible)
         // OU (Expéditeur de confiance comme Apple + pas de pattern notification + contenu HTML disponible)
+        // NOTE: Receiptor/Bilibou ne sont PLUS dans cette logique car exclus totalement plus haut
         // Mais on ne marquera comme facture qu'après validation du contenu
         // IMPORTANT: L'exclusion de l'expéditeur et du sujet est PRIORITAIRE - même avec un PDF, on rejette si expéditeur exclu
-        // NOTE: isReceiptorOrBilibou est déjà défini plus haut
         const isInvoiceCandidate = !isExcludedSender && 
                                    !hasExcludedSubjectPattern &&
                                    (hasPdfAttachment || 
                                     (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) ||
-                                    (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail) || // Receiptor/Bilibou: analyser même sans mot-clé facture
                                     (isTrustedSender && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Expéditeurs de confiance (Apple, etc.): analyser même sans mot-clé facture
         
-        // Log critique si un email exclu passe quand même (sauf Receiptor/Bilibou qui sont analysés)
-        if ((isExcludedSender || hasExcludedSubjectPattern) && isInvoiceCandidate && !isReceiptorOrBilibou) {
+        // Log critique si un email exclu passe quand même
+        if ((isExcludedSender || hasExcludedSubjectPattern) && isInvoiceCandidate) {
           console.error(`❌ [ERREUR CRITIQUE] Email exclu est passé comme candidat !`);
           console.error(`   - Expéditeur: ${from}`);
           console.error(`   - Sujet: ${subject}`);
@@ -659,14 +649,12 @@ async function processExtractionInBackground(
         }
         
         // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
-        // IMPORTANT: Pour Receiptor/Bilibou et expéditeurs de confiance (Apple, etc.), analyser le HTML même sans mot-clé facture dans le sujet
+        // IMPORTANT: Pour les expéditeurs de confiance (Apple, etc.), analyser le HTML même sans mot-clé facture dans le sujet
         // (car ils peuvent envoyer des factures avec des sujets différents)
-        // NOTE: isReceiptorOrBilibou est déjà défini plus haut, on le réutilise
         const needsHtmlAnalysis = !hasPdfAttachment && 
                                  emailHtml && 
                                  !isPersonalEmail &&
                                  ((hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail)) || 
-                                  (isReceiptorOrBilibou && !hasExcludedSubjectPattern) || // Receiptor/Bilibou: analyser si pas de pattern notification
                                   (isTrustedSender && !hasExcludedSubjectPattern)); // Expéditeurs de confiance (Apple, etc.): analyser si pas de pattern notification
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
@@ -689,8 +677,6 @@ async function processExtractionInBackground(
             }
           } else if (isTrustedSender && !emailHtml) {
             reason = `Expéditeur de confiance (${from}) mais pas de contenu HTML à analyser`;
-          } else if (isReceiptorOrBilibou && !emailHtml) {
-            reason = `Receiptor/Bilibou mais pas de contenu HTML à analyser`;
           } else {
             reason = 'Pas de PDF ni mot-clé facture ni expéditeur de confiance';
           }
@@ -851,10 +837,9 @@ async function processExtractionInBackground(
               }
               
               // VÉRIFICATION DE SÉCURITÉ FINALE: Même si le PDF est valide,
-              // rejeter si l'expéditeur est dans la liste d'exclusion (sauf Receiptor/Bilibou - on fait confiance à GPT)
-              // Receiptor/Bilibou sont analysés par GPT qui déterminera si c'est vraiment une facture
-              // NOTE: isReceiptorOrBilibou est déjà défini plus haut dans la boucle
-              if ((isExcludedSender || hasExcludedSubjectPattern) && !isReceiptorOrBilibou) {
+              // rejeter si l'expéditeur est dans la liste d'exclusion
+              // NOTE: Receiptor/Bilibou sont déjà exclus totalement au début de la boucle
+              if (isExcludedSender || hasExcludedSubjectPattern) {
                 console.error(`❌ [SÉCURITÉ] Email rejeté malgré PDF valide: expéditeur ou sujet exclu`);
                 console.error(`   - Expéditeur: ${from}`);
                 console.error(`   - Sujet: ${subject}`);
@@ -983,10 +968,9 @@ Retourne un JSON avec :
                 }
                 
                 // VÉRIFICATION DE SÉCURITÉ FINALE: Même si GPT dit que c'est une facture,
-                // rejeter si l'expéditeur est dans la liste d'exclusion (sauf Receiptor/Bilibou - on fait confiance à GPT)
-                // Receiptor/Bilibou sont analysés par GPT qui déterminera si c'est vraiment une facture ou une notification
-                // NOTE: isReceiptorOrBilibou est déjà défini plus haut dans la boucle
-                if ((isExcludedSender || hasExcludedSubjectPattern) && !isReceiptorOrBilibou) {
+                // rejeter si l'expéditeur est dans la liste d'exclusion
+                // NOTE: Receiptor/Bilibou sont déjà exclus totalement au début de la boucle
+                if (isExcludedSender || hasExcludedSubjectPattern) {
                   console.error(`❌ [SÉCURITÉ] Email rejeté malgré validation GPT: expéditeur ou sujet exclu`);
                   console.error(`   - Expéditeur: ${from}`);
                   console.error(`   - Sujet: ${subject}`);
@@ -994,16 +978,6 @@ Retourne un JSON avec :
                   console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
                   emailsRejected++;
                   continue; // Rejeter même si GPT a dit que c'est une facture
-                }
-                
-                // Pour Receiptor/Bilibou: Si le sujet contient des patterns de notification, rejeter même si GPT dit facture
-                // (double sécurité pour éviter que GPT se trompe sur les notifications)
-                if (isReceiptorOrBilibou && hasExcludedSubjectPattern) {
-                  console.log(`❌ Email Receiptor/Bilibou rejeté: pattern de notification dans le sujet (même si GPT a dit facture)`);
-                  console.log(`   - Sujet: ${subject}`);
-                  console.log(`   - Pattern détecté: ${excludedSubjectPatterns.find(p => subjectLower.includes(p))}`);
-                  emailsRejected++;
-                  continue;
                 }
                 
                 // Si GPT confirme que c'est une facture, extraire les données
