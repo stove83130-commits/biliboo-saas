@@ -102,12 +102,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Créer un job d'extraction (utiliser l'ancienne table extraction_jobs)
+    // 4. Vérifier que le workspace_id existe avant de créer le job
+    let workspaceIdToUse = null;
+    if (workspaceId) {
+      // Vérifier que le workspace existe ET appartient à l'utilisateur
+      const { data: workspaceExists, error: workspaceError } = await supabaseService
+        .from('workspaces')
+        .select('id, owner_id')
+        .eq('id', workspaceId)
+        .eq('owner_id', user.id)
+        .single();
+      
+      if (workspaceError || !workspaceExists) {
+        console.warn(`⚠️ Workspace ${workspaceId} n'existe pas ou n'appartient pas à l'utilisateur, utilisation de null (personnel)`);
+        workspaceIdToUse = null;
+      } else {
+        workspaceIdToUse = workspaceId;
+        console.log(`✅ Workspace ${workspaceId} vérifié et valide pour le job`);
+      }
+    }
+
+    // 5. Créer un job d'extraction (utiliser l'ancienne table extraction_jobs)
     const { data: job, error: jobError } = await supabaseService
       .from('extraction_jobs')
       .insert({
         user_id: user.id,
         connection_id: emailConfigId,
+        workspace_id: workspaceIdToUse, // 🏢 Sauvegarder le workspace_id validé dans le job
         status: 'pending',
         start_date: searchSince || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end_date: searchUntil || new Date().toISOString().split('T')[0],
@@ -131,7 +152,7 @@ export async function POST(req: NextRequest) {
     console.log(`📋 Paramètres extraction:`);
     console.log(`   - Email Config ID: ${emailConfigId}`);
     console.log(`   - Période: ${searchSince || '90 jours'} → ${searchUntil}`);
-    console.log(`   - Workspace ID: ${workspaceId || 'null (personnel)'}`);
+    console.log(`   - Workspace ID: ${workspaceIdToUse || 'null (personnel)'}`);
 
     // 5. Lancer l'extraction en arrière-plan (extraction DIRECTE avec Gmail API)
     // IMPORTANT: Utiliser une promesse pour garantir l'exécution sur Vercel
