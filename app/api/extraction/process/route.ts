@@ -465,14 +465,6 @@ async function processExtractionInBackground(
           invoicesDetected++; // Incrémenter le compteur de factures détectées
           console.log(`✅ Facture détectée (#${invoicesDetected}): "${subject}" de ${from}${hasPdfAttachment ? ' (PDF attaché)' : ' (mot-clé + expéditeur de confiance)'}`);
           
-          // Double vérification : même si l'email passe les règles initiales, 
-          // exclure explicitement receiptor/bilibou avant même d'appeler GPT
-          if (fromLower.includes('receiptor') || fromLower.includes('bilibou')) {
-            console.log(`❌ Facture #${invoicesDetected} rejetée AVANT extraction GPT: expéditeur receiptor/bilibou détecté (${from})`);
-            emailsRejected++;
-            continue; // Rejeter immédiatement sans appeler GPT
-          }
-          
           // Télécharger le PDF si présent
           let fileUrl = null;
           let pdfBuffer: Buffer | null = null;
