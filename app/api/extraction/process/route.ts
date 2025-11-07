@@ -249,6 +249,9 @@ async function processExtractionInBackground(
       }
     };
 
+    // Mise à jour initiale pour que le frontend voie immédiatement que l'extraction a commencé
+    await updateProgress(true);
+
     // 10. Traiter TOUS les emails
     for (const message of messages) {
       emailsAnalyzed++;
