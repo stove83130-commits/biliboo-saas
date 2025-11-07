@@ -631,13 +631,7 @@ export default function ExtractionPage() {
                       <div className="mt-2 font-semibold">
                         💰 Factures extraites : {jobStatus.invoicesExtracted ?? 0}
                       </div>
-                      {/* Debug: Afficher le statut du job (uniquement en dev) */}
-                      {process.env.NODE_ENV === 'development' && (
-                        <div className="mt-2 text-xs text-gray-500">
-                          Statut: {jobStatus.status || 'unknown'} | 
-                          Progress: {JSON.stringify(jobStatus)}
-                        </div>
-                      )}
+                      {/* Debug: Afficher le statut du job (uniquement en dev) - Retiré pour production */}
                     </div>
                   )}
                 </Card>
