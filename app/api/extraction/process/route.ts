@@ -614,12 +614,15 @@ async function processExtractionInBackground(
         // si c'est une vraie facture (montant + numéro) ou une notification (lien de téléchargement, rapport, etc.)
         
         // Candidat si : PDF attaché OU (mot-clé facture + expéditeur valide + pas email personnel)
+        // OU (Receiptor/Bilibou + pas de pattern notification + contenu HTML disponible)
         // Mais on ne marquera comme facture qu'après validation du contenu
         // IMPORTANT: L'exclusion de l'expéditeur et du sujet est PRIORITAIRE - même avec un PDF, on rejette si expéditeur exclu
+        const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
         const isInvoiceCandidate = !isExcludedSender && 
                                    !hasExcludedSubjectPattern &&
                                    (hasPdfAttachment || 
-                                    (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml));
+                                    (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) ||
+                                    (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Receiptor/Bilibou: analyser même sans mot-clé facture
         
         // Log critique si un email exclu passe quand même (sauf Receiptor/Bilibou qui sont analysés)
         const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
