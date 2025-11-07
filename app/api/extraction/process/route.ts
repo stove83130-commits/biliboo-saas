@@ -525,7 +525,8 @@ async function processExtractionInBackground(
           /\breçu\b/i,
           /\bbill\b/i,
           /\bdevis\b/i,
-          /\bquote\b/i
+          /\bquote\b/i,
+          /\bpayment\b/i
         ];
         const hasInvoiceKeywordInSubject = invoiceKeywordPatterns.some(pattern => 
           pattern.test(subject)
