@@ -22,10 +22,6 @@ interface Invoice {
   vendor: string | null
   vendor_email?: string | null
   vendor_website?: string | null
-  vendor_logo_url?: string | null // URL du logo réel extrait depuis le PDF
-  vendor_logo_description?: string | null
-  vendor_logo_colors?: string[] | null
-  vendor_logo_text?: string | null
   date: string | null
   invoice_number: string | null
   category: string | null
