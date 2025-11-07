@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { Checkbox } from "@/components/ui/checkbox"
 import { FilterState } from "./invoice-filters"
-// Pas de génération SVG - on utilise uniquement les vrais logos extraits
+// Pas d'extraction de logo - économie de coûts
 
 interface Invoice {
   id: string
