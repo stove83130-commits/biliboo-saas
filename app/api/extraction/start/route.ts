@@ -651,15 +651,11 @@ Retourne un JSON avec :
     // SOLUTION: Appeler DIRECTEMENT l'endpoint /api/extraction/process qui traite l'extraction
     // Cela garantit que l'extraction s'exécute dans une fonction séparée qui ne sera pas interrompue
     
-    // Mettre à jour le statut à 'processing' immédiatement
-    await supabaseService
-      .from('extraction_jobs')
-      .update({
-        status: 'processing',
-      })
-      .eq('id', job.id);
+    // NE PAS mettre à jour le statut ici - laisser /api/extraction/process le faire
+    // Sinon la logique anti-doublon de /process va rejeter le job
+    // Le job reste en status 'pending' jusqu'à ce que /process le traite
     
-    console.log('✅ Statut mis à jour à "processing"');
+    console.log('✅ Job créé, appel de /api/extraction/process pour traitement');
 
     // Appeler DIRECTEMENT l'endpoint de traitement (non bloquant)
     // Cet endpoint s'exécutera dans une fonction séparée qui ne sera pas interrompue
