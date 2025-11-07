@@ -555,7 +555,7 @@ Retourne un JSON avec :
                   user_id: user.id,
                   connection_id: emailConfigId,
                   email_id: message.id,
-                  workspace_id: workspaceId || null, // 🏢 Associer au workspace actif
+                  workspace_id: workspaceIdToUse, // 🏢 Utiliser le workspace_id validé
                   account_email: emailAccount.email, // Email du compte utilisé pour l'extraction
                   vendor: cleanedVendor,
                   amount: cleanedData.amount || null,
