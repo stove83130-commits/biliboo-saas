@@ -318,6 +318,11 @@ async function processExtractionInBackground(
     let emailsRejected = 0;
     let rejectionReasons: { [key: string]: number } = {};
     let lastProgressUpdate = 0; // Initialiser à 0 pour que la première mise à jour se fasse immédiatement
+    
+    // CACHE EN MÉMOIRE pour éviter les doublons dans la même session d'extraction
+    // Clé: "vendor|invoice_number|amount|date" (normalisé)
+    // Valeur: true si déjà inséré dans cette session
+    const sessionInsertedInvoices = new Map<string, boolean>();
 
     // Fonction pour mettre à jour le progress périodiquement
     const updateProgress = async (force = false) => {
@@ -908,6 +913,14 @@ Retourne un JSON avec :
           const normalizedAmount = normalizeAmount(cleanedData.amount);
           const invoiceDate = cleanedData.date ? new Date(cleanedData.date).toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
           
+          // Vérification 0: CACHE EN MÉMOIRE (vérifier si déjà inséré dans cette session) - PRIORITÉ ABSOLUE
+          // Construire une clé unique pour cette facture (vendor + invoice_number + amount + date)
+          const sessionCacheKey = `${normalizedVendor}|${normalizedInvoiceNumber}|${normalizedAmount}|${invoiceDate}`;
+          if (sessionInsertedInvoices.has(sessionCacheKey)) {
+            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - cache session): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Déjà insérée dans cette session`);
+            continue;
+          }
+          
           // Vérification 1: Même email_id (même email = doublon garanti) - PRIORITÉ ABSOLUE
           // IMPORTANT: Vérifier par user_id + email_id uniquement (sans connection_id)
           // car un même email ne devrait être traité qu'UNE SEULE FOIS par utilisateur,
@@ -1058,6 +1071,8 @@ Retourne un JSON avec :
 
           if (!insertError) {
             invoicesFound++;
+            // Ajouter au cache en mémoire pour éviter les doublons dans la même session
+            sessionInsertedInvoices.set(sessionCacheKey, true);
             console.log(`✅ Facture #${invoicesFound} sauvegardée: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} - Workspace: ${workspaceIdToUse || 'null (personnel)'}`);
             // Mettre à jour le progress immédiatement après chaque facture sauvegardée (force = true)
             await updateProgress(true);
@@ -1072,6 +1087,8 @@ Retourne un JSON avec :
             if (isDuplicateError) {
               // C'est un doublon détecté par la contrainte UNIQUE de la DB
               // (race condition ou vérification qui a échoué)
+              // Ajouter quand même au cache pour éviter de réessayer
+              sessionInsertedInvoices.set(sessionCacheKey, true);
               console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - contrainte UNIQUE DB): ${message.id} - Facture déjà existante, ignorée`);
               // Ne pas incrémenter invoicesFound car c'est un doublon
             } else {
