@@ -32,6 +32,9 @@ export default function ExtractionPage() {
   const [lastResult, setLastResult] = useState<string | null>(null)
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [jobStatus, setJobStatus] = useState<any>(null)
+  const completedAtRef = useRef<number | null>(null) // Timestamp quand le job a été marqué comme "completed"
+  const lastInvoiceCountRef = useRef<number>(0) // Dernier nombre de factures vu
+  const stableCountRef = useRef<number>(0) // Nombre de fois que le count est resté stable
 
   // Définir loadEmailConfigs AVANT le useEffect qui l'utilise
   const loadEmailConfigs = useCallback(async () => {
@@ -182,6 +185,9 @@ export default function ExtractionPage() {
       // Réinitialiser les compteurs quand il n'y a pas de job
       pollCountRef.current = 0
       startTimeRef.current = null
+      completedAtRef.current = null
+      lastInvoiceCountRef.current = 0
+      stableCountRef.current = 0
       return
     }
 
@@ -249,18 +255,62 @@ export default function ExtractionPage() {
 
           if (result.job.status === 'completed') {
             const invoicesCount = result.job.invoicesExtracted || 0;
-            console.log(`✅ [FRONTEND] Job terminé avec ${invoicesCount} factures`);
-            setLastResult(`✅ ${invoicesCount} factures extraites !`)
-            setIsProcessing(false)
-            setCurrentJobId(null)
-            pollCountRef.current = 0
-            startTimeRef.current = null
+            
+            // Si c'est la première fois qu'on voit "completed", enregistrer le timestamp
+            if (completedAtRef.current === null) {
+              completedAtRef.current = Date.now();
+              lastInvoiceCountRef.current = invoicesCount;
+              stableCountRef.current = 0;
+              console.log(`✅ [FRONTEND] Job marqué comme "completed" avec ${invoicesCount} factures - Vérification de stabilité...`);
+            } else {
+              // Vérifier si le nombre de factures a changé depuis la dernière vérification
+              if (invoicesCount !== lastInvoiceCountRef.current) {
+                console.log(`📊 [FRONTEND] Nombre de factures a changé: ${lastInvoiceCountRef.current} → ${invoicesCount} - Attente de stabilité...`);
+                lastInvoiceCountRef.current = invoicesCount;
+                stableCountRef.current = 0; // Réinitialiser le compteur de stabilité
+              } else {
+                stableCountRef.current++;
+                console.log(`📊 [FRONTEND] Nombre de factures stable (${invoicesCount}) - ${stableCountRef.current}/3 vérifications`);
+              }
+              
+              // Attendre au moins 5 secondes après "completed" ET 3 vérifications stables consécutives
+              const timeSinceCompleted = Date.now() - completedAtRef.current;
+              const minWaitTime = 5000; // 5 secondes minimum
+              const requiredStableChecks = 3; // 3 vérifications stables consécutives
+              
+              if (timeSinceCompleted >= minWaitTime && stableCountRef.current >= requiredStableChecks) {
+                console.log(`✅ [FRONTEND] Job terminé et stable avec ${invoicesCount} factures (${timeSinceCompleted}ms après "completed", ${stableCountRef.current} vérifications stables)`);
+                setLastResult(`✅ ${invoicesCount} factures extraites !`)
+                setIsProcessing(false)
+                setCurrentJobId(null)
+                pollCountRef.current = 0
+                startTimeRef.current = null
+                completedAtRef.current = null
+                lastInvoiceCountRef.current = 0
+                stableCountRef.current = 0
+              } else {
+                // Continuer le polling pour vérifier la stabilité
+                console.log(`⏳ [FRONTEND] Attente de stabilité: ${timeSinceCompleted}ms/${minWaitTime}ms, ${stableCountRef.current}/${requiredStableChecks} vérifications stables`);
+              }
+            }
           } else if (result.job.status === 'failed') {
             setError(`Erreur : ${result.job.errorMessage || 'Échec de l\'extraction'}`)
             setIsProcessing(false)
             setCurrentJobId(null)
             pollCountRef.current = 0
             startTimeRef.current = null
+            completedAtRef.current = null
+            lastInvoiceCountRef.current = 0
+            stableCountRef.current = 0
+          } else if (result.job.status === 'processing') {
+            // Si le status est 'processing', réinitialiser les compteurs de stabilité
+            // (au cas où le job repasserait de "completed" à "processing")
+            if (completedAtRef.current !== null) {
+              console.log(`⚠️ [FRONTEND] Job repassé de "completed" à "processing" - Réinitialisation des compteurs`);
+              completedAtRef.current = null;
+              lastInvoiceCountRef.current = 0;
+              stableCountRef.current = 0;
+            }
           }
           // Si le status est 'processing', on continue le polling
         } else if (result.error) {
