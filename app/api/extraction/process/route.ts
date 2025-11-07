@@ -111,8 +111,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Vérifier que le job n'est pas déjà terminé OU en cours de traitement
-    // IMPORTANT: Empêcher les appels multiples pour le même job (race condition)
+    // 4. Vérifier que le job n'est pas déjà terminé
     if (job.status === 'completed' || job.status === 'failed') {
       console.log(`⚠️ Job ${jobId} déjà terminé avec le statut: ${job.status}`);
       return NextResponse.json({
@@ -122,51 +121,34 @@ export async function POST(req: NextRequest) {
       });
     }
     
-    // Vérifier si le job est déjà en cours de traitement (pour éviter les appels multiples)
-    // IMPORTANT: Si le job est "processing", refuser TOUS les appels supplémentaires
-    // pour éviter les instances parallèles qui créent des doublons
+    // Vérifier si le job est VRAIMENT en cours de traitement
+    // LOGIQUE: Un job est "vraiment en cours" seulement si son progress contient processing_started_at
+    // Car c'est /process qui ajoute ce champ au début du traitement
     if (job.status === 'processing') {
-      // Vérifier si une instance est déjà en cours en regardant le progress
-      // Si progress.processing_started_at existe et est récent (< 2 minutes), c'est qu'une instance tourne
       const progress = job.progress || {};
       const processingStartedAt = (progress as any)?.processing_started_at;
       
       if (processingStartedAt) {
+        // Il y a un timestamp = une instance a vraiment démarré
         const startedAt = new Date(processingStartedAt).getTime();
         const now = Date.now();
         const timeSinceStart = now - startedAt;
         
-        // Si une instance a démarré il y a moins de 2 minutes, refuser l'appel
-        // (une extraction normale ne devrait pas prendre plus de 2 minutes pour démarrer)
         if (timeSinceStart < 120000) { // 2 minutes
-          console.log(`⚠️ Job ${jobId} déjà en cours de traitement (instance active détectée depuis ${Math.round(timeSinceStart / 1000)}s), ignoré`);
+          console.log(`⚠️ Job ${jobId} déjà en cours de traitement (instance active depuis ${Math.round(timeSinceStart / 1000)}s), ignoré`);
           return NextResponse.json({
             success: true,
             message: 'Job déjà en cours de traitement',
             status: 'processing',
           });
         } else {
-          // Si plus de 2 minutes, c'est peut-être une instance bloquée, on peut la relancer
-          console.log(`⚠️ Job ${jobId} en "processing" depuis plus de 2 minutes, possible instance bloquée - Relance autorisée`);
+          // Plus de 2 minutes = probablement bloqué, on peut relancer
+          console.log(`⚠️ Job ${jobId} en "processing" depuis plus de 2 minutes, relance autorisée`);
         }
       } else {
-        // Pas de timestamp, mais status = processing, vérifier l'âge du job
-        const jobCreatedAt = new Date(job.created_at).getTime();
-        const now = Date.now();
-        const timeSinceCreation = now - jobCreatedAt;
-        
-        // Si le job a été créé il y a moins de 30 secondes, c'est probablement un appel en double
-        if (timeSinceCreation < 30000) { // 30 secondes
-          console.log(`⚠️ Job ${jobId} déjà en cours de traitement (créé il y a ${Math.round(timeSinceCreation / 1000)}s), ignoré`);
-          return NextResponse.json({
-            success: true,
-            message: 'Job déjà en cours de traitement',
-            status: 'processing',
-          });
-        } else {
-          // Job en processing depuis plus de 30 secondes sans timestamp, possible instance bloquée
-          console.log(`⚠️ Job ${jobId} en "processing" depuis plus de 30 secondes sans timestamp, possible instance bloquée - Relance autorisée`);
-        }
+        // Pas de processing_started_at = le job est en "processing" mais n'a jamais vraiment démarré
+        // C'est OK de le traiter (peut-être que /start a mis le status mais /process n'a pas démarré)
+        console.log(`✅ Job ${jobId} en "processing" sans timestamp, démarrage du traitement`);
       }
     }
 
