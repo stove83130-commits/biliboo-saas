@@ -111,7 +111,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Vérifier que le job n'est pas déjà terminé
+    // 4. Vérifier que le job n'est pas déjà terminé OU en cours de traitement
+    // IMPORTANT: Empêcher les appels multiples pour le même job (race condition)
     if (job.status === 'completed' || job.status === 'failed') {
       console.log(`⚠️ Job ${jobId} déjà terminé avec le statut: ${job.status}`);
       return NextResponse.json({
@@ -119,6 +120,24 @@ export async function POST(req: NextRequest) {
         message: 'Job déjà terminé',
         status: job.status,
       });
+    }
+    
+    // Vérifier si le job est déjà en cours de traitement (pour éviter les appels multiples)
+    if (job.status === 'processing') {
+      // Vérifier si le traitement a commencé récemment (moins de 5 secondes)
+      const jobCreatedAt = new Date(job.created_at).getTime();
+      const now = Date.now();
+      const timeSinceCreation = now - jobCreatedAt;
+      
+      // Si le job a été créé il y a moins de 5 secondes, c'est probablement un appel en double
+      if (timeSinceCreation < 5000) {
+        console.log(`⚠️ Job ${jobId} déjà en cours de traitement (appel en double détecté), ignoré`);
+        return NextResponse.json({
+          success: true,
+          message: 'Job déjà en cours de traitement',
+          status: 'processing',
+        });
+      }
     }
 
     // 5. Récupérer la connexion email
@@ -440,24 +459,32 @@ async function processExtractionInBackground(
         // 5. DÉTECTION DES EXPÉDITEURS DE CONFIANCE
         const trustedDomains = [
           'stripe.com', 'paypal.com', 'square.com', 'invoice', 'billing',
-          'noreply', 'no-reply', 'notifications', 'receipts'
+          'noreply', 'no-reply', 'notifications', 'receipts',
+          'apple.com', 'email.apple.com' // Ajouter Apple pour les reçus
         ];
         const isTrustedSender = trustedDomains.some(domain => fromLower.includes(domain));
         
         // 6. EXCLUSION DES EMAILS PERSONNELS
-        const personalDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com', '@icloud.com'];
-        const isPersonalEmail = personalDomains.some(domain => fromLower.includes(domain));
+        // IMPORTANT: Ne PAS exclure les emails Apple (apple.com, email.apple.com) car ils envoient des reçus
+        const personalDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com'];
+        const isPersonalEmail = personalDomains.some(domain => fromLower.includes(domain)) && 
+                               !fromLower.includes('apple.com'); // Exception pour Apple
+        
+        // 7. DÉTECTION SPÉCIALE POUR APPLE (reçus souvent sans PDF mais avec HTML)
+        const isAppleReceipt = fromLower.includes('apple.com') || fromLower.includes('email.apple.com');
         
         // ========== RÈGLES DE DÉTECTION FINALE ==========
         // RÈGLE 1: PDF attaché avec indicateur de facture = ACCEPTÉ
         // RÈGLE 2: Mot-clé facture + expéditeur de confiance + pas email personnel = ACCEPTÉ
-        // RÈGLE 3: Expéditeur exclu = REJETÉ
-        // RÈGLE 4: Pattern d'exclusion dans sujet = REJETÉ
+        // RÈGLE 3: Apple (reçus) = ACCEPTÉ même sans PDF si mot-clé facture/receipt
+        // RÈGLE 4: Expéditeur exclu = REJETÉ
+        // RÈGLE 5: Pattern d'exclusion dans sujet = REJETÉ
         
         const isInvoice = !isExcludedSender && 
                          !hasExcludedSubjectPattern &&
                          (hasPdfAttachment || 
-                          (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail));
+                          (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail) ||
+                          (isAppleReceipt && hasInvoiceKeywordInSubject)); // Apple avec mot-clé = facture/reçu
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
         if (!isInvoice) {
@@ -990,22 +1017,44 @@ Retourne un JSON avec :
     console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%\n`);
 
     // 11. Vérifier le nombre réel de factures sauvegardées dans la DB
-    // (pour s'assurer que toutes les insertions sont bien terminées)
-    const { count: actualInvoicesCount, error: countError } = await supabaseService
-      .from('invoices')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('connection_id', job.connection_id)
-      .gte('created_at', job.created_at); // Factures créées après le début du job
+    // IMPORTANT: Attendre que toutes les insertions soient terminées avant de marquer comme "completed"
+    // Faire plusieurs vérifications avec délai pour s'assurer que toutes les factures sont bien sauvegardées
+    let actualInvoicesCount = invoicesFound;
+    let verificationAttempts = 0;
+    const maxVerificationAttempts = 5; // Maximum 5 tentatives
     
-    if (!countError && actualInvoicesCount !== null) {
-      console.log(`📊 [VERIFICATION] Nombre réel de factures dans la DB: ${actualInvoicesCount}`);
-      // Utiliser le nombre réel si différent (certaines factures peuvent avoir été sauvegardées après la dernière mise à jour)
-      if (actualInvoicesCount > invoicesFound) {
-        console.log(`⚠️ [CORRECTION] Le nombre réel (${actualInvoicesCount}) est supérieur au compteur (${invoicesFound}), utilisation du nombre réel`);
-        invoicesFound = actualInvoicesCount;
+    while (verificationAttempts < maxVerificationAttempts) {
+      // Attendre un délai avant de vérifier (pour laisser le temps aux insertions de se terminer)
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 1 seconde entre chaque vérification
+      
+      const { count: countResult, error: countError } = await supabaseService
+        .from('invoices')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('connection_id', job.connection_id)
+        .gte('created_at', job.created_at); // Factures créées après le début du job
+      
+      if (!countError && countResult !== null) {
+        console.log(`📊 [VERIFICATION ${verificationAttempts + 1}] Nombre réel de factures dans la DB: ${countResult} (compteur: ${invoicesFound})`);
+        
+        if (countResult > actualInvoicesCount) {
+          actualInvoicesCount = countResult;
+          console.log(`⚠️ [CORRECTION] Le nombre réel (${countResult}) est supérieur, utilisation du nombre réel`);
+        }
+        
+        // Si le nombre est stable (identique à la vérification précédente), on peut arrêter
+        if (verificationAttempts > 0 && countResult === actualInvoicesCount) {
+          console.log(`✅ [VERIFICATION] Nombre stable après ${verificationAttempts + 1} vérifications: ${actualInvoicesCount}`);
+          break;
+        }
       }
+      
+      verificationAttempts++;
     }
+    
+    // Utiliser le nombre réel final
+    invoicesFound = actualInvoicesCount;
+    console.log(`📊 [FINAL] Nombre final de factures après vérifications: ${invoicesFound}`);
 
     // 12. Mettre à jour le progress une dernière fois AVANT de marquer le job comme terminé
     // IMPORTANT: Cette mise à jour doit se faire avec le nombre réel de factures
@@ -1021,8 +1070,20 @@ Retourne un JSON avec :
     // Mettre à jour le progress d'abord (sans changer le status)
     await updateProgress(true);
     
-    // Attendre un court délai pour s'assurer que toutes les opérations DB sont terminées
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Attendre un délai supplémentaire pour s'assurer que toutes les opérations DB sont terminées
+    await new Promise(resolve => setTimeout(resolve, 2000)); // 2 secondes au lieu de 500ms
+    
+    // Vérifier une dernière fois le statut du job (pour éviter de marquer comme "completed" si un autre processus l'a déjà fait)
+    const { data: jobCheck } = await supabaseService
+      .from('extraction_jobs')
+      .select('status')
+      .eq('id', jobId)
+      .single();
+    
+    if (jobCheck?.status === 'completed' || jobCheck?.status === 'failed') {
+      console.log(`⚠️ Job ${jobId} déjà marqué comme ${jobCheck.status} par un autre processus, arrêt`);
+      return;
+    }
     
     // Maintenant marquer le job comme terminé avec le progress final
     await supabaseService
