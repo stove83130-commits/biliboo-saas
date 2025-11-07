@@ -820,6 +820,19 @@ async function processExtractionInBackground(
                 continue;
               }
               
+              // VÉRIFICATION DE SÉCURITÉ FINALE: Même si le PDF est valide,
+              // rejeter si l'expéditeur est dans la liste d'exclusion (double vérification)
+              // Cela évite que des PDFs de Receiptor, Bilibou, etc. soient acceptés
+              if (isExcludedSender || hasExcludedSubjectPattern) {
+                console.error(`❌ [SÉCURITÉ] Email rejeté malgré PDF valide: expéditeur ou sujet exclu`);
+                console.error(`   - Expéditeur: ${from}`);
+                console.error(`   - Sujet: ${subject}`);
+                console.error(`   - isExcludedSender: ${isExcludedSender}`);
+                console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
+                emailsRejected++;
+                continue; // Rejeter même si le PDF est valide
+              }
+              
               // Si on arrive ici, c'est une vraie facture validée (PDF)
               invoicesDetected++;
               console.log(`✅ Facture validée après extraction PDF (#${invoicesDetected}): numéro="${invoiceNumber}", montant=${totalAmount} ${fullExtraction.currency || 'EUR'}`);
