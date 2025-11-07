@@ -348,6 +348,54 @@ async function processExtractionInBackground(
     let rejectionReasons: { [key: string]: number } = {};
     let lastProgressUpdate = 0; // Initialiser à 0 pour que la première mise à jour se fasse immédiatement
     
+    // ========== OPTIMISATION 1: CACHE EN MÉMOIRE DES FACTURES EXISTANTES ==========
+    // Charger TOUTES les factures de l'utilisateur UNE SEULE FOIS au début
+    // au lieu de les recharger à chaque vérification (économise des requêtes DB)
+    console.log('📦 Chargement du cache des factures existantes...');
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    
+    const { data: existingInvoices } = await supabaseService
+      .from('invoices')
+      .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
+      .eq('user_id', userId)
+      .gte('date', sixMonthsAgo.toISOString())
+      .limit(1000); // Charger jusqu'à 1000 factures (6 derniers mois)
+    
+    // Créer des Maps pour recherche rapide O(1) au lieu de O(n)
+    const invoicesByEmailId = new Map<string, any>();
+    const invoicesByDetails = new Map<string, any>();
+    const invoicesByVendorAmountDate = new Map<string, any>();
+    
+    (existingInvoices || []).forEach((inv: any) => {
+      // Index par email_id (pour vérification doublon rapide)
+      if (inv.email_id) {
+        invoicesByEmailId.set(inv.email_id, inv);
+      }
+      
+      // Index par vendor+invoice_number+amount+date (normalisé)
+      const invVendor = normalizeString(inv.vendor || inv.extracted_data?.vendor);
+      const invInvoiceNumber = normalizeString(inv.invoice_number || inv.extracted_data?.invoice_number);
+      const invAmount = normalizeAmount(inv.amount || inv.extracted_data?.amount);
+      const invDate = inv.date ? new Date(inv.date).toISOString().split('T')[0] : null;
+      
+      if (invVendor && invInvoiceNumber && invAmount && invDate) {
+        const detailsKey = `${invVendor}|${invInvoiceNumber}|${invAmount}|${invDate}`;
+        invoicesByDetails.set(detailsKey, inv);
+      }
+      
+      // Index par vendor+amount+date (pour factures sans numéro fiable)
+      if (invVendor && invAmount && invDate) {
+        const vendorAmountDateKey = `${invVendor}|${invAmount}|${invDate}`;
+        invoicesByVendorAmountDate.set(vendorAmountDateKey, inv);
+      }
+    });
+    
+    console.log(`✅ Cache chargé: ${existingInvoices?.length || 0} factures en mémoire`);
+    console.log(`   - ${invoicesByEmailId.size} indexées par email_id`);
+    console.log(`   - ${invoicesByDetails.size} indexées par détails complets`);
+    console.log(`   - ${invoicesByVendorAmountDate.size} indexées par vendor+montant+date`);
+    
     // CACHE EN MÉMOIRE pour éviter les doublons dans la même session d'extraction
     // Clé: "vendor|invoice_number|amount|date" (normalisé)
     // Valeur: true si déjà inséré dans cette session
@@ -404,11 +452,27 @@ async function processExtractionInBackground(
     await updateProgress(true);
     console.log(`✅ Progress initial mis à jour avec succès`)
 
-    // 10. Traiter TOUS les emails
-    console.log(`🔄 Début du traitement de ${messages.length} emails...`)
-    for (const message of messages) {
+    // ========== OPTIMISATION 2: FONCTION DE TRAITEMENT D'UN EMAIL ==========
+    // Extraire la logique de traitement dans une fonction pour permettre le traitement parallèle
+    const processEmail = async (message: any) => {
       emailsAnalyzed++;
       try {
+        // ========== OPTIMISATION 3: VÉRIFICATION DOUBLON AVANT RÉCUPÉRATION EMAIL ==========
+        // Vérifier d'abord si cet email_id existe déjà dans le cache (économise l'appel Gmail API)
+        if (invoicesByEmailId.has(message.id)) {
+          const existing = invoicesByEmailId.get(message.id);
+          console.log(`⚠️ Email #${emailsAnalyzed} ignoré (doublon email_id - cache): ${message.id} - Facture déjà existante (ID: ${existing.id})`);
+          emailsRejected++;
+          return;
+        }
+        
+        // Si pas dans le cache, vérifier aussi dans la session
+        if (sessionInsertedInvoices.has(`email_id:${message.id}`)) {
+          console.log(`⚠️ Email #${emailsAnalyzed} ignoré (doublon email_id - session): ${message.id}`);
+          emailsRejected++;
+          return;
+        }
+        
         const fullMessage = await gmail.users.messages.get({
           userId: 'me',
           id: message.id!,
@@ -474,7 +538,7 @@ async function processExtractionInBackground(
             console.log(`   - Exception: Uniquement si sujet contient "invoice", "subscription", "billing"`);
             console.log(`   - Action: Rejet systématique (notification/rapport)`);
             emailsRejected++;
-            continue;
+            return;
           }
           
           // Si le sujet contient "invoice", "subscription", etc. → c'est peut-être leur facture
@@ -662,7 +726,7 @@ async function processExtractionInBackground(
           console.error(`   - isInvoiceCandidate: ${isInvoiceCandidate}`);
           // Forcer le rejet
           emailsRejected++;
-          continue;
+          return;
         }
         
         // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
@@ -814,7 +878,7 @@ async function processExtractionInBackground(
                   fullExtraction.document_type !== 'receipt') {
                 console.log(`❌ Candidat facture rejeté après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
                 emailsRejected++;
-                continue;
+                return;
               }
               
               // ========== VALIDATION STRICTE POST-EXTRACTION GPT ==========
@@ -843,7 +907,7 @@ async function processExtractionInBackground(
                 console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
                 console.log(`   - Raison: ${!isValidInvoiceNumber ? 'Numéro de facture manquant ou invalide' : 'Montant manquant ou invalide'}`);
                 emailsRejected++;
-                continue;
+                return;
               }
               
               // Validation supplémentaire: score de confiance minimum
@@ -851,7 +915,7 @@ async function processExtractionInBackground(
               if (fullExtraction.confidence_score !== undefined && fullExtraction.confidence_score < minConfidenceScore) {
                 console.log(`❌ Candidat facture rejeté après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
                 emailsRejected++;
-                continue;
+                return;
               }
               
               // VÉRIFICATION DE SÉCURITÉ FINALE: Même si le PDF est valide,
@@ -864,7 +928,7 @@ async function processExtractionInBackground(
                 console.error(`   - isExcludedSender: ${isExcludedSender}`);
                 console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
                 emailsRejected++;
-                continue; // Rejeter même si le PDF est valide
+                return; // Rejeter même si le PDF est valide
               }
               
               // Si on arrive ici, c'est une vraie facture validée (PDF)
@@ -992,7 +1056,7 @@ Retourne un JSON avec :
                 if (!analysisResult.is_invoice) {
                   console.log(`❌ Email rejeté après analyse HTML: "${subject}" - ${analysisResult.rejection_reason || 'Pas une facture/reçu valide'}`);
                   emailsRejected++;
-                  continue; // Rejeter l'email
+                  return; // Rejeter l'email
                 }
                 
                 // VÉRIFICATION DE SÉCURITÉ FINALE: Même si GPT dit que c'est une facture,
@@ -1005,7 +1069,7 @@ Retourne un JSON avec :
                   console.error(`   - isExcludedSender: ${isExcludedSender}`);
                   console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
                   emailsRejected++;
-                  continue; // Rejeter même si GPT a dit que c'est une facture
+                  return; // Rejeter même si GPT a dit que c'est une facture
                 }
                 
                 // Si GPT confirme que c'est une facture, extraire les données
@@ -1041,7 +1105,7 @@ Retourne un JSON avec :
                   console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
                   console.log(`   - Raison: ${!isValidInvoiceNumber ? 'Numéro de facture manquant ou invalide' : 'Montant manquant ou invalide'}`);
                   emailsRejected++;
-                  continue; // Sortir de la boucle pour cet email
+                  return; // Sortir de la boucle pour cet email
                 }
                 
                 // Si on arrive ici, c'est une vraie facture validée
@@ -1051,20 +1115,20 @@ Retourne un JSON avec :
                 // Impossible de parser la réponse GPT, rejeter par sécurité
                 console.log(`❌ Email rejeté: impossible d'analyser le contenu HTML`);
                 emailsRejected++;
-                continue;
+                return;
               }
             } catch (error) {
               console.error(`❌ Erreur analyse HTML:`, error);
               // En cas d'erreur, rejeter par sécurité
               console.log(`❌ Email rejeté: erreur lors de l'analyse HTML`);
               emailsRejected++;
-              continue;
+              return;
             }
           } else {
             // Pas de PDF et pas d'analyse HTML requise = pas une facture
             console.log(`❌ Email rejeté: pas de PDF et pas de contenu HTML à analyser`);
             emailsRejected++;
-            continue;
+            return;
           }
           
           // Si on arrive ici, c'est une facture validée (PDF ou HTML)
@@ -1121,109 +1185,41 @@ Retourne un JSON avec :
           const sessionCacheKey = `${normalizedVendor}|${normalizedInvoiceNumber}|${normalizedAmount}|${invoiceDate}`;
           if (sessionInsertedInvoices.has(sessionCacheKey)) {
             console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - cache session): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Déjà insérée dans cette session`);
-            continue;
+            return;
           }
           
-          // Vérification 1: Même email_id (même email = doublon garanti) - PRIORITÉ ABSOLUE
-          // IMPORTANT: Vérifier par user_id + email_id uniquement (sans connection_id)
-          // car un même email ne devrait être traité qu'UNE SEULE FOIS par utilisateur,
-          // même s'il est traité depuis plusieurs comptes email différents
-          const { data: existingByEmailId } = await supabaseService
-            .from('invoices')
-            .select('id, vendor, invoice_number, amount, date, payment_status, connection_id, email_id')
-            .eq('user_id', userId)
-            .eq('email_id', message.id)
-            .limit(1);
-          
-          if (existingByEmailId && existingByEmailId.length > 0) {
-            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}, connection_id: ${existingByEmailId[0].connection_id}), ignorée`);
-            continue;
+          // Vérification 1: Même email_id (CACHE - instantané, pas de requête DB)
+          // NOTE: Cette vérification a déjà été faite au début de processEmail(), mais on la refait ici
+          // au cas où plusieurs emails auraient le même contenu facture (sécurité supplémentaire)
+          const existingByEmailId = invoicesByEmailId.get(message.id);
+          if (existingByEmailId) {
+            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon email_id - cache): ${message.id} - Facture déjà existante (ID: ${existingByEmailId.id})`);
+            return; // return au lieu de continue car on est dans une fonction
           }
           
-          // Vérification 2: Même vendor + invoice_number + amount + date (même facture, même workspace)
-          // OPTIMISATION: Utiliser une requête plus ciblée au lieu de charger toutes les factures
-          // Filtrer par date récente pour réduire le nombre de factures à charger
+          // Vérification 2: Même vendor + invoice_number + amount + date (CACHE - instantané)
           if (normalizedVendor && normalizedInvoiceNumber && normalizedAmount && normalizedInvoiceNumber.length >= 3) {
-            // OPTIMISATION: Charger seulement les factures récentes (derniers 6 mois)
-            // Cela réduit drastiquement le nombre de factures à charger et comparer
-            const sixMonthsAgo = new Date();
-            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            const detailsKey = `${normalizedVendor}|${normalizedInvoiceNumber}|${normalizedAmount}|${invoiceDate}`;
+            const existingByDetails = invoicesByDetails.get(detailsKey);
             
-            const { data: allInvoices } = await supabaseService
-              .from('invoices')
-              .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
-              .eq('user_id', userId)
-              .gte('date', sixMonthsAgo.toISOString()) // Seulement les factures des 6 derniers mois
-              .limit(500); // Réduire la limite car on filtre déjà par date
-            
-            // Filtrer côté client avec normalisation
-            let existingByDetails = (allInvoices || []).filter((inv: any) => {
-              // Normaliser les valeurs de la facture existante
-              const invVendor = normalizeString(inv.vendor || inv.extracted_data?.vendor);
-              const invInvoiceNumber = normalizeString(inv.invoice_number || inv.extracted_data?.invoice_number);
-              const invAmount = normalizeAmount(inv.amount || inv.extracted_data?.amount);
-              const invDate = inv.date ? new Date(inv.date).toISOString().split('T')[0] : null;
-              const invWorkspaceId = inv.extracted_data?.workspace_id || null;
-              
-              // Vérifier si c'est le même workspace
-              const sameWorkspace = workspaceIdToUse 
-                ? invWorkspaceId === workspaceIdToUse
-                : (invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId);
-              
-              // Vérifier si toutes les valeurs correspondent (normalisées)
-              return sameWorkspace &&
-                     invVendor === normalizedVendor &&
-                     invInvoiceNumber === normalizedInvoiceNumber &&
-                     invAmount === normalizedAmount &&
-                     invDate === invoiceDate;
-            });
-            
-            if (existingByDetails && existingByDetails.length > 0) {
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + numéro + montant + date normalisés): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByDetails[0].id}, email_id: ${existingByDetails[0].email_id}), ignorée`);
-              continue;
+            if (existingByDetails) {
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon détails - cache): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture existante (ID: ${existingByDetails.id})`);
+              return; // return au lieu de continue
             }
           }
           
-          // Vérification 3: Même vendor + amount + date (si pas de numéro de facture fiable)
-          // Utilisé uniquement si le numéro de facture n'est pas fiable (vide ou = sujet email)
-          // IMPORTANT: Ne PAS filtrer par connection_id - un même email peut être traité depuis plusieurs comptes
+          // Vérification 3: Même vendor + amount + date (CACHE - si pas de numéro fiable)
           const isInvoiceNumberReliable = normalizedInvoiceNumber && 
                                         normalizedInvoiceNumber.length >= 3 && 
                                         normalizedInvoiceNumber !== normalizeString(subject);
           
           if (normalizedVendor && normalizedAmount && !isInvoiceNumberReliable) {
-            // OPTIMISATION: Charger seulement les factures récentes (derniers 6 mois) avec le même vendor
-            const sixMonthsAgo = new Date();
-            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            const vendorAmountDateKey = `${normalizedVendor}|${normalizedAmount}|${invoiceDate}`;
+            const existingByVendorAmountDate = invoicesByVendorAmountDate.get(vendorAmountDateKey);
             
-            const { data: allInvoices } = await supabaseService
-              .from('invoices')
-              .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
-              .eq('user_id', userId)
-              .gte('date', sixMonthsAgo.toISOString()) // Seulement les factures des 6 derniers mois
-              .limit(500); // Réduire la limite car on filtre déjà par date
-            
-            // Filtrer côté client avec normalisation
-            let existingByVendorAmountDate = (allInvoices || []).filter((inv: any) => {
-              const invVendor = normalizeString(inv.vendor || inv.extracted_data?.vendor);
-              const invAmount = normalizeAmount(inv.amount || inv.extracted_data?.amount);
-              const invDate = inv.date ? new Date(inv.date).toISOString().split('T')[0] : null;
-              const invWorkspaceId = inv.extracted_data?.workspace_id || null;
-              
-              const sameWorkspace = workspaceIdToUse 
-                ? invWorkspaceId === workspaceIdToUse
-                : (invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId);
-              
-              // IMPORTANT: Ne PAS vérifier le connection_id - un même email peut être traité depuis plusieurs comptes
-              return sameWorkspace &&
-                     invVendor === normalizedVendor &&
-                     invAmount === normalizedAmount &&
-                     invDate === invoiceDate;
-            });
-            
-            if (existingByVendorAmountDate && existingByVendorAmountDate.length > 0) {
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + montant + date normalisés): ${cleanedVendor} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByVendorAmountDate[0].id}, email_id: ${existingByVendorAmountDate[0].email_id}, connection_id: ${existingByVendorAmountDate[0].connection_id}), ignorée`);
-              continue;
+            if (existingByVendorAmountDate) {
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon vendor+montant+date - cache): ${cleanedVendor} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture existante (ID: ${existingByVendorAmountDate.id})`);
+              return; // return au lieu de continue
             }
           }
 
@@ -1308,15 +1304,34 @@ Retourne un JSON avec :
         console.error(`❌ Erreur traitement email:`, error);
       }
       
-      // Mettre à jour le progress périodiquement (tous les 5 emails pour un feedback plus rapide)
-      if (emailsAnalyzed % 5 === 0) {
-        await updateProgress(false);
-      }
+      // Ajouter l'email_id au cache de session pour éviter de le retraiter
+      sessionInsertedInvoices.set(`email_id:${message.id}`, true);
+    }; // Fin de la fonction processEmail
+
+    // ========== OPTIMISATION 4: TRAITEMENT PAR BATCHES PARALLÈLES ==========
+    // Traiter les emails par batches de 5 en parallèle au lieu d'un par un
+    const BATCH_SIZE = 5;
+    const batches: any[][] = [];
+    
+    // Découper les messages en batches
+    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
+      batches.push(messages.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`🚀 Traitement de ${messages.length} emails en ${batches.length} batches de ${BATCH_SIZE} (parallèle)`);
+    
+    // Traiter chaque batch en parallèle
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`\n📦 Batch ${batchIndex + 1}/${batches.length}: traitement de ${batch.length} emails...`);
       
-      // Log de progression tous les 50 emails pour suivre l'avancement
-      if (emailsAnalyzed % 50 === 0) {
-        console.log(`📊 Progression: ${emailsAnalyzed}/${messages.length} emails analysés (${((emailsAnalyzed / messages.length) * 100).toFixed(1)}%), ${invoicesFound} factures trouvées`);
-      }
+      // Traiter tous les emails du batch en parallèle
+      await Promise.all(batch.map(message => processEmail(message)));
+      
+      // Mettre à jour le progress après chaque batch
+      await updateProgress(false);
+      
+      console.log(`✅ Batch ${batchIndex + 1}/${batches.length} terminé (${emailsAnalyzed}/${messages.length} emails analysés, ${invoicesFound} factures trouvées)`);
     }
 
     console.log(`\n📊 RÉSUMÉ EXTRACTION:`);
