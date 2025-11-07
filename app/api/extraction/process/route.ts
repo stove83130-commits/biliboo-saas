@@ -805,16 +805,18 @@ Retourne un JSON avec :
           const invoiceDate = cleanedData.date ? new Date(cleanedData.date).toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
           
           // Vérification 1: Même email_id (même email = doublon garanti) - PRIORITÉ ABSOLUE
-          // Cette vérification est la plus fiable car email_id est unique par email
+          // IMPORTANT: Vérifier par user_id + email_id uniquement (sans connection_id)
+          // car un même email ne devrait être traité qu'UNE SEULE FOIS par utilisateur,
+          // même s'il est traité depuis plusieurs comptes email différents
           const { data: existingByEmailId } = await supabaseService
             .from('invoices')
-            .select('id, vendor, invoice_number, amount, date, payment_status, connection_id')
+            .select('id, vendor, invoice_number, amount, date, payment_status, connection_id, email_id')
             .eq('user_id', userId)
             .eq('email_id', message.id)
             .limit(1);
           
           if (existingByEmailId && existingByEmailId.length > 0) {
-            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}), ignorée`);
+            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - même email_id): ${message.id} - Facture déjà existante (ID: ${existingByEmailId[0].id}, connection_id: ${existingByEmailId[0].connection_id}), ignorée`);
             continue;
           }
           
@@ -859,6 +861,7 @@ Retourne un JSON avec :
           
           // Vérification 3: Même vendor + amount + date (si pas de numéro de facture fiable)
           // Utilisé uniquement si le numéro de facture n'est pas fiable (vide ou = sujet email)
+          // IMPORTANT: Ne PAS filtrer par connection_id - un même email peut être traité depuis plusieurs comptes
           const isInvoiceNumberReliable = normalizedInvoiceNumber && 
                                         normalizedInvoiceNumber.length >= 3 && 
                                         normalizedInvoiceNumber !== normalizeString(subject);
@@ -882,6 +885,7 @@ Retourne un JSON avec :
                 ? invWorkspaceId === workspaceIdToUse
                 : (invWorkspaceId === null || invWorkspaceId === 'personal' || !invWorkspaceId);
               
+              // IMPORTANT: Ne PAS vérifier le connection_id - un même email peut être traité depuis plusieurs comptes
               return sameWorkspace &&
                      invVendor === normalizedVendor &&
                      invAmount === normalizedAmount &&
@@ -889,7 +893,7 @@ Retourne un JSON avec :
             });
             
             if (existingByVendorAmountDate && existingByVendorAmountDate.length > 0) {
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + montant + date normalisés): ${cleanedVendor} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByVendorAmountDate[0].id}, email_id: ${existingByVendorAmountDate[0].email_id}), ignorée`);
+              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - vendor + montant + date normalisés): ${cleanedVendor} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture déjà existante (ID: ${existingByVendorAmountDate[0].id}, email_id: ${existingByVendorAmountDate[0].email_id}, connection_id: ${existingByVendorAmountDate[0].connection_id}), ignorée`);
               continue;
             }
           }
