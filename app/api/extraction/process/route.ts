@@ -903,9 +903,26 @@ Retourne un JSON avec :
     console.log(`   📈 Taux de détection: ${emailsAnalyzed > 0 ? ((invoicesDetected / emailsAnalyzed) * 100).toFixed(2) : 0}%`);
     console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%\n`);
 
-    // 11. Mettre à jour le job (dernière mise à jour avec tous les compteurs)
-    // IMPORTANT: Mettre à jour le progress AVANT de changer le status à 'completed'
-    // pour que le frontend puisse voir les dernières valeurs
+    // 11. Vérifier le nombre réel de factures sauvegardées dans la DB
+    // (pour s'assurer que toutes les insertions sont bien terminées)
+    const { count: actualInvoicesCount, error: countError } = await supabaseService
+      .from('invoices')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('connection_id', job.connection_id)
+      .gte('created_at', job.created_at); // Factures créées après le début du job
+    
+    if (!countError && actualInvoicesCount !== null) {
+      console.log(`📊 [VERIFICATION] Nombre réel de factures dans la DB: ${actualInvoicesCount}`);
+      // Utiliser le nombre réel si différent (certaines factures peuvent avoir été sauvegardées après la dernière mise à jour)
+      if (actualInvoicesCount > invoicesFound) {
+        console.log(`⚠️ [CORRECTION] Le nombre réel (${actualInvoicesCount}) est supérieur au compteur (${invoicesFound}), utilisation du nombre réel`);
+        invoicesFound = actualInvoicesCount;
+      }
+    }
+
+    // 12. Mettre à jour le progress une dernière fois AVANT de marquer le job comme terminé
+    // IMPORTANT: Cette mise à jour doit se faire avec le nombre réel de factures
     const finalProgress = {
       emailsAnalyzed,
       invoicesFound,
@@ -915,6 +932,13 @@ Retourne un JSON avec :
     
     console.log(`📊 [FINAL] Mise à jour finale du progress:`, finalProgress);
     
+    // Mettre à jour le progress d'abord (sans changer le status)
+    await updateProgress(true);
+    
+    // Attendre un court délai pour s'assurer que toutes les opérations DB sont terminées
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Maintenant marquer le job comme terminé avec le progress final
     await supabaseService
       .from('extraction_jobs')
       .update({
@@ -934,6 +958,7 @@ Retourne un JSON avec :
     console.log(`✅ Job ${jobId} terminé avec succès`);
     console.log(`📊 [VERIFICATION] Progress final sauvegardé:`, updatedJob?.progress);
     console.log(`📊 [VERIFICATION] Status final:`, updatedJob?.status);
+    console.log(`📊 [VERIFICATION] Factures finales: ${updatedJob?.progress?.invoicesFound || 'N/A'}`);
   } catch (error: any) {
     console.error(`❌ Erreur traitement extraction:`, error);
 
