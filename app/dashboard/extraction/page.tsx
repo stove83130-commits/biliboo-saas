@@ -236,10 +236,20 @@ export default function ExtractionPage() {
         const result = await response.json()
 
         if (result.success && result.job) {
+          // Logs pour déboguer
+          console.log('📊 [FRONTEND] Job status reçu:', {
+            status: result.job.status,
+            invoicesExtracted: result.job.invoicesExtracted,
+            emailsFound: result.job.emailsFound,
+            progress: result.job,
+          });
+
           setJobStatus(result.job)
 
           if (result.job.status === 'completed') {
-            setLastResult(`✅ ${result.job.invoicesExtracted || 0} factures extraites !`)
+            const invoicesCount = result.job.invoicesExtracted || 0;
+            console.log(`✅ [FRONTEND] Job terminé avec ${invoicesCount} factures`);
+            setLastResult(`✅ ${invoicesCount} factures extraites !`)
             setIsProcessing(false)
             setCurrentJobId(null)
             pollCountRef.current = 0
