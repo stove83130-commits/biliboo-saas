@@ -230,19 +230,39 @@ async function processExtractionInBackground(
       // La première mise à jour se fera toujours (car lastProgressUpdate = 0)
       if (force || now - lastProgressUpdate > 2000) {
         try {
-          await supabaseService
+          const progressData = {
+            emailsAnalyzed,
+            invoicesFound,
+            invoicesDetected,
+            emailsRejected,
+          };
+          
+          const { error: updateError } = await supabaseService
             .from('extraction_jobs')
             .update({
-              progress: {
-                emailsAnalyzed,
-                invoicesFound,
-                invoicesDetected,
-                emailsRejected,
-              },
+              progress: progressData,
             })
             .eq('id', jobId);
-          lastProgressUpdate = now;
-          console.log(`📊 Progress mis à jour: ${invoicesFound} factures sauvegardées, ${emailsAnalyzed} emails analysés`);
+          
+          if (updateError) {
+            console.error('❌ Erreur mise à jour progress:', updateError);
+          } else {
+            lastProgressUpdate = now;
+            console.log(`📊 Progress mis à jour: ${invoicesFound} factures sauvegardées, ${emailsAnalyzed} emails analysés`);
+            
+            // Vérifier que la mise à jour a bien été effectuée (pour déboguer)
+            const { data: verifyJob } = await supabaseService
+              .from('extraction_jobs')
+              .select('progress')
+              .eq('id', jobId)
+              .single();
+            
+            if (verifyJob?.progress) {
+              console.log(`📊 [VERIF] Progress sauvegardé dans DB:`, verifyJob.progress);
+            } else {
+              console.warn(`⚠️ [VERIF] Progress non trouvé après mise à jour`);
+            }
+          }
         } catch (error) {
           console.error('❌ Erreur mise à jour progress:', error);
         }
