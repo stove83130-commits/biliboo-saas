@@ -574,10 +574,12 @@ export function InvoiceTable({
                       const vendorName = getVendorName(invoice);
                       
                       // Utiliser uniquement le logo réel extrait depuis le PDF
-                      if (invoice.vendor_logo_url) {
+                      // Le logo peut être dans invoice.vendor_logo_url (ancien) ou invoice.extracted_data?.vendor_logo_url (nouveau)
+                      const logoUrl = invoice.vendor_logo_url || invoice.extracted_data?.vendor_logo_url;
+                      if (logoUrl) {
                         return (
                           <img
-                            src={invoice.vendor_logo_url}
+                            src={logoUrl}
                             alt={vendorName}
                             className="h-8 w-8 object-contain rounded border border-border"
                             onError={(e) => {
