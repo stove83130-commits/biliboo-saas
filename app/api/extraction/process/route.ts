@@ -456,7 +456,7 @@ async function processExtractionInBackground(
           }
         }
         
-        // 5. DÉTECTION DES EXPÉDITEURS DE CONFIANCE
+        // 5. DÉTECTION DES EXPÉDITEURS DE CONFIANCE (liste de domaines connus)
         const trustedDomains = [
           'stripe.com', 'paypal.com', 'square.com', 'invoice', 'billing',
           'noreply', 'no-reply', 'notifications', 'receipts',
@@ -464,19 +464,34 @@ async function processExtractionInBackground(
         ];
         const isTrustedSender = trustedDomains.some(domain => fromLower.includes(domain));
         
-        // 6. EXCLUSION DES EMAILS PERSONNELS
-        // IMPORTANT: Ne PAS exclure les emails Apple (apple.com, email.apple.com) car ils envoient des reçus
-        const personalDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com'];
-        const isPersonalEmail = personalDomains.some(domain => fromLower.includes(domain)) && 
-                               !fromLower.includes('apple.com'); // Exception pour Apple
+        // 6. DÉTECTION GÉNÉRIQUE DES EMAILS D'ENTREPRISES (pas personnels)
+        // Un email d'entreprise a généralement :
+        // - Un domaine personnalisé (pas gmail.com, outlook.com, etc.)
+        // - Un format "noreply@", "no-reply@", "receipts@", "billing@", etc.
+        // - Un domaine avec extension .com, .fr, .net, etc. (pas les domaines personnels)
+        const personalDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com', '@icloud.com'];
+        const isPersonalEmail = personalDomains.some(domain => fromLower.includes(domain));
         
-        // 7. DÉTECTION SPÉCIALE POUR APPLE (reçus souvent sans PDF mais avec HTML)
-        const isAppleReceipt = fromLower.includes('apple.com') || fromLower.includes('email.apple.com');
+        // Détecter si c'est un email d'entreprise (générique, pas seulement Apple)
+        // Un email d'entreprise = pas un email personnel ET (domaine personnalisé OU format noreply/no-reply/receipts/billing)
+        const hasBusinessEmailPattern = fromLower.includes('noreply') || 
+                                       fromLower.includes('no-reply') || 
+                                       fromLower.includes('receipts') || 
+                                       fromLower.includes('billing') || 
+                                       fromLower.includes('invoice') ||
+                                       fromLower.includes('order') ||
+                                       fromLower.includes('payment');
+        
+        // Un domaine personnalisé = contient un point ET n'est pas un domaine personnel
+        const hasCustomDomain = fromLower.includes('.') && !isPersonalEmail;
+        
+        // C'est une entreprise si : domaine personnalisé OU pattern email d'entreprise
+        const isBusinessEmail = hasCustomDomain || hasBusinessEmailPattern;
         
         // ========== RÈGLES DE DÉTECTION FINALE ==========
         // RÈGLE 1: PDF attaché avec indicateur de facture = ACCEPTÉ
-        // RÈGLE 2: Mot-clé facture + expéditeur de confiance + pas email personnel = ACCEPTÉ
-        // RÈGLE 3: Apple (reçus) = ACCEPTÉ même sans PDF si mot-clé facture/receipt
+        // RÈGLE 2: Mot-clé facture + expéditeur de confiance (liste) + pas email personnel = ACCEPTÉ
+        // RÈGLE 3: Mot-clé facture + email d'entreprise (générique) + pas email personnel = ACCEPTÉ (NOUVEAU !)
         // RÈGLE 4: Expéditeur exclu = REJETÉ
         // RÈGLE 5: Pattern d'exclusion dans sujet = REJETÉ
         
@@ -484,7 +499,7 @@ async function processExtractionInBackground(
                          !hasExcludedSubjectPattern &&
                          (hasPdfAttachment || 
                           (hasInvoiceKeywordInSubject && isTrustedSender && !isPersonalEmail) ||
-                          (isAppleReceipt && hasInvoiceKeywordInSubject)); // Apple avec mot-clé = facture/reçu
+                          (hasInvoiceKeywordInSubject && isBusinessEmail && !isPersonalEmail)); // Email d'entreprise avec mot-clé = facture/reçu
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
         if (!isInvoice) {
@@ -513,7 +528,12 @@ async function processExtractionInBackground(
 
         if (isInvoice) {
           invoicesDetected++; // Incrémenter le compteur de factures détectées
-          console.log(`✅ Facture détectée (#${invoicesDetected}): "${subject}" de ${from}${hasPdfAttachment ? ' (PDF attaché)' : ' (mot-clé + expéditeur de confiance)'}`);
+          const detectionReason = hasPdfAttachment 
+            ? ' (PDF attaché)' 
+            : (isTrustedSender 
+              ? ' (mot-clé + expéditeur de confiance)' 
+              : ' (mot-clé + email d\'entreprise)');
+          console.log(`✅ Facture détectée (#${invoicesDetected}): "${subject}" de ${from}${detectionReason}`);
           
           // Télécharger le PDF si présent
           let fileUrl = null;
