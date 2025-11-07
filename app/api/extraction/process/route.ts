@@ -221,13 +221,14 @@ async function processExtractionInBackground(
     let emailsAnalyzed = 0;
     let emailsRejected = 0;
     let rejectionReasons: { [key: string]: number } = {};
-    let lastProgressUpdate = Date.now();
+    let lastProgressUpdate = 0; // Initialiser à 0 pour que la première mise à jour se fasse immédiatement
 
     // Fonction pour mettre à jour le progress périodiquement
     const updateProgress = async (force = false) => {
       const now = Date.now();
-      // Mettre à jour toutes les 5 secondes ou si forcé
-      if (force || now - lastProgressUpdate > 5000) {
+      // Mettre à jour toutes les 2 secondes (pour correspondre au polling du frontend) ou si forcé
+      // La première mise à jour se fera toujours (car lastProgressUpdate = 0)
+      if (force || now - lastProgressUpdate > 2000) {
         try {
           await supabaseService
             .from('extraction_jobs')
@@ -848,8 +849,8 @@ Retourne un JSON avec :
           if (!insertError) {
             invoicesFound++;
             console.log(`✅ Facture #${invoicesFound} sauvegardée: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} - Workspace: ${workspaceIdToUse || 'null (personnel)'}`);
-            // Mettre à jour le progress après chaque facture sauvegardée
-            await updateProgress();
+            // Mettre à jour le progress immédiatement après chaque facture sauvegardée (force = true)
+            await updateProgress(true);
           } else {
             console.error(`❌ Erreur insertion facture #${invoicesDetected}:`, insertError);
             console.error(`   Vendor: ${cleanedVendor}`);
@@ -861,9 +862,9 @@ Retourne un JSON avec :
         console.error(`❌ Erreur traitement email:`, error);
       }
       
-      // Mettre à jour le progress périodiquement (tous les 10 emails)
+      // Mettre à jour le progress périodiquement (tous les 10 emails, mais pas forcé pour éviter trop de requêtes)
       if (emailsAnalyzed % 10 === 0) {
-        await updateProgress();
+        await updateProgress(false);
       }
     }
 
