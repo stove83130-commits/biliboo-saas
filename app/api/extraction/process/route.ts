@@ -212,6 +212,27 @@ async function processExtractionInBackground(
     console.log(`👤 User ID: ${userId}`)
     console.log(`📧 Email Account: ${emailAccount.email}`)
     console.log(`📅 Période: ${job.start_date} → ${job.end_date}`)
+    console.log(`📊 Progress initial du job:`, job.progress)
+    
+    // IMPORTANT: S'assurer que le progress initial est correctement formaté
+    // Si le progress contient seulement workspaceId, l'initialiser avec les compteurs à 0
+    if (job.progress && typeof job.progress === 'object') {
+      if (!('emailsAnalyzed' in job.progress) || !('invoicesFound' in job.progress)) {
+        console.log('⚠️ Progress initial incomplet, initialisation des compteurs à 0')
+        await supabaseService
+          .from('extraction_jobs')
+          .update({
+            progress: {
+              workspaceId: job.progress?.workspaceId || null,
+              emailsAnalyzed: 0,
+              invoicesFound: 0,
+              invoicesDetected: 0,
+              emailsRejected: 0,
+            },
+          })
+          .eq('id', jobId)
+      }
+    }
     
     // 7. Configurer OAuth2 pour Gmail
     const { google } = await import('googleapis');
