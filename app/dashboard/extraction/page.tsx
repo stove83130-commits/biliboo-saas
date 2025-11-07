@@ -609,24 +609,35 @@ export default function ExtractionPage() {
             </div>
 
             {/* Statut de l'extraction */}
-            {jobStatus && isProcessing && (
+            {jobStatus && (isProcessing || jobStatus.status === 'completed') && (
               <div className="mt-6">
-                <Card className="p-4 bg-blue-50 border-blue-200">
+                <Card className={`p-4 ${jobStatus.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                    <span className="text-blue-700 font-medium">Extraction en cours...</span>
+                    {isProcessing ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                        <span className="text-blue-700 font-medium">Extraction en cours...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-green-700 font-medium">Extraction terminée</span>
+                      </>
+                    )}
                   </div>
                   {jobStatus && (
-                    <div className="text-sm text-blue-600">
+                    <div className={`text-sm ${jobStatus.status === 'completed' ? 'text-green-600' : 'text-blue-600'}`}>
                       <div>📧 Emails trouvés : {jobStatus.emailsFound ?? 0}</div>
                       <div className="mt-2 font-semibold">
                         💰 Factures extraites : {jobStatus.invoicesExtracted ?? 0}
                       </div>
-                      {/* Debug: Afficher le statut du job */}
-                      <div className="mt-2 text-xs text-gray-500">
-                        Statut: {jobStatus.status || 'unknown'} | 
-                        Progress: {JSON.stringify(jobStatus)}
-                      </div>
+                      {/* Debug: Afficher le statut du job (uniquement en dev) */}
+                      {process.env.NODE_ENV === 'development' && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          Statut: {jobStatus.status || 'unknown'} | 
+                          Progress: {JSON.stringify(jobStatus)}
+                        </div>
+                      )}
                     </div>
                   )}
                 </Card>
