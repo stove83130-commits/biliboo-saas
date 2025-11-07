@@ -59,14 +59,6 @@ export interface ExtractedInvoiceData {
     total: number;
   }> | null;
   
-  // 🎨 LOGO (NOUVEAU !)
-  vendor_logo_url: string | null; // URL du logo extrait depuis le PDF (image réelle)
-  vendor_logo_description: string | null; // Description du logo pour identification
-  vendor_logo_colors: string[] | null; // Couleurs principales du logo
-  vendor_logo_text: string | null; // Texte visible dans le logo
-  vendor_logo_is_embedded_image: boolean | null; // Le logo est-il une image embarquée ?
-  vendor_logo_image_position: string | null; // Position du logo (top-left/top-center/top-right)
-  
   // 🔍 CLASSIFICATION DU DOCUMENT (NOUVEAU !)
   document_type: 'invoice' | 'receipt' | 'terms_and_conditions' | 'pricing_sheet' | 'notification' | 'contract' | 'other' | null;
   
@@ -129,13 +121,7 @@ ${emailContext ? `CONTEXTE EMAIL:
 
 IMPORTANT : 
 1. **IDENTIFIE D'ABORD LE TYPE DE DOCUMENT** (voir ci-dessous)
-2. **ANALYSE LE LOGO EN DÉTAIL** : Le logo est généralement en haut à gauche ou au centre de la première page. Décris-le PRÉCISÉMENT :
-   - Les couleurs principales (codes hex si possible, ex: #FF5733, #0066CC)
-   - La forme/design (circulaire, carré, rectangulaire, icône stylisée, etc.)
-   - Le texte visible dans le logo (initiales, nom complet, etc.)
-   - Le style (moderne, classique, minimaliste, etc.)
-   - La position (haut gauche, haut centre, etc.)
-3. Si c'est une facture/reçu, catégorise selon le type de dépense.
+2. Si c'est une facture/reçu, catégorise selon le type de dépense.
 
 🔍 TYPE DE DOCUMENT (OBLIGATOIRE - choisis le plus approprié) :
 - "invoice" : Facture commerciale avec montant à payer et numéro de facture

@@ -15,7 +15,6 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
-import { extractLogoFromPDFImages } from '@/lib/services/logo-pdf-extractor';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -658,42 +657,10 @@ async function processExtractionInBackground(
                 payment_date: fullExtraction.payment_date,
                 due_date: fullExtraction.due_date,
                 items: fullExtraction.line_items,
-                vendor_logo_description: fullExtraction.vendor_logo_description,
-                vendor_logo_colors: fullExtraction.vendor_logo_colors,
-                vendor_logo_text: fullExtraction.vendor_logo_text,
-                vendor_logo_is_embedded_image: fullExtraction.vendor_logo_is_embedded_image,
-                vendor_logo_image_position: fullExtraction.vendor_logo_image_position,
                 extraction_status: fullExtraction.extraction_status,
                 confidence_score: fullExtraction.confidence_score,
                 ocr_text: fullExtraction.ocr_text,
               };
-              
-              // 🎨 Extraire le logo depuis les images embarquées du PDF (rapide avec pdf-lib)
-              if (pdfBuffer && extractedData.vendor && extractedData.vendor_logo_is_embedded_image) {
-                try {
-                  console.log(`🎨 Extraction du logo pour ${extractedData.vendor}...`);
-                  const logoUrl = await extractLogoFromPDFImages(
-                    pdfBuffer,
-                    userId,
-                    message.id!,
-                    {
-                      vendor_logo_is_embedded_image: extractedData.vendor_logo_is_embedded_image,
-                      vendor_logo_image_position: extractedData.vendor_logo_image_position,
-                      vendor_logo_description: extractedData.vendor_logo_description,
-                    }
-                  );
-                  
-                  if (logoUrl) {
-                    extractedData.vendor_logo_url = logoUrl;
-                    console.log(`✅ Logo extrait: ${logoUrl}`);
-                  } else {
-                    console.log(`⚠️ Aucun logo extrait pour ${extractedData.vendor}`);
-                  }
-                } catch (logoError) {
-                  console.error(`❌ Erreur extraction logo:`, logoError);
-                  // Ne pas bloquer l'extraction si l'extraction du logo échoue
-                }
-              }
             } catch (error) {
               console.error(`❌ Erreur extraction complète:`, error);
               extractedData = {
@@ -935,7 +902,6 @@ Retourne un JSON avec :
             // Ajouter les métadonnées supplémentaires
             workspace_id: workspaceIdToUse,
             account_email: emailAccount.email,
-            // Les données du logo sont déjà dans cleanedData
           };
 
           const { error: insertError } = await supabaseService
@@ -944,7 +910,7 @@ Retourne un JSON avec :
               user_id: userId,
               connection_id: job.connection_id,
               email_id: message.id,
-              // NOTE: workspace_id, subtotal, tax_amount, tax_rate, customer_*, account_email, vendor_logo_*
+              // NOTE: workspace_id, subtotal, tax_amount, tax_rate, customer_*, account_email
               // n'existent pas dans la table invoices - toutes ces données sont dans extracted_data (JSONB)
               vendor: cleanedVendor,
               amount: cleanedData.amount || null,
@@ -954,7 +920,7 @@ Retourne un JSON avec :
               description: cleanedData.description || null,
               category: cleanedData.category || 'Charges exceptionnelles',
               // Les colonnes suivantes n'existent pas dans le schéma, stockées dans extracted_data :
-              // subtotal, tax_amount, tax_rate, customer_*, workspace_id, account_email, vendor_logo_*
+              // subtotal, tax_amount, tax_rate, customer_*, workspace_id, account_email
               vendor_address: cleanedData.vendor_address || null,
               vendor_city: cleanedData.vendor_city || null,
               vendor_country: cleanedData.vendor_country || null,

@@ -570,30 +570,7 @@ export function InvoiceTable({
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    {(() => {
-                      const vendorName = getVendorName(invoice);
-                      
-                      // Utiliser uniquement le logo réel extrait depuis le PDF
-                      // Le logo peut être dans invoice.vendor_logo_url (ancien) ou invoice.extracted_data?.vendor_logo_url (nouveau)
-                      const logoUrl = invoice.vendor_logo_url || invoice.extracted_data?.vendor_logo_url;
-                      if (logoUrl) {
-                        return (
-                          <img
-                            src={logoUrl}
-                            alt={vendorName}
-                            className="h-8 w-8 object-contain rounded border border-border"
-                            onError={(e) => {
-                              // Si le logo ne charge pas, le masquer
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                            }}
-                          />
-                        );
-                      }
-                      
-                      // Pas de logo disponible - ne rien afficher (pas de SVG généré)
-                      return null;
-                    })()}
+                    {/* Logo retiré - pas d'extraction de logo */}
                     <span className="text-sm font-medium text-foreground">
                       {getVendorName(invoice)}
                     </span>
