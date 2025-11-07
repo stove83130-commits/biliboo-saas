@@ -884,22 +884,36 @@ Retourne un JSON avec :
     console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%\n`);
 
     // 11. Mettre à jour le job (dernière mise à jour avec tous les compteurs)
-    await updateProgress(true); // Forcer la mise à jour finale
+    // IMPORTANT: Mettre à jour le progress AVANT de changer le status à 'completed'
+    // pour que le frontend puisse voir les dernières valeurs
+    const finalProgress = {
+      emailsAnalyzed,
+      invoicesFound,
+      invoicesDetected,
+      emailsRejected,
+    };
+    
+    console.log(`📊 [FINAL] Mise à jour finale du progress:`, finalProgress);
+    
     await supabaseService
       .from('extraction_jobs')
       .update({
+        progress: finalProgress,
         status: 'completed',
-        progress: {
-          emailsAnalyzed,
-          invoicesFound,
-          invoicesDetected,
-          emailsRejected,
-        },
         completed_at: new Date().toISOString(),
       })
       .eq('id', jobId);
 
+    // Vérifier que la mise à jour a bien été effectuée
+    const { data: updatedJob } = await supabaseService
+      .from('extraction_jobs')
+      .select('progress, status')
+      .eq('id', jobId)
+      .single();
+    
     console.log(`✅ Job ${jobId} terminé avec succès`);
+    console.log(`📊 [VERIFICATION] Progress final sauvegardé:`, updatedJob?.progress);
+    console.log(`📊 [VERIFICATION] Status final:`, updatedJob?.status);
   } catch (error: any) {
     console.error(`❌ Erreur traitement extraction:`, error);
 

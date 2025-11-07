@@ -53,6 +53,15 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Logs pour déboguer
+    console.log('📊 [STATUS API] Job progress:', {
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      invoicesFound: job.progress?.invoicesFound,
+      emailsAnalyzed: job.progress?.emailsAnalyzed,
+    });
+
     return NextResponse.json({
       success: true,
       job: {
