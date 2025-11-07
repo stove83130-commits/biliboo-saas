@@ -633,6 +633,7 @@ async function processExtractionInBackground(
         
         // Candidat si : PDF attaché OU (mot-clé facture + expéditeur valide + pas email personnel)
         // OU (Receiptor/Bilibou + pas de pattern notification + contenu HTML disponible)
+        // OU (Expéditeur de confiance comme Apple + pas de pattern notification + contenu HTML disponible)
         // Mais on ne marquera comme facture qu'après validation du contenu
         // IMPORTANT: L'exclusion de l'expéditeur et du sujet est PRIORITAIRE - même avec un PDF, on rejette si expéditeur exclu
         // NOTE: isReceiptorOrBilibou est déjà défini plus haut
@@ -640,7 +641,8 @@ async function processExtractionInBackground(
                                    !hasExcludedSubjectPattern &&
                                    (hasPdfAttachment || 
                                     (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) ||
-                                    (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Receiptor/Bilibou: analyser même sans mot-clé facture
+                                    (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail) || // Receiptor/Bilibou: analyser même sans mot-clé facture
+                                    (isTrustedSender && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Expéditeurs de confiance (Apple, etc.): analyser même sans mot-clé facture
         
         // Log critique si un email exclu passe quand même (sauf Receiptor/Bilibou qui sont analysés)
         if ((isExcludedSender || hasExcludedSubjectPattern) && isInvoiceCandidate && !isReceiptorOrBilibou) {
@@ -656,14 +658,15 @@ async function processExtractionInBackground(
         }
         
         // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
-        // IMPORTANT: Pour Receiptor/Bilibou, analyser le HTML même sans mot-clé facture dans le sujet
+        // IMPORTANT: Pour Receiptor/Bilibou et expéditeurs de confiance (Apple, etc.), analyser le HTML même sans mot-clé facture dans le sujet
         // (car ils peuvent envoyer des factures avec des sujets différents)
         // NOTE: isReceiptorOrBilibou est déjà défini plus haut, on le réutilise
         const needsHtmlAnalysis = !hasPdfAttachment && 
                                  emailHtml && 
                                  !isPersonalEmail &&
                                  ((hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail)) || 
-                                  (isReceiptorOrBilibou && !hasExcludedSubjectPattern)); // Receiptor/Bilibou: analyser si pas de pattern notification
+                                  (isReceiptorOrBilibou && !hasExcludedSubjectPattern) || // Receiptor/Bilibou: analyser si pas de pattern notification
+                                  (isTrustedSender && !hasExcludedSubjectPattern)); // Expéditeurs de confiance (Apple, etc.): analyser si pas de pattern notification
 
         // Logs détaillés pour comprendre pourquoi un email est rejeté
         if (!isInvoiceCandidate) {
