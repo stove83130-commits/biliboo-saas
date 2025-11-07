@@ -306,11 +306,31 @@ async function processExtractionInBackground(
         const fromLower = from.toLowerCase();
         
         // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
+        // Exclusion stricte : vérifier le nom ET le domaine
         const excludedSenders = [
           'receiptor', 'automation', 'noreply@qonto', 'no-reply@qonto',
           'notifications@qonto', 'support@qonto'
         ];
-        const isExcludedSender = excludedSenders.some(excluded => fromLower.includes(excluded));
+        const excludedDomains = [
+          'receiptor.ai', 'receiptor.com', 'bilibou.com', 'bilibou.ai'
+        ];
+        
+        // Vérifier si l'expéditeur contient un nom exclu
+        const hasExcludedSenderName = excludedSenders.some(excluded => fromLower.includes(excluded));
+        
+        // Vérifier si l'expéditeur est d'un domaine exclu
+        const hasExcludedDomain = excludedDomains.some(domain => fromLower.includes(domain));
+        
+        // Exclusion si nom exclu OU domaine exclu
+        const isExcludedSender = hasExcludedSenderName || hasExcludedDomain;
+        
+        // Log pour déboguer si un email suspect passe
+        if (fromLower.includes('receiptor') || fromLower.includes('bilibou')) {
+          console.log(`🔍 [DEBUG] Email suspect détecté: "${subject.substring(0, 50)}" de ${from}`);
+          console.log(`   - hasExcludedSenderName: ${hasExcludedSenderName}`);
+          console.log(`   - hasExcludedDomain: ${hasExcludedDomain}`);
+          console.log(`   - isExcludedSender: ${isExcludedSender}`);
+        }
         
         // 2. EXCLUSION DE PATTERNS DANS LE SUJET (automation, notification, etc.)
         const excludedSubjectPatterns = [
