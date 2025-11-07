@@ -25,12 +25,18 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       const response = await fetch('/api/billing/plan', { credentials: 'include', cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
-        console.log('📋 Plan status mis à jour:', {
-          planKey: data.planKey,
-          hasActivePlan: data.hasActivePlan,
-          subscription_status: data.subscription_status
+        // Log uniquement si le statut a changé (pour éviter les logs répétitifs)
+        setHasActivePlan((prev) => {
+          const newValue = data.hasActivePlan || false
+          if (prev !== newValue) {
+            console.log('📋 Plan status changé:', {
+              planKey: data.planKey,
+              hasActivePlan: newValue,
+              subscription_status: data.subscription_status
+            })
+          }
+          return newValue
         })
-        setHasActivePlan(data.hasActivePlan || false)
         setCurrentPlan(data.planKey || null)
       } else {
         setHasActivePlan(false)
@@ -48,8 +54,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     checkPlanStatus()
     
-    // Rafraîchir automatiquement toutes les 30 secondes pour détecter les changements
-    const interval = setInterval(checkPlanStatus, 30000)
+    // Rafraîchir automatiquement toutes les 5 minutes pour détecter les changements
+    // (réduit de 30s à 5min pour éviter trop de requêtes inutiles)
+    const interval = setInterval(checkPlanStatus, 300000) // 5 minutes = 300000 ms
     
     // Écouter les événements de changement de plan
     const handlePlanChange = () => {

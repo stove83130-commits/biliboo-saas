@@ -9,12 +9,15 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  console.log('🔍 Plan API - Métadonnées utilisateur:', {
-    selected_plan: user.user_metadata?.selected_plan,
-    subscription_status: user.user_metadata?.subscription_status,
-    stripe_subscription_id: user.user_metadata?.stripe_subscription_id,
-    user_id: user.id
-  })
+  // Log uniquement en mode développement pour éviter trop de logs en production
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 Plan API - Métadonnées utilisateur:', {
+      selected_plan: user.user_metadata?.selected_plan,
+      subscription_status: user.user_metadata?.subscription_status,
+      stripe_subscription_id: user.user_metadata?.stripe_subscription_id,
+      user_id: user.id
+    })
+  }
 
   // Ne pas assigner de plan par défaut - l'utilisateur doit choisir un plan
   const planKey = (user.user_metadata?.selected_plan as string) || null
@@ -36,16 +39,19 @@ export async function GET() {
   // L'utilisateur a un plan actif si : le plan existe ET (abonnement actif OU essai actif)
   const hasActive = planExists && (subscriptionIsActive || trialIsActive)
   
-  console.log('🔍 Vérification plan actif:', {
-    planKey,
-    planExists,
-    subscriptionStatus,
-    subscriptionIsActive,
-    isTrial,
-    trialEndsAt,
-    trialIsActive,
-    hasActive
-  })
+  // Log uniquement en mode développement pour éviter trop de logs en production
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 Vérification plan actif:', {
+      planKey,
+      planExists,
+      subscriptionStatus,
+      subscriptionIsActive,
+      isTrial,
+      trialEndsAt,
+      trialIsActive,
+      hasActive
+    })
+  }
   
   // Vérifier si l'utilisateur a déjà eu un plan (même expiré/annulé)
   const hasEverHadPlan = Boolean(
