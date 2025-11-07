@@ -548,9 +548,29 @@ async function processExtractionInBackground(
                 continue;
               }
               
-              // Validation stricte: doit avoir au moins un numéro de facture OU un montant
-              if (!fullExtraction.invoice_number && !fullExtraction.total_amount) {
-                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: pas de numéro de facture ni de montant`);
+              // ========== VALIDATION STRICTE POST-EXTRACTION GPT ==========
+              // Une facture/reçu VALIDE doit avoir au moins UN des deux :
+              // 1. Un numéro de facture valide (pas vide, pas juste le sujet de l'email)
+              // 2. Un montant valide (nombre > 0)
+              
+              // Vérifier si le numéro de facture est valide
+              const invoiceNumber = fullExtraction.invoice_number?.toString().trim() || '';
+              const isValidInvoiceNumber = invoiceNumber.length > 0 && 
+                                         invoiceNumber !== subject.trim() && 
+                                         invoiceNumber.length >= 3; // Au moins 3 caractères
+              
+              // Vérifier si le montant est valide
+              const totalAmount = fullExtraction.total_amount;
+              const isValidAmount = totalAmount !== null && 
+                                   totalAmount !== undefined && 
+                                   !isNaN(Number(totalAmount)) && 
+                                   Number(totalAmount) > 0;
+              
+              // REJETER si ni le numéro ni le montant ne sont valides
+              if (!isValidInvoiceNumber && !isValidAmount) {
+                console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: pas de numéro de facture valide ni de montant valide`);
+                console.log(`   - Numéro facture: "${invoiceNumber}" (valide: ${isValidInvoiceNumber})`);
+                console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
                 continue;
               }
               
@@ -560,6 +580,8 @@ async function processExtractionInBackground(
                 console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
                 continue;
               }
+              
+              console.log(`✅ Facture #${invoicesDetected} validée: numéro="${invoiceNumber}" (valide: ${isValidInvoiceNumber}), montant=${totalAmount} (valide: ${isValidAmount})`);
               
               extractedData = {
                 vendor: fullExtraction.vendor_name,
@@ -687,6 +709,29 @@ Retourne un JSON avec :
               if (jsonMatch) {
                 extractedData = JSON.parse(jsonMatch[0]);
                 extractedData.extraction_status = 'partial';
+                
+                // ========== VALIDATION STRICTE POST-EXTRACTION GPT (pour emails HTML) ==========
+                // Même validation que pour les PDFs : doit avoir au moins un numéro de facture valide OU un montant valide
+                const invoiceNumber = extractedData.invoice_number?.toString().trim() || '';
+                const isValidInvoiceNumber = invoiceNumber.length > 0 && 
+                                           invoiceNumber !== subject.trim() && 
+                                           invoiceNumber.length >= 3;
+                
+                const totalAmount = extractedData.amount;
+                const isValidAmount = totalAmount !== null && 
+                                     totalAmount !== undefined && 
+                                     !isNaN(Number(totalAmount)) && 
+                                     Number(totalAmount) > 0;
+                
+                // REJETER si ni le numéro ni le montant ne sont valides
+                if (!isValidInvoiceNumber && !isValidAmount) {
+                  console.log(`❌ Facture #${invoicesDetected} rejetée après extraction GPT (HTML): pas de numéro de facture valide ni de montant valide`);
+                  console.log(`   - Numéro facture: "${invoiceNumber}" (valide: ${isValidInvoiceNumber})`);
+                  console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
+                  continue; // Sortir de la boucle pour cet email
+                }
+                
+                console.log(`✅ Facture #${invoicesDetected} validée (HTML): numéro="${invoiceNumber}" (valide: ${isValidInvoiceNumber}), montant=${totalAmount} (valide: ${isValidAmount})`);
               }
             } catch (error) {
               console.error(`❌ Erreur analyse HTML:`, error);
