@@ -196,12 +196,6 @@ Retourne un JSON avec cette structure EXACTE:
   "payment_method": "méthode" ou null,
   "payment_date": "YYYY-MM-DD" ou null,
   "line_items": [{"description": "...", "quantity": 1, "unit_price": 10, "total": 10}] ou null,
-  "vendor_logo_description": "description DÉTAILLÉE du logo visible en haut (ex: logo circulaire bleu foncé #0066CC avec icône blanche stylisée représentant une flèche, texte 'REPLIT' en blanc en dessous, style moderne et minimaliste, position haut gauche)" ou null,
-  "vendor_logo_colors": ["#0066CC", "#FFFFFF"] (codes hex EXACTS des 2-3 couleurs principales du logo, toujours en format hex avec #) ou null,
-  "vendor_logo_text": "REPLIT" (texte ou lettres EXACTES visibles dans le logo, en majuscules) ou null,
-  "vendor_logo_is_embedded_image": true/false (le logo est-il une image embarquée dans le PDF ? Si oui, il sera extrait automatiquement),
-  "vendor_logo_image_position": "top-left/top-center/top-right" (position approximative du logo pour l'identifier parmi les images),
-  NOTE: Si vendor_logo_is_embedded_image = true, le logo sera extrait automatiquement comme image.
   "confidence_score": 0-100
 }
 
