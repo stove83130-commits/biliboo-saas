@@ -640,7 +640,7 @@ async function processExtractionInBackground(
         // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
         // IMPORTANT: Pour Receiptor/Bilibou, analyser le HTML même sans mot-clé facture dans le sujet
         // (car ils peuvent envoyer des factures avec des sujets différents)
-        const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
+        // NOTE: isReceiptorOrBilibou est déjà défini plus haut, on le réutilise
         const needsHtmlAnalysis = !hasPdfAttachment && 
                                  emailHtml && 
                                  !isPersonalEmail &&
@@ -959,7 +959,7 @@ Retourne un JSON avec :
                 // VÉRIFICATION DE SÉCURITÉ FINALE: Même si GPT dit que c'est une facture,
                 // rejeter si l'expéditeur est dans la liste d'exclusion (sauf Receiptor/Bilibou - on fait confiance à GPT)
                 // Receiptor/Bilibou sont analysés par GPT qui déterminera si c'est vraiment une facture ou une notification
-                const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
+                // NOTE: isReceiptorOrBilibou est déjà défini plus haut dans la boucle
                 if ((isExcludedSender || hasExcludedSubjectPattern) && !isReceiptorOrBilibou) {
                   console.error(`❌ [SÉCURITÉ] Email rejeté malgré validation GPT: expéditeur ou sujet exclu`);
                   console.error(`   - Expéditeur: ${from}`);
