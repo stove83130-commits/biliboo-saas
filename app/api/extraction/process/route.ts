@@ -458,13 +458,17 @@ async function processExtractionInBackground(
         // Vérifier si l'expéditeur est d'un domaine exclu (plus strict : doit correspondre exactement au domaine)
         const hasExcludedDomain = excludedDomains.some(domain => {
           // Extraire le domaine de l'email (partie après @)
+          // Format possible : "Name <email@domain.com>" ou "email@domain.com" ou "Name email@domain.com"
           const emailMatch = fromLower.match(/@([^\s<>]+)/);
           if (emailMatch) {
             const emailDomain = emailMatch[1];
-            // Vérifier si le domaine correspond exactement ou contient le domaine exclu
-            return emailDomain === domain || emailDomain.includes(domain.replace('.', ''));
+            // Vérifier si le domaine correspond exactement ou se termine par le domaine exclu
+            // Ex: "receiptor.ai" doit matcher "noreply@receiptor.ai" ou "receiptor.ai"
+            return emailDomain === domain || 
+                   emailDomain.endsWith('.' + domain) || 
+                   emailDomain.includes(domain.replace('.', ''));
           }
-          // Si pas de @ trouvé, vérifier si le domaine est présent dans le texte
+          // Si pas de @ trouvé, vérifier si le domaine est présent dans le texte (fallback)
           return fromLower.includes(domain);
         });
         
@@ -474,9 +478,20 @@ async function processExtractionInBackground(
         // Log pour déboguer si un email suspect passe
         if (fromLower.includes('receiptor') || fromLower.includes('bilibou')) {
           console.log(`🔍 [DEBUG] Email suspect détecté: "${subject.substring(0, 50)}" de ${from}`);
+          console.log(`   - fromLower: "${fromLower}"`);
           console.log(`   - hasExcludedSenderName: ${hasExcludedSenderName}`);
           console.log(`   - hasExcludedDomain: ${hasExcludedDomain}`);
           console.log(`   - isExcludedSender: ${isExcludedSender}`);
+          console.log(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
+          console.log(`   - subjectLower: "${subjectLower}"`);
+          
+          // Si l'email suspect passe quand même, c'est un problème critique
+          if (!isExcludedSender && !hasExcludedSubjectPattern) {
+            console.error(`❌ [CRITIQUE] Email suspect n'a PAS été exclu !`);
+            console.error(`   - Expéditeur: ${from}`);
+            console.error(`   - Sujet: ${subject}`);
+            console.error(`   - Raison: isExcludedSender=${isExcludedSender}, hasExcludedSubjectPattern=${hasExcludedSubjectPattern}`);
+          }
         }
         
         // 2. EXCLUSION DE PATTERNS DANS LE SUJET (automation, notification, etc.)
@@ -606,10 +621,24 @@ async function processExtractionInBackground(
         
         // Candidat si : PDF attaché OU (mot-clé facture + expéditeur valide + pas email personnel)
         // Mais on ne marquera comme facture qu'après validation du contenu
+        // IMPORTANT: L'exclusion de l'expéditeur et du sujet est PRIORITAIRE - même avec un PDF, on rejette si expéditeur exclu
         const isInvoiceCandidate = !isExcludedSender && 
                                    !hasExcludedSubjectPattern &&
                                    (hasPdfAttachment || 
                                     (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml));
+        
+        // Log critique si un email exclu passe quand même
+        if ((isExcludedSender || hasExcludedSubjectPattern) && isInvoiceCandidate) {
+          console.error(`❌ [ERREUR CRITIQUE] Email exclu est passé comme candidat !`);
+          console.error(`   - Expéditeur: ${from}`);
+          console.error(`   - Sujet: ${subject}`);
+          console.error(`   - isExcludedSender: ${isExcludedSender}`);
+          console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
+          console.error(`   - isInvoiceCandidate: ${isInvoiceCandidate}`);
+          // Forcer le rejet
+          emailsRejected++;
+          continue;
+        }
         
         // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
         const needsHtmlAnalysis = !hasPdfAttachment && hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml;
@@ -907,6 +936,19 @@ Retourne un JSON avec :
                   console.log(`❌ Email rejeté après analyse HTML: "${subject}" - ${analysisResult.rejection_reason || 'Pas une facture/reçu valide'}`);
                   emailsRejected++;
                   continue; // Rejeter l'email
+                }
+                
+                // VÉRIFICATION DE SÉCURITÉ FINALE: Même si GPT dit que c'est une facture,
+                // rejeter si l'expéditeur est dans la liste d'exclusion (double vérification)
+                // Cela évite que GPT se trompe et accepte des emails de Receiptor, Bilibou, etc.
+                if (isExcludedSender || hasExcludedSubjectPattern) {
+                  console.error(`❌ [SÉCURITÉ] Email rejeté malgré validation GPT: expéditeur ou sujet exclu`);
+                  console.error(`   - Expéditeur: ${from}`);
+                  console.error(`   - Sujet: ${subject}`);
+                  console.error(`   - isExcludedSender: ${isExcludedSender}`);
+                  console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
+                  emailsRejected++;
+                  continue; // Rejeter même si GPT a dit que c'est une facture
                 }
                 
                 // Si GPT confirme que c'est une facture, extraire les données
