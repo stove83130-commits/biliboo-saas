@@ -438,6 +438,37 @@ async function processExtractionInBackground(
         const subjectLower = subject.toLowerCase();
         const fromLower = from.toLowerCase();
         
+        // PRIORITÉ ABSOLUE: Vérifier d'abord les patterns dans le sujet (AVANT tout le reste)
+        // Cela permet de rejeter immédiatement les notifications sans même analyser le contenu
+        const excludedSubjectPatterns = [
+          'automation', 'notification', 'alert', 'reminder', 'update', 'newsletter',
+          'confirmation', 'welcome', 'account', 'security', 'password', 'verify',
+          'conditions générales', 'cgv', 'cgu', 'terms and conditions', 'privacy policy',
+          'politique de confidentialité', 'mentions légales',
+          'export', 'csv', 'report', 'history', 'download', 'link', 'expire', // Patterns pour emails système
+          'receipts history', 'exports history', 'data export', // Patterns spécifiques pour Receiptor
+          'history report', 'receipts report', 'exports report' // Patterns supplémentaires pour Receiptor
+        ];
+        const hasExcludedSubjectPattern = excludedSubjectPatterns.some(pattern => 
+          subjectLower.includes(pattern)
+        );
+        
+        // DÉTECTION Receiptor/Bilibou (pour traitement spécial)
+        const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
+        
+        // REJET IMMÉDIAT si Receiptor/Bilibou ET pattern de notification dans le sujet
+        // Cette vérification est PRIORITAIRE - on rejette AVANT même d'analyser le contenu
+        if (isReceiptorOrBilibou && hasExcludedSubjectPattern) {
+          const matchedPattern = excludedSubjectPatterns.find(p => subjectLower.includes(p));
+          console.log(`❌ [REJET IMMÉDIAT] Email Receiptor/Bilibou rejeté: pattern de notification détecté`);
+          console.log(`   - Expéditeur: ${from}`);
+          console.log(`   - Sujet: "${subject}"`);
+          console.log(`   - Pattern détecté: "${matchedPattern}"`);
+          console.log(`   - Action: Rejeté AVANT analyse du contenu (notification système)`);
+          emailsRejected++;
+          continue; // Rejeter immédiatement, ne pas analyser le contenu
+        }
+        
         // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
         // NOTE: Receiptor et Bilibou ne sont PLUS exclus complètement car ils peuvent envoyer de vraies factures
         // On filtre plutôt par le CONTENU (patterns dans le sujet + analyse HTML/PDF)
@@ -477,26 +508,13 @@ async function processExtractionInBackground(
         const isExcludedSender = hasExcludedSenderName || hasExcludedDomain;
         
         // Log pour déboguer les emails de Receiptor/Bilibou (pour suivre leur traitement)
-        if (fromLower.includes('receiptor') || fromLower.includes('bilibou')) {
+        if (isReceiptorOrBilibou) {
           console.log(`🔍 [DEBUG] Email Receiptor/Bilibou détecté: "${subject.substring(0, 50)}" de ${from}`);
           console.log(`   - fromLower: "${fromLower}"`);
           console.log(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
           console.log(`   - subjectLower: "${subjectLower}"`);
           console.log(`   - Action: ${hasExcludedSubjectPattern ? 'Rejeté (pattern notification)' : 'Analyse du contenu requise'}`);
         }
-        
-        // 2. EXCLUSION DE PATTERNS DANS LE SUJET (automation, notification, etc.)
-        const excludedSubjectPatterns = [
-          'automation', 'notification', 'alert', 'reminder', 'update', 'newsletter',
-          'confirmation', 'welcome', 'account', 'security', 'password', 'verify',
-          'conditions générales', 'cgv', 'cgu', 'terms and conditions', 'privacy policy',
-          'politique de confidentialité', 'mentions légales',
-          'export', 'csv', 'report', 'history', 'download', 'link', 'expire', // Patterns pour emails système
-          'receipts history', 'exports history', 'data export' // Patterns spécifiques pour Receiptor
-        ];
-        const hasExcludedSubjectPattern = excludedSubjectPatterns.some(pattern => 
-          subjectLower.includes(pattern)
-        );
         
         // 3. DÉTECTION DES MOTS-CLÉS FACTURE (mots entiers uniquement)
         // Utiliser des regex pour détecter les mots entiers, pas des sous-chaînes
@@ -617,7 +635,7 @@ async function processExtractionInBackground(
         // OU (Receiptor/Bilibou + pas de pattern notification + contenu HTML disponible)
         // Mais on ne marquera comme facture qu'après validation du contenu
         // IMPORTANT: L'exclusion de l'expéditeur et du sujet est PRIORITAIRE - même avec un PDF, on rejette si expéditeur exclu
-        const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
+        // NOTE: isReceiptorOrBilibou est déjà défini plus haut
         const isInvoiceCandidate = !isExcludedSender && 
                                    !hasExcludedSubjectPattern &&
                                    (hasPdfAttachment || 
