@@ -683,29 +683,31 @@ Retourne un JSON avec :
           const cleanedVendor = sanitizeForPostgres(extractedData.vendor || from);
           const cleanedSubject = sanitizeForPostgres(subject);
 
-          // Vérifier que le workspace_id existe avant de l'insérer
+          // Récupérer le workspace_id depuis le progress JSONB (car la table n'a pas de colonne workspace_id)
           let workspaceIdToUse = null;
-          if (job.workspace_id) {
+          const workspaceIdFromProgress = job.progress?.workspaceId || null;
+          
+          if (workspaceIdFromProgress) {
             // Vérifier que le workspace existe ET appartient à l'utilisateur
             const { data: workspaceExists, error: workspaceError } = await supabaseService
               .from('workspaces')
               .select('id, owner_id')
-              .eq('id', job.workspace_id)
+              .eq('id', workspaceIdFromProgress)
               .eq('owner_id', userId) // Vérifier que le workspace appartient à l'utilisateur
               .single();
             
             if (workspaceError || !workspaceExists) {
               // Le workspace n'existe pas ou n'appartient pas à l'utilisateur
-              console.warn(`⚠️ Workspace ${job.workspace_id} n'existe pas ou n'appartient pas à l'utilisateur ${userId}, utilisation de null (personnel)`);
+              console.warn(`⚠️ Workspace ${workspaceIdFromProgress} n'existe pas ou n'appartient pas à l'utilisateur ${userId}, utilisation de null (personnel)`);
               console.warn(`   Erreur workspace:`, workspaceError?.message || 'Workspace introuvable');
               workspaceIdToUse = null; // Utiliser null pour workspace personnel
             } else {
               // Le workspace existe et appartient à l'utilisateur
-              workspaceIdToUse = job.workspace_id;
-              console.log(`✅ Workspace ${job.workspace_id} vérifié et valide`);
+              workspaceIdToUse = workspaceIdFromProgress;
+              console.log(`✅ Workspace ${workspaceIdFromProgress} vérifié et valide`);
             }
           } else {
-            // Pas de workspace_id dans le job = workspace personnel
+            // Pas de workspace_id dans le progress = workspace personnel
             workspaceIdToUse = null;
           }
 

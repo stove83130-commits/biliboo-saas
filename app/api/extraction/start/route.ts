@@ -123,18 +123,20 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Créer un job d'extraction (utiliser l'ancienne table extraction_jobs)
+    // NOTE: La table extraction_jobs n'a pas de colonne workspace_id
+    // Le workspace_id sera utilisé directement lors de l'insertion des factures
     const { data: job, error: jobError } = await supabaseService
       .from('extraction_jobs')
       .insert({
         user_id: user.id,
         connection_id: emailConfigId,
-        workspace_id: workspaceIdToUse, // 🏢 Sauvegarder le workspace_id validé dans le job
         status: 'pending',
         start_date: searchSince || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end_date: searchUntil || new Date().toISOString().split('T')[0],
         progress: {
           emailsAnalyzed: 0,
           invoicesFound: 0,
+          workspaceId: workspaceIdToUse, // 🏢 Stocker le workspace_id dans le progress JSONB
         },
       })
       .select()
