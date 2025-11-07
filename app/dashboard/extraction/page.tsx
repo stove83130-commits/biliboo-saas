@@ -417,7 +417,7 @@ export default function ExtractionPage() {
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Mail className="h-4 w-4" />
-              <span>{emailConfigs.length} configuration(s)</span>
+              <span>{emailConfigs.length} compte{emailConfigs.length > 1 ? 's' : ''} configuré{emailConfigs.length > 1 ? 's' : ''}</span>
             </div>
           </div>
 
