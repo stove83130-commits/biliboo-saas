@@ -96,84 +96,194 @@ export default function AnalyticsPage() {
     fetchInvoices()
   }, [filter])
 
+  // Rafraîchir quand le workspace change
+  useEffect(() => {
+    const handleWorkspaceChange = () => {
+      console.log('🔄 [ANALYTICS] Workspace changé, rafraîchissement des données...')
+      fetchInvoices()
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('workspace:changed', handleWorkspaceChange)
+      return () => {
+        window.removeEventListener('workspace:changed', handleWorkspaceChange)
+      }
+    }
+  }, [])
+
   const fetchInvoices = async () => {
     try {
       setLoading(true)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Récupérer le workspace actif - ISOLATION STRICTE
+      // Récupérer le workspace actif
       const activeWorkspaceId = typeof window !== 'undefined' 
         ? localStorage.getItem('active_workspace_id') 
         : null
 
-      if (!activeWorkspaceId) return
+      console.log('🔍 [ANALYTICS] Workspace ID:', activeWorkspaceId)
 
+      // Déterminer le type de workspace (comme dans invoice-table-new.tsx)
+      let isPersonalWorkspace = false
+      if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
+        try {
+          const workspaceResponse = await fetch('/api/workspaces')
+          if (workspaceResponse.ok) {
+            const workspaceData = await workspaceResponse.json()
+            const workspace = workspaceData.workspaces?.find((w: any) => w.id === activeWorkspaceId)
+            if (workspace) {
+              isPersonalWorkspace = workspace.type === 'personal'
+              console.log('🔍 [ANALYTICS] Type workspace:', workspace.type, 'isPersonal:', isPersonalWorkspace)
+            } else {
+              // Workspace non trouvé, considérer comme personnel par défaut
+              isPersonalWorkspace = true
+              console.log('⚠️ [ANALYTICS] Workspace non trouvé, considéré comme personnel')
+            }
+          } else {
+            isPersonalWorkspace = true
+            console.log('⚠️ [ANALYTICS] Erreur API workspaces, considéré comme personnel')
+          }
+        } catch (error) {
+          console.warn('⚠️ [ANALYTICS] Erreur lors de la vérification du type de workspace:', error)
+          isPersonalWorkspace = true
+        }
+      } else {
+        // Pas de workspace actif = workspace personnel
+        isPersonalWorkspace = true
+        console.log('🔍 [ANALYTICS] Pas de workspace actif, considéré comme personnel')
+      }
+
+      // Charger toutes les factures puis filtrer côté client (comme dans invoice-table-new.tsx)
+      // Ne pas filtrer par amount car certaines factures peuvent avoir amount = 0 ou dans extracted_data
       let query = supabase
         .from('invoices')
         .select('*')
         .eq('user_id', user.id)
-        .eq('workspace_id', activeWorkspaceId)
-        .not('amount', 'is', null)
-        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
 
       if (filter === 'validated') {
         query = query.eq('payment_status', 'paid')
       }
 
-      const { data, error } = await query
+      const { data: allInvoices, error } = await query
 
       if (error) {
-        console.error('Erreur chargement factures:', error)
+        console.error('❌ [ANALYTICS] Erreur chargement factures:', error)
         return
       }
 
-      const invoicesData = (data || []).map(inv => ({
-        id: inv.id,
-        date: inv.date || inv.created_at,
-        amount: Number(inv.amount) || 0,
-        category: inv.category || 'Autre',
-        payment_status: inv.payment_status || 'unpaid',
-        vendor: inv.vendor || 'Inconnu'
-      }))
+      console.log('🔍 [ANALYTICS] Total factures récupérées:', allInvoices?.length || 0)
+      
+      // Afficher les workspace_id des factures pour déboguer
+      if (allInvoices && allInvoices.length > 0) {
+        const workspaceIds = allInvoices.map((inv: any) => inv.workspace_id)
+        console.log('🔍 [ANALYTICS] Workspace IDs des factures:', [...new Set(workspaceIds)])
+        console.log('🔍 [ANALYTICS] Exemple facture:', { 
+          id: allInvoices[0].id, 
+          workspace_id: allInvoices[0].workspace_id,
+          amount: allInvoices[0].amount,
+          vendor: allInvoices[0].vendor
+        })
+      }
 
+      // Filtrer par workspace côté client (comme dans invoice-table-new.tsx)
+      let invoices = allInvoices || []
+      
+      if (isPersonalWorkspace) {
+        // Workspace personnel : workspace_id est null ou 'personal'
+        invoices = invoices.filter((inv: any) => 
+          inv.workspace_id === null || 
+          inv.workspace_id === 'personal' || 
+          !inv.workspace_id
+        )
+        console.log('🔍 [ANALYTICS] Après filtrage workspace personnel:', invoices.length)
+      } else {
+        // Workspace d'organisation : filtrer par workspace_id
+        console.log('🔍 [ANALYTICS] Filtrage workspace organisation:', activeWorkspaceId)
+        invoices = invoices.filter((inv: any) => inv.workspace_id === activeWorkspaceId)
+        console.log('🔍 [ANALYTICS] Après filtrage workspace organisation:', invoices.length)
+      }
+
+      const invoicesData = invoices.map((inv: any) => {
+        // Essayer plusieurs sources pour le montant
+        const amount = Number(inv.amount) || Number(inv.total_ttc) || Number(inv?.extracted_data?.amounts?.total) || Number(inv?.extracted_data?.total_ttc) || Number(inv?.extracted_data?.amount) || 0
+        
+        // Essayer plusieurs sources pour la date
+        const date = inv.date || inv.invoice_date || inv.created_at || inv?.extracted_data?.invoice_date || inv?.extracted_data?.date
+        
+        return {
+          id: inv.id,
+          date: date,
+          amount: amount,
+          category: inv.category || 'Autre',
+          payment_status: inv.payment_status || 'unpaid',
+          vendor: inv.vendor || inv.supplier_name || inv?.extracted_data?.supplier?.name || 'Inconnu'
+        }
+      }).filter(inv => inv.amount > 0) // Filtrer les factures sans montant
+
+      console.log('✅ [ANALYTICS] Factures chargées:', invoicesData.length)
+      console.log('🔍 [ANALYTICS] Exemple de facture:', invoicesData[0])
+      console.log('🔍 [ANALYTICS] Montants:', invoicesData.map(inv => ({ id: inv.id, amount: inv.amount, date: inv.date })))
       setInvoices(invoicesData)
       calculateAnalytics(invoicesData)
     } catch (error) {
-      console.error('Erreur:', error)
+      console.error('❌ [ANALYTICS] Erreur:', error)
     } finally {
       setLoading(false)
     }
   }
 
   const calculateAnalytics = (data: Invoice[]) => {
+    console.log('🔍 [ANALYTICS] Calcul avec', data.length, 'factures')
+    
     // KPIs
     const now = new Date()
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const thisMonthInvoices = data.filter(inv => new Date(inv.date) >= firstDayOfMonth)
     
-    const totalThisMonth = thisMonthInvoices.reduce((sum, inv) => sum + inv.amount, 0)
+    // Filtrer les factures du mois en cours avec gestion des dates invalides
+    const thisMonthInvoices = data.filter(inv => {
+      if (!inv.date) return false
+      const invDate = new Date(inv.date)
+      if (isNaN(invDate.getTime())) return false
+      return invDate >= firstDayOfMonth
+    })
+    
+    console.log('🔍 [ANALYTICS] Factures ce mois:', thisMonthInvoices.length)
+    
+    const totalThisMonth = thisMonthInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0)
     const daysInMonth = now.getDate()
-    const avgPerDay = totalThisMonth / daysInMonth
+    const avgPerDay = daysInMonth > 0 ? totalThisMonth / daysInMonth : 0
+    
+    console.log('🔍 [ANALYTICS] Total ce mois:', totalThisMonth)
 
     // Catégorie top
     const categoryTotals = data.reduce((acc, inv) => {
-      acc[inv.category] = (acc[inv.category] || 0) + inv.amount
+      const category = inv.category || 'Autre'
+      acc[category] = (acc[category] || 0) + (inv.amount || 0)
       return acc
     }, {} as Record<string, number>)
 
     const topCat = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0]
     const totalAll = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0)
+    
+    console.log('🔍 [ANALYTICS] Catégories:', categoryTotals)
+    console.log('🔍 [ANALYTICS] Top catégorie:', topCat)
 
     // Trend (comparaison avec mois dernier)
     const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0)
     const lastMonthInvoices = data.filter(inv => {
+      if (!inv.date) return false
       const d = new Date(inv.date)
+      if (isNaN(d.getTime())) return false
       return d >= lastMonth && d <= lastMonthEnd
     })
-    const totalLastMonth = lastMonthInvoices.reduce((sum, inv) => sum + inv.amount, 0)
+    const totalLastMonth = lastMonthInvoices.reduce((sum, inv) => sum + (inv.amount || 0), 0)
     const trend = totalLastMonth > 0 ? ((totalThisMonth - totalLastMonth) / totalLastMonth) * 100 : 0
+    
+    console.log('🔍 [ANALYTICS] Total mois dernier:', totalLastMonth)
+    console.log('🔍 [ANALYTICS] Trend:', trend)
 
     setKpis({
       totalThisMonth,
@@ -472,68 +582,79 @@ export default function AnalyticsPage() {
             </ResponsiveContainer>
           </Card>
 
-          {/* Graphique 2 : Dépenses par catégorie */}
+          {/* Graphique 2 : Dépenses par catégorie - Barres verticales */}
           <Card className="p-6 border-0 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">Dépenses par catégorie</h2>
-                <p className="text-xs text-gray-500 mt-1">Évolution mensuelle des 5 principales catégories</p>
+                <p className="text-xs text-gray-500 mt-1">Répartition des dépenses par catégorie</p>
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={categoryData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
-                <XAxis 
-                  dataKey="month" 
-                  stroke="#d1d5db"
-                  style={{ fontSize: '11px' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis 
-                  stroke="#d1d5db"
-                  style={{ fontSize: '11px' }}
-                  tickFormatter={(value) => `${value}€`}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    padding: '12px 16px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                  }}
-                  formatter={(value: any) => formatCurrency(value)}
-                  labelStyle={{ color: '#6b7280', fontSize: '12px', marginBottom: '4px' }}
-                />
-                {topCategories.slice(0, 5).map((cat, index) => (
-                  <Line
-                    key={cat.name}
-                    type="monotone"
-                    dataKey={cat.name}
-                    stroke={cat.color}
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 5, fill: cat.color }}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-            {/* Légende personnalisée */}
-            <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t">
-              {topCategories.slice(0, 5).map((cat) => (
-                <div key={cat.name} className="flex items-center gap-2">
-                  <div 
-                    className="w-2.5 h-2.5 rounded-full" 
-                    style={{ backgroundColor: cat.color }}
-                  />
-                  <span className="text-xs text-gray-600">{cat.name}</span>
-                  <span className="text-xs text-gray-400">({formatCurrency(cat.value)})</span>
+            {topCategories.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={topCategories}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
+                    <XAxis 
+                      dataKey="name"
+                      stroke="#d1d5db"
+                      style={{ fontSize: '11px' }}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={false}
+                      height={20}
+                    />
+                    <YAxis 
+                      stroke="#d1d5db"
+                      style={{ fontSize: '11px' }}
+                      tickFormatter={(value) => `${value}€`}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        padding: '12px 16px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                      }}
+                      formatter={(value: any) => formatCurrency(value)}
+                      labelStyle={{ color: '#6b7280', fontSize: '12px', marginBottom: '4px' }}
+                    />
+                    <Bar 
+                      dataKey="value" 
+                      radius={[8, 8, 0, 0]}
+                      barSize={40}
+                    >
+                      {topCategories.map((cat, index) => (
+                        <Cell key={`cell-${index}`} fill={cat.color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                {/* Légende personnalisée */}
+                <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t">
+                  {topCategories.map((cat) => (
+                    <div key={cat.name} className="flex items-center gap-2">
+                      <div 
+                        className="w-2.5 h-2.5 rounded-full" 
+                        style={{ backgroundColor: cat.color }}
+                      />
+                      <span className="text-xs text-gray-600">{cat.name}</span>
+                      <span className="text-xs text-gray-400">({formatCurrency(cat.value)})</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-[280px] text-gray-400">
+                <div className="text-center">
+                  <p className="text-sm">Aucune donnée disponible</p>
+                  <p className="text-xs mt-1">Les dépenses par catégorie apparaîtront ici</p>
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* Graphique 3 : Top 5 catégories avec détails */}
@@ -583,48 +704,6 @@ export default function AnalyticsPage() {
               ))}
             </div>
 
-            {/* Graphique courbe de tendance */}
-            <div className="pt-6 border-t">
-              <p className="text-xs text-gray-500 mb-4">Tendance globale des dépenses</p>
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={monthlyData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" vertical={false} />
-                  <XAxis 
-                    dataKey="month" 
-                    stroke="#d1d5db"
-                    style={{ fontSize: '10px' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis 
-                    stroke="#d1d5db"
-                    style={{ fontSize: '10px' }}
-                    tickFormatter={(value) => `${value}€`}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: 'none',
-                      borderRadius: '12px',
-                      padding: '8px 12px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                      fontSize: '11px'
-                    }}
-                    formatter={(value: any) => formatCurrency(value)}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="total" 
-                    stroke="#10b981" 
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 5, fill: '#10b981' }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
           </Card>
 
           {/* Liste détaillée des reçus de la catégorie sélectionnée */}

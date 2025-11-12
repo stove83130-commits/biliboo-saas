@@ -33,50 +33,137 @@ export function InvoiceFilters({ filters, onFiltersChange, onClearFilters }: Inv
   const supabase = createClient()
 
   // Charger les fournisseurs et comptes email uniques - FILTRÉ PAR WORKSPACE
-  useEffect(() => {
     const loadData = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+    try {
+      console.log('🔍 [FILTRES] Début du chargement des données...')
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      
+      if (userError) {
+        console.error('❌ [FILTRES] Erreur authentification:', userError)
+        return
+      }
+      
+      if (!user) {
+        console.warn('⚠️ [FILTRES] Pas d\'utilisateur connecté')
+        return
+      }
+
+      console.log('🔍 [FILTRES] Utilisateur connecté:', user.id)
 
       // Récupérer le workspace actif
       const activeWorkspaceId = typeof window !== 'undefined' 
         ? localStorage.getItem('active_workspace_id') 
         : null
 
-      if (!activeWorkspaceId) return
+      console.log('🔍 [FILTRES] Workspace ID actif:', activeWorkspaceId)
 
-      // Charger les fournisseurs uniques UNIQUEMENT pour ce workspace
-      const { data: invoices } = await supabase
+      // 🔧 FIX : Charger TOUTES les factures de l'utilisateur, puis filtrer côté client (comme dans invoice-table-new.tsx)
+      const { data: allInvoices, error: invoicesError } = await supabase
         .from('invoices')
-        .select('vendor')
+        .select('vendor, account_email, workspace_id')
         .eq('user_id', user.id)
-        .eq('workspace_id', activeWorkspaceId)
-        .not('vendor', 'is', null)
+        .order('created_at', { ascending: false })
       
-      if (invoices) {
-        const uniqueVendors = [...new Set(invoices.map(inv => inv.vendor).filter(Boolean))] as string[]
-        setVendors(uniqueVendors.sort())
+      if (invoicesError) {
+        console.error('❌ [FILTRES] Erreur chargement factures:', invoicesError)
+        setVendors([])
+        setEmailAccounts([])
+        return
       }
 
-      // Charger les comptes email UNIQUEMENT pour ce workspace
-      const { data: accounts } = await supabase
-        .from('email_accounts')
-        .select('id, email')
-        .eq('user_id', user.id)
-        .eq('workspace_id', activeWorkspaceId)
+      console.log('🔍 [FILTRES] Total factures récupérées de la DB:', allInvoices?.length || 0)
+      console.log('🔍 [FILTRES] Exemple de facture:', allInvoices?.[0])
+
+      // Filtrer les factures selon le workspace (côté client) - MÊME LOGIQUE QUE invoice-table-new.tsx
+      let filteredInvoices = allInvoices || []
       
-      if (accounts) {
-        setEmailAccounts(accounts)
+      if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
+        // Workspace d'organisation : filtrer par workspace_id
+        filteredInvoices = filteredInvoices.filter((inv: any) => inv.workspace_id === activeWorkspaceId)
+        console.log('🔍 [FILTRES] Filtrage workspace organisation:', filteredInvoices.length, 'factures')
+      } else {
+        // Workspace personnel : workspace_id est null ou 'personal'
+        filteredInvoices = filteredInvoices.filter((inv: any) => 
+          inv.workspace_id === null || 
+          inv.workspace_id === 'personal' || 
+          !inv.workspace_id
+        )
+        console.log('🔍 [FILTRES] Filtrage workspace personnel:', filteredInvoices.length, 'factures')
+      }
+
+      console.log('🔍 [FILTRES] Factures après filtrage workspace:', filteredInvoices.length)
+
+      // Extraire les fournisseurs uniques (même si null, on les filtre après)
+      const allVendors = filteredInvoices.map((inv: any) => inv.vendor).filter(Boolean)
+      const uniqueVendors = [...new Set(allVendors)] as string[]
+      const sortedVendors = uniqueVendors.sort()
+      setVendors(sortedVendors)
+      console.log('🔍 [FILTRES] Fournisseurs trouvés:', sortedVendors.length)
+      if (sortedVendors.length > 0) {
+        console.log('🔍 [FILTRES] Exemples de fournisseurs:', sortedVendors.slice(0, 5))
+      }
+
+      // Extraire les comptes email uniques depuis account_email des factures
+      const allEmails = filteredInvoices.map((inv: any) => inv.account_email).filter(Boolean)
+      const uniqueEmails = [...new Set(allEmails)] as string[]
+      const emailAccountsList = uniqueEmails.map(email => ({ id: email, email }))
+      setEmailAccounts(emailAccountsList)
+      console.log('🔍 [FILTRES] Comptes email trouvés:', emailAccountsList.length)
+      if (emailAccountsList.length > 0) {
+        console.log('🔍 [FILTRES] Exemples de comptes email:', emailAccountsList.slice(0, 5).map(a => a.email))
+      }
+      
+      if (sortedVendors.length === 0 && emailAccountsList.length === 0) {
+        console.warn('⚠️ [FILTRES] Aucun fournisseur ni compte email trouvé!')
+        console.log('🔍 [FILTRES] Factures filtrées:', filteredInvoices.slice(0, 3))
+      }
+    } catch (error) {
+      console.error('❌ [FILTRES] Erreur lors du chargement des données:', error)
+      setVendors([])
+      setEmailAccounts([])
       }
     }
 
+  useEffect(() => {
+    // Charger les données quand le popover s'ouvre
     if (isOpen) {
+      console.log('🔍 [FILTRES] Popover ouvert, chargement des données...')
       loadData()
     }
+    
+    // Écouter les changements de workspace
+    const handleWorkspaceChange = () => {
+      console.log('🔍 [FILTRES] Workspace changé, rechargement des données...')
+      loadData() // Recharger même si le popover n'est pas ouvert
+    }
+    
+    // 🔧 FIX : Écouter les mises à jour de factures pour recharger les filtres
+    const handleInvoicesUpdate = () => {
+      console.log('🔍 [FILTRES] Factures mises à jour, rechargement des données...')
+      loadData()
+    }
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('workspace:changed', handleWorkspaceChange)
+      window.addEventListener('invoices:updated', handleInvoicesUpdate)
+      return () => {
+        window.removeEventListener('workspace:changed', handleWorkspaceChange)
+        window.removeEventListener('invoices:updated', handleInvoicesUpdate)
+      }
+    }
   }, [isOpen])
+  
+  // 🔧 FIX : Charger les données au montage du composant pour avoir les données prêtes
+  useEffect(() => {
+    console.log('🔍 [FILTRES] Composant monté, chargement initial des données...')
+    loadData()
+  }, [])
 
   const updateFilter = (key: keyof FilterState, value: any) => {
-    onFiltersChange({ ...filters, [key]: value })
+    console.log('🔍 [FILTRES] updateFilter appelé:', key, '=', value)
+    const newFilters = { ...filters, [key]: value }
+    console.log('🔍 [FILTRES] Nouveaux filtres:', newFilters)
+    onFiltersChange(newFilters)
   }
 
   const hasActiveFilters = Object.values(filters).some(value => 
@@ -217,20 +304,30 @@ export function InvoiceFilters({ filters, onFiltersChange, onClearFilters }: Inv
             <label className="block text-sm font-medium mb-2 text-gray-700">Compte email</label>
             <Select 
               value={filters.accountEmail || 'all'} 
-              onValueChange={(value) => updateFilter('accountEmail', value === 'all' ? undefined : value)}
+              onValueChange={(value) => {
+                console.log('🔍 [FILTRES] Compte email sélectionné:', value)
+                updateFilter('accountEmail', value === 'all' ? undefined : value)
+              }}
             >
               <SelectTrigger className="w-full h-9 text-sm">
                 <SelectValue placeholder="Tous les comptes" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tous les comptes</SelectItem>
-                {emailAccounts.map((account) => (
+                {emailAccounts.length > 0 ? (
+                  emailAccounts.map((account) => (
                   <SelectItem key={account.id} value={account.email}>
                     {account.email}
                   </SelectItem>
-                ))}
+                  ))
+                ) : (
+                  <SelectItem value="no-data" disabled>Aucun compte disponible</SelectItem>
+                )}
               </SelectContent>
             </Select>
+            {emailAccounts.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1">Chargement des comptes...</p>
+            )}
           </div>
 
           {/* Fournisseur */}
@@ -238,20 +335,30 @@ export function InvoiceFilters({ filters, onFiltersChange, onClearFilters }: Inv
             <label className="block text-sm font-medium mb-2 text-gray-700">Fournisseur</label>
             <Select 
               value={filters.vendor || 'all'} 
-              onValueChange={(value) => updateFilter('vendor', value === 'all' ? undefined : value)}
+              onValueChange={(value) => {
+                console.log('🔍 [FILTRES] Fournisseur sélectionné:', value)
+                updateFilter('vendor', value === 'all' ? undefined : value)
+              }}
             >
               <SelectTrigger className="w-full h-9 text-sm">
                 <SelectValue placeholder="Tous les fournisseurs" />
               </SelectTrigger>
               <SelectContent className="max-h-[200px]">
                 <SelectItem value="all">Tous les fournisseurs</SelectItem>
-                {vendors.map((vendor) => (
+                {vendors.length > 0 ? (
+                  vendors.map((vendor) => (
                   <SelectItem key={vendor} value={vendor}>
                     {vendor}
                   </SelectItem>
-                ))}
+                  ))
+                ) : (
+                  <SelectItem value="no-data" disabled>Aucun fournisseur disponible</SelectItem>
+                )}
               </SelectContent>
             </Select>
+            {vendors.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1">Chargement des fournisseurs...</p>
+            )}
           </div>
 
           {/* Bouton effacer */}

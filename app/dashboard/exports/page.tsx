@@ -23,14 +23,89 @@ export default function ExportsPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     
-    if (!user) return
+    if (!user) {
+      setLoading(false)
+      return
+    }
 
-    const { count } = await supabase
+    // Récupérer le workspace actif
+    const activeWorkspaceId = typeof window !== 'undefined' 
+      ? localStorage.getItem('active_workspace_id') 
+      : null
+
+    console.log('🔍 [EXPORTS PAGE] Comptage factures - Workspace ID:', activeWorkspaceId)
+
+    // Déterminer le type de workspace (MÊME LOGIQUE QUE invoice-table-new.tsx)
+    let isPersonalWorkspace = false
+    if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
+      try {
+        const workspaceResponse = await fetch('/api/workspaces')
+        if (workspaceResponse.ok) {
+          const workspaceData = await workspaceResponse.json()
+          const workspace = workspaceData.workspaces?.find((w: any) => w.id === activeWorkspaceId)
+          if (workspace) {
+            isPersonalWorkspace = workspace.type === 'personal'
+          } else {
+            // Workspace non trouvé, considérer comme personnel par défaut
+            isPersonalWorkspace = true
+          }
+        } else {
+          isPersonalWorkspace = true
+        }
+      } catch (error) {
+        console.warn('⚠️ [EXPORTS PAGE] Erreur lors de la vérification du type de workspace:', error)
+        isPersonalWorkspace = true
+      }
+    } else {
+      // Pas de workspace actif = workspace personnel
+      isPersonalWorkspace = true
+    }
+
+    console.log('🔍 [EXPORTS PAGE] isPersonalWorkspace:', isPersonalWorkspace)
+
+    // 🔧 FIX : Charger TOUTES les factures de l'utilisateur, puis filtrer côté client (comme dans invoice-table-new.tsx)
+    const { data: allInvoices, error } = await supabase
       .from('invoices')
-      .select('*', { count: 'exact', head: true })
+      .select('id, workspace_id')
       .eq('user_id', user.id)
 
-    setTotalInvoices(count || 0)
+    if (error) {
+      console.error('❌ [EXPORTS PAGE] Erreur chargement factures:', error)
+      setTotalInvoices(0)
+      setLoading(false)
+      return
+    }
+
+    console.log('🔍 [EXPORTS PAGE] Total factures récupérées de la DB:', allInvoices?.length || 0)
+
+    // Filtrer les factures selon le type de workspace (MÊME LOGIQUE QUE invoice-table-new.tsx)
+    let filteredInvoices = allInvoices || []
+    
+    if (isPersonalWorkspace) {
+      // Pour un workspace personnel, charger les factures avec workspace_id = null ou 'personal'
+      filteredInvoices = (allInvoices || []).filter((invoice: any) => 
+        invoice.workspace_id === null || 
+        invoice.workspace_id === 'personal' || 
+        !invoice.workspace_id
+      )
+      console.log('🔍 [EXPORTS PAGE] Filtre workspace personnel appliqué:', filteredInvoices.length, 'factures sur', allInvoices?.length || 0)
+    } else if (activeWorkspaceId) {
+      // Pour un workspace d'organisation, charger uniquement les factures de ce workspace
+      filteredInvoices = (allInvoices || []).filter((invoice: any) => 
+        invoice.workspace_id === activeWorkspaceId
+      )
+      console.log('🔍 [EXPORTS PAGE] Filtre workspace organisation appliqué:', filteredInvoices.length, 'factures sur', allInvoices?.length || 0)
+    } else {
+      // Par défaut, charger les factures personnelles
+      filteredInvoices = (allInvoices || []).filter((invoice: any) => 
+        invoice.workspace_id === null || 
+        invoice.workspace_id === 'personal' || 
+        !invoice.workspace_id
+      )
+      console.log('🔍 [EXPORTS PAGE] Filtre par défaut (personnel) appliqué:', filteredInvoices.length, 'factures sur', allInvoices?.length || 0)
+    }
+
+    setTotalInvoices(filteredInvoices.length)
     setLoading(false)
   }
 

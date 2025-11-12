@@ -65,8 +65,12 @@ export async function GET(request: Request) {
   const canAdd = canAddEmailAccount(planId, count || 0)
   
   if (!canAdd) {
-    console.log('❌ Limite de plan atteinte, redirection vers dashboard')
-    return NextResponse.redirect(`${baseUrl}/dashboard?error=plan_limit_reached&feature=email`)
+    console.log('❌ Limite de plan atteinte')
+    return NextResponse.json({ 
+      error: 'plan_limit_reached',
+      feature: 'email',
+      message: 'Vous avez atteint la limite de comptes e-mail de votre plan actuel.'
+    }, { status: 403 })
   }
 
   const { searchParams } = new URL(request.url)

@@ -27,6 +27,52 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/auth/login`)
   }
 
+  // Récupérer le workspace_id depuis les paramètres de requête (comme Gmail)
+  const state = searchParams.get('state') || ''
+  const stateParams = new URLSearchParams(state)
+  let workspaceId = stateParams.get('workspaceId') || null
+
+  // IMPORTANT: Pour un workspace personnel, on met toujours workspace_id à null
+  // Vérifier si c'est un workspace personnel en vérifiant le type depuis la DB
+  // Si workspaceId est 'personal', vide, ou si c'est un workspace personnel, on met null
+  // STRATÉGIE: Par défaut, considérer comme personnel (workspace_id = null) sauf si on peut prouver que c'est une organisation
+  if (workspaceId === 'personal' || workspaceId?.trim() === '' || !workspaceId) {
+    workspaceId = null
+    console.log('✅ [OUTLOOK] Workspace personnel détecté (personal/vide/null), workspace_id = null')
+  } else if (workspaceId) {
+    // Si workspaceId est fourni, vérifier si c'est un workspace personnel
+    // Utiliser directement Supabase pour vérifier le type
+    try {
+      console.log('🔍 [OUTLOOK] Vérification type workspace pour ID:', workspaceId)
+      const { data: workspace, error: workspaceError } = await supabase
+        .from('workspaces')
+        .select('type')
+        .eq('id', workspaceId)
+        .eq('owner_id', user.id)
+        .single()
+      
+      if (!workspaceError && workspace) {
+        if (workspace.type === 'personal') {
+          console.log('✅ [OUTLOOK] Workspace personnel détecté via DB, workspace_id = null')
+          workspaceId = null
+        } else {
+          console.log('✅ [OUTLOOK] Workspace organisation détecté, workspace_id =', workspaceId)
+          // Garder le workspaceId pour les organisations
+        }
+      } else {
+        // Workspace non trouvé ou erreur, considérer comme personnel par défaut
+        console.log('⚠️ [OUTLOOK] Workspace non trouvé ou erreur DB, considéré comme personnel (workspace_id = null)')
+        workspaceId = null
+      }
+    } catch (error) {
+      console.warn('⚠️ [OUTLOOK] Erreur lors de la vérification du type de workspace:', error)
+      // En cas d'erreur, considérer comme personnel par défaut (sécurité)
+      workspaceId = null
+    }
+  }
+  
+  console.log('📋 [OUTLOOK] Workspace ID final pour sauvegarde:', workspaceId)
+
   try {
     const clientId = process.env.MICROSOFT_CLIENT_ID
     const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
@@ -105,31 +151,83 @@ export async function GET(request: Request) {
           refresh_token: tokens.refresh_token,
           token_expires_at: expiresAt.toISOString(),
           is_active: true,
+          workspace_id: workspaceId,
         })
         .eq('id', existingAccount.id)
       
       dbError = error
+      if (dbError) {
+        console.error('❌ [OUTLOOK] Erreur UPDATE compte existant:', {
+          error: dbError,
+          code: dbError.code,
+          message: dbError.message,
+          details: dbError.details,
+          hint: dbError.hint,
+          accountId: existingAccount.id,
+          workspaceId: workspaceId
+        })
+      }
     } else {
       // Insert new account
+      const insertData = {
+        user_id: user.id,
+        provider: 'outlook',
+        email: userEmail,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_expires_at: expiresAt.toISOString(),
+        is_active: true,
+        workspace_id: workspaceId,
+      }
+      
+      console.log('🔍 [OUTLOOK] Tentative INSERT avec données:', {
+        ...insertData,
+        access_token: insertData.access_token ? '[REDACTED]' : null,
+        refresh_token: insertData.refresh_token ? '[REDACTED]' : null,
+      })
+      
       const { error } = await supabase
         .from('email_accounts')
-        .insert({
-          user_id: user.id,
-          provider: 'outlook',
-          email: userEmail,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
-          token_expires_at: expiresAt.toISOString(),
-          is_active: true,
-        })
+        .insert(insertData)
       
       dbError = error
+      if (dbError) {
+        console.error('❌ [OUTLOOK] Erreur INSERT nouveau compte:', {
+          error: dbError,
+          code: dbError.code,
+          message: dbError.message,
+          details: dbError.details,
+          hint: dbError.hint,
+          insertData: {
+            ...insertData,
+            access_token: '[REDACTED]',
+            refresh_token: '[REDACTED]',
+          }
+        })
+      }
     }
 
     if (dbError) {
-      console.error('Error saving Outlook account:', dbError)
+      console.error('❌ [OUTLOOK] Erreur base de données complète:', JSON.stringify(dbError, null, 2))
+      
+      // Si l'erreur indique qu'une colonne n'existe pas, donner un message plus clair
+      if (dbError.code === '42703' || dbError.message?.includes('column') || dbError.message?.includes('does not exist')) {
+        console.error('❌ [OUTLOOK] COLONNE MANQUANTE DÉTECTÉE!')
+        console.error('❌ [OUTLOOK] Exécutez cette migration SQL dans Supabase:')
+        console.error(`
+-- Migration pour ajouter les colonnes manquantes à email_accounts
+ALTER TABLE email_accounts 
+ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE email_accounts 
+ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL;
+        `)
+      }
+      
       return NextResponse.redirect(`${origin}/dashboard/settings?error=database_error`)
     }
+
+    console.log('✅ [OUTLOOK] Compte sauvegardé avec succès pour user:', user.id, 'email:', userEmail, 'workspace_id:', workspaceId)
 
     return NextResponse.redirect(`${origin}/dashboard/settings?success=outlook_connected`)
   } catch (err) {

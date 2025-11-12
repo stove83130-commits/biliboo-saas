@@ -45,11 +45,10 @@ export async function POST(request: NextRequest) {
       fileContent = result.content
       fileName = result.fileName
       mimeType = 'text/csv'
-    } else if (format === 'excel') {
-      const result = generateExcel(invoices, options)
-      fileContent = result.content
-      fileName = result.fileName
-      mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    } else if (format === 'zip') {
+      // Pour ZIP, on doit utiliser l'API route.ts qui gère JSZip
+      // Ici on retourne une erreur car ZIP doit être géré par /api/exports
+      return NextResponse.json({ error: 'ZIP format doit être exporté via /api/exports' }, { status: 400 })
     } else if (format === 'pdf') {
       const result = generatePDF(invoices, options)
       fileContent = result.content
@@ -89,20 +88,70 @@ export async function POST(request: NextRequest) {
           'Content-Disposition': `attachment; filename="${fileName}"`,
         },
       })
-    } else if (destination === 'email') {
-      // TODO: Implémenter l'envoi par email
-      return NextResponse.json({
-        success: true,
-        message: `Export envoyé à ${destinationEmail}`,
-        exportId: exportRecord?.id,
-      })
-    } else if (destination === 'cloud') {
-      // TODO: Implémenter l'upload vers le cloud
-      return NextResponse.json({
-        success: true,
-        message: 'Export sauvegardé dans le cloud',
-        exportId: exportRecord?.id,
-      })
+    } else if (destination === 'email' && destinationEmail) {
+      // Envoyer le fichier par email
+      console.log('🔍 [EXPORTS GENERATE] Envoi par email à:', destinationEmail, 'format:', format)
+      try {
+        // Convertir le contenu en base64 pour l'envoi
+        let fileBase64: string
+        if (format === 'pdf') {
+          // Pour PDF (HTML), convertir en base64
+          fileBase64 = Buffer.from(fileContent, 'utf-8').toString('base64')
+        } else {
+          // Pour CSV, convertir en base64
+          fileBase64 = Buffer.from(fileContent, 'utf-8').toString('base64')
+        }
+
+        // Déterminer le type MIME et l'extension
+        const attachmentType = format === 'pdf' ? 'text/html' : 'text/csv'
+        const attachmentExtension = format === 'pdf' ? 'html' : 'csv'
+
+        // Appeler l'API d'envoi d'email
+        const origin = request.headers.get('origin') || request.headers.get('host')
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (origin ? `https://${origin}` : 'http://localhost:3001')
+        
+        const emailResponse = await fetch(`${baseUrl}/api/exports/email`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: destinationEmail,
+            emailType: 'exports',
+            subject: `Export ${format.toUpperCase()} - ${invoices.length} facture${invoices.length > 1 ? 's' : ''}`,
+            attachments: [{
+              filename: `export_factures_${new Date().toISOString().split('T')[0]}.${attachmentExtension}`,
+              content: fileBase64,
+              type: attachmentType
+            }]
+          }),
+        })
+
+        const emailData = await emailResponse.json()
+        if (!emailResponse.ok || !emailData.ok) {
+          console.error('❌ [EXPORTS GENERATE] Erreur envoi email:', emailData.error)
+          return NextResponse.json({
+            success: false,
+            error: emailData.error || 'Erreur lors de l\'envoi de l\'email',
+            exportId: exportRecord?.id,
+          }, { status: 500 })
+        }
+
+        console.log('✅ [EXPORTS GENERATE] Email envoyé avec succès')
+        return NextResponse.json({
+          success: true,
+          message: `Export envoyé à ${destinationEmail}`,
+          exportId: exportRecord?.id,
+          emailSent: true,
+        })
+      } catch (emailError: any) {
+        console.error('❌ [EXPORTS GENERATE] Erreur lors de l\'envoi de l\'email:', emailError)
+        return NextResponse.json({
+          success: false,
+          error: emailError.message || 'Erreur lors de l\'envoi de l\'email',
+          exportId: exportRecord?.id,
+        }, { status: 500 })
+      }
     }
 
     return NextResponse.json({ success: true })
@@ -167,20 +216,6 @@ function generateCSV(invoices: any[], options: any) {
   const fileName = `export_factures_${new Date().toISOString().split('T')[0]}.csv`
 
   return { content: csv, fileName }
-}
-
-// Générer un fichier Excel (format CSV amélioré pour Excel)
-function generateExcel(invoices: any[], options: any) {
-  // Pour simplifier, on génère un CSV compatible Excel avec BOM UTF-8
-  const result = generateCSV(invoices, options)
-  
-  // Ajouter le BOM UTF-8 pour Excel
-  const bom = '\uFEFF'
-  const content = bom + result.content
-  
-  const fileName = `export_factures_${new Date().toISOString().split('T')[0]}.csv`
-  
-  return { content, fileName }
 }
 
 // Générer un fichier PDF

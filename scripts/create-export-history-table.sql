@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS export_history (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   
   -- Détails de l'export
-  format TEXT NOT NULL CHECK (format IN ('pdf', 'excel', 'csv')),
+  format TEXT NOT NULL CHECK (format IN ('pdf', 'excel', 'csv', 'zip')),
   invoice_count INTEGER NOT NULL,
   total_amount DECIMAL(10, 2),
   
@@ -52,7 +52,7 @@ CREATE POLICY "Users can delete their own exports"
 
 -- Commentaires
 COMMENT ON TABLE export_history IS 'Historique des exports de factures';
-COMMENT ON COLUMN export_history.format IS 'Format d''export: pdf, excel ou csv';
+COMMENT ON COLUMN export_history.format IS 'Format d''export: pdf, excel, csv ou zip';
 COMMENT ON COLUMN export_history.destination IS 'Destination: download, email ou cloud';
 COMMENT ON COLUMN export_history.expires_at IS 'Date d''expiration du fichier (30 jours par défaut)';
 

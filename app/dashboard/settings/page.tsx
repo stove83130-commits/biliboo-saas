@@ -77,7 +77,7 @@ function SettingsPageContent() {
         setWorkspaceType('personal')
       } finally {
         setIsInitialized(true)
-      }
+    }
     }
     
     loadWorkspaceType()
@@ -132,6 +132,7 @@ function SettingsPageContent() {
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [emailLimitError, setEmailLimitError] = useState<string | null>(null)
 
   // IMPORTANT: Définir fetchEmailAccounts AVANT les useEffect qui l'utilisent
   const fetchEmailAccounts = useCallback(async () => {
@@ -272,7 +273,7 @@ function SettingsPageContent() {
   useEffect(() => {
     // Ne charger les comptes que si le workspace est initialisé ET que workspaceType est chargé
     if (isInitialized && workspaceType !== null) {
-      fetchEmailAccounts()
+    fetchEmailAccounts()
     }
     const handler = () => fetchEmailAccounts()
     if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
@@ -311,7 +312,19 @@ function SettingsPageContent() {
         fetchEmailAccounts()
       }, 2000)
     } else if (error) {
-      alert(`❌ Erreur: ${error}`)
+      let errorMessage = 'Une erreur est survenue'
+      if (error === 'database_error') {
+        errorMessage = '❌ Erreur de base de données. Vérifiez que les colonnes token_expires_at et workspace_id existent dans la table email_accounts. Consultez les logs du serveur pour plus de détails.'
+      } else if (error === 'outlook_connection_failed') {
+        errorMessage = '❌ Échec de la connexion Outlook. Vérifiez vos identifiants Microsoft.'
+      } else if (error === 'no_code') {
+        errorMessage = '❌ Code d\'autorisation manquant. Réessayez la connexion.'
+      } else if (error === 'connection_failed') {
+        errorMessage = '❌ Échec de la connexion. Vérifiez votre connexion internet et réessayez.'
+      } else {
+        errorMessage = `❌ Erreur: ${error}`
+      }
+      alert(errorMessage)
       router.replace('/dashboard/settings')
     } else if (upgrade === 'true') {
       setShowUpgradeModal(true)
@@ -319,15 +332,35 @@ function SettingsPageContent() {
     }
   }, [searchParams, fetchEmailAccounts])
 
-  const handleConnectGmail = () => {
-    // Pour ajouter un compte Gmail, on utilise toujours 'personal' ou on ne passe pas de workspaceId
-    // Cela permet d'ajouter un compte personnel sans vérifier les permissions de workspace
-    const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
-    // Ne passer workspaceId que si c'est vraiment un workspace d'organisation (pas 'personal')
-    const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' && activeWorkspaceId.trim() !== '' 
-      ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` 
-      : ''
-    window.location.href = `/api/gmail/connect${qs}`
+  const handleConnectGmail = async () => {
+    try {
+      setEmailLimitError(null)
+      // Vérifier d'abord la limite avant de rediriger
+      const checkResponse = await fetch('/api/gmail/check-limit')
+      
+      if (!checkResponse.ok) {
+        const errorData = await checkResponse.json()
+        if (errorData.error === 'plan_limit_reached') {
+          setEmailLimitError('Vous avez atteint la limite de comptes e-mail de votre plan actuel. Upgradez votre plan pour connecter plus de comptes e-mail.')
+          return
+        }
+      }
+
+      // Si la limite n'est pas atteinte, rediriger vers l'API de connexion
+      const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
+      const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' && activeWorkspaceId.trim() !== '' 
+        ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` 
+        : ''
+      window.location.href = `/api/gmail/connect${qs}`
+    } catch (error) {
+      console.error('Erreur lors de la connexion Gmail:', error)
+      // En cas d'erreur, essayer la redirection classique
+      const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
+      const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' && activeWorkspaceId.trim() !== '' 
+        ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` 
+        : ''
+      window.location.href = `/api/gmail/connect${qs}`
+    }
   }
 
   // Fonctions de scan supprimées - utiliser l'onglet "Extraction" à la place
@@ -379,15 +412,15 @@ function SettingsPageContent() {
           <div className="flex gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="gap-2"
-                  disabled={!hasActivePlan}
-                >
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              disabled={!hasActivePlan}
+            >
                   <Plus className="h-4 w-4" /> Ajouter un compte
                   <ChevronDown className="h-4 w-4" />
-                </Button>
+            </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
@@ -398,10 +431,10 @@ function SettingsPageContent() {
                   <GoogleLogo className="h-4 w-4" /> Gmail
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')}
+              onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')} 
                   disabled={!hasActivePlan}
-                  className="gap-2"
-                >
+              className="gap-2"
+            >
                   <MicrosoftLogo className="h-4 w-4" /> Outlook
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -419,7 +452,7 @@ function SettingsPageContent() {
         <Card className="p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="text-sm font-medium text-foreground">Comptes Gmail connectés</div>
-            {permissions.canManageEmailConnections && emailAccounts.filter(a=>a.provider==='gmail').length === 0 && (
+            {permissions.canManageEmailConnections && (
               <Button
                 onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
                 variant="outline"
@@ -431,6 +464,21 @@ function SettingsPageContent() {
               </Button>
             )}
           </div>
+          {emailLimitError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm font-medium text-red-600 mb-2">{emailLimitError}</p>
+              <Button
+                onClick={() => window.location.href = '/plans'}
+                size="sm"
+                className="text-white hover:opacity-90 transition-all"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
+                }}
+              >
+                Voir les plans
+              </Button>
+            </div>
+          )}
           <div className="flex flex-col gap-3">
             {loading ? (
               <div className="flex items-center justify-center py-4">

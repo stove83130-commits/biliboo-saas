@@ -14,8 +14,11 @@ import {
   AlertCircle,
   ArrowUpRight,
   Sparkles,
-  X
+  X,
+  Receipt,
+  Check
 } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
   DialogContent,
@@ -26,6 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { createClient } from "@/lib/supabase/client"
 import { PLANS } from "@/lib/billing/plans"
+import { AddPaymentMethodDialog } from "@/components/billing/add-payment-method-dialog"
 
 interface Subscription {
   plan: string
@@ -36,11 +40,28 @@ interface Subscription {
 
 interface Invoice {
   id: string
+  type: 'payment' | 'invoice'
   amount: number
   currency: string
   status: string
-  created_at: string
-  invoice_pdf: string | null
+  created: string
+  created_at?: string
+  description: string
+  receipt_url?: string | null
+  invoice_pdf?: string | null
+}
+
+interface PaymentMethod {
+  id: string
+  type: string
+  card: {
+    brand: string
+    last4: string
+    exp_month: number
+    exp_year: number
+  } | null
+  isDefault: boolean
+  created: string
 }
 
 interface Workspace {
@@ -54,10 +75,14 @@ interface Workspace {
 function BillingPageContent() {
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [reactivating, setReactivating] = useState(false)
+  const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false)
+  const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false)
   const searchParams = useSearchParams()
   const supabase = createClient()
   
@@ -118,8 +143,24 @@ function BillingPageContent() {
         setWorkspaces(workspacesData)
       }
 
-      // Charger les factures (simulé pour l'instant)
-      setInvoices([])
+      // Charger les factures depuis Stripe
+      try {
+        const paymentsResponse = await fetch('/api/billing/payments')
+        if (paymentsResponse.ok) {
+          const paymentsData = await paymentsResponse.json()
+          setInvoices(paymentsData.payments || [])
+          console.log('✅ Factures chargées:', paymentsData.payments?.length || 0)
+        } else {
+          console.warn('⚠️ Erreur chargement factures:', await paymentsResponse.text())
+          setInvoices([])
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement factures:', error)
+        setInvoices([])
+      }
+
+      // Charger les méthodes de paiement
+      await loadPaymentMethods()
       
       // Synchronisation automatique si l'utilisateur a un stripe_customer_id mais pas de plan
       // Cela indique qu'il a probablement payé mais que le webhook n'a pas fonctionné
@@ -224,6 +265,79 @@ function BillingPageContent() {
     return () => clearInterval(intervalId)
   }, [])
 
+  const loadPaymentMethods = async () => {
+    try {
+      setLoadingPaymentMethods(true)
+      const response = await fetch('/api/billing/payment-methods')
+      if (response.ok) {
+        const data = await response.json()
+        setPaymentMethods(data.paymentMethods || [])
+        console.log('✅ Méthodes de paiement chargées:', data.paymentMethods?.length || 0)
+      } else {
+        console.warn('⚠️ Erreur chargement méthodes de paiement')
+        setPaymentMethods([])
+      }
+    } catch (error) {
+      console.error('❌ Erreur chargement méthodes de paiement:', error)
+      setPaymentMethods([])
+    } finally {
+      setLoadingPaymentMethods(false)
+    }
+  }
+
+  const handleSetDefault = async (paymentMethodId: string) => {
+    try {
+      const response = await fetch('/api/billing/payment-methods', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMethodId }),
+      })
+
+      if (response.ok) {
+        await loadPaymentMethods()
+        alert('Méthode de paiement par défaut mise à jour')
+      } else {
+        const error = await response.json()
+        alert(`Erreur: ${error.error || 'Impossible de mettre à jour la méthode par défaut'}`)
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      alert('Erreur lors de la mise à jour')
+    }
+  }
+
+  const handleDeletePaymentMethod = async (paymentMethodId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cette méthode de paiement ?')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/billing/payment-methods?id=${paymentMethodId}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        await loadPaymentMethods()
+        alert('Méthode de paiement supprimée')
+      } else {
+        const error = await response.json()
+        alert(`Erreur: ${error.error || 'Impossible de supprimer la méthode de paiement'}`)
+      }
+    } catch (error) {
+      console.error('Erreur:', error)
+      alert('Erreur lors de la suppression')
+    }
+  }
+
+  const handleAddPaymentMethod = () => {
+    setShowAddPaymentDialog(true)
+  }
+
+  const handlePaymentMethodAdded = async () => {
+    await loadPaymentMethods()
+    alert('Méthode de paiement ajoutée avec succès')
+  }
+
   const handleUpgrade = () => {
     window.location.href = '/plans'
   }
@@ -272,6 +386,41 @@ function BillingPageContent() {
     }
   }
 
+  const handleReactivateSubscription = async () => {
+    if (!subscription?.plan) {
+      alert('Aucun plan trouvé pour réactiver.')
+      return
+    }
+
+    setReactivating(true)
+    try {
+      const response = await fetch('/api/billing/reactivate-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          plan: subscription.plan
+        }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Recharger les données pour afficher le statut réactivé
+        await loadBillingData(true)
+        alert('Votre abonnement a été réactivé avec succès !')
+      } else {
+        alert(`Erreur lors de la réactivation: ${data.error || 'Erreur inconnue'}`)
+      }
+    } catch (error: any) {
+      console.error('Erreur réactivation:', error)
+      alert('Erreur lors de la réactivation de l\'abonnement. Veuillez réessayer.')
+    } finally {
+      setReactivating(false)
+    }
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('fr-FR', {
       day: 'numeric',
@@ -281,6 +430,7 @@ function BillingPageContent() {
   }
 
   const formatCurrency = (amount: number, currency: string = 'EUR') => {
+    // Stripe retourne les montants en centimes, donc on divise par 100
     return new Intl.NumberFormat('fr-FR', {
       style: 'currency',
       currency: currency
@@ -333,110 +483,211 @@ function BillingPageContent() {
       </div>
 
       <div className="space-y-8">
-        {/* Plan actuel */}
-        <Card className="p-6 border-0 shadow-none bg-accent/30">
-          <div className="mb-6">
-            <h2 className="text-lg font-medium text-foreground">Plan actuel</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Plan */}
-            <div>
-              <p className="text-xs text-muted-foreground mb-2">Plan</p>
-              <div className="flex items-center gap-2">
-                <Badge className={`${subscription?.plan ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} border-0 text-sm px-2.5 py-1 font-medium`}>
-                  {getPlanName(subscription?.plan || null)}
-                </Badge>
-                <span className="text-lg font-semibold text-foreground">
-                  {getPlanPrice(subscription?.plan || null)}
-                </span>
+        {/* Plan actuel - Carte compacte */}
+        {subscription?.plan ? (
+          <div className="relative">
+            <div
+              className={`p-4 overflow-hidden rounded-xl flex flex-col justify-start items-start gap-4 relative z-10 ${
+                subscription.status === 'active' && !subscription.cancel_at_period_end
+                  ? "bg-primary shadow-[0px_4px_8px_-2px_rgba(0,0,0,0.10)]"
+                  : "bg-gray-50 shadow-sm"
+              }`}
+              style={subscription.status === 'active' && !subscription.cancel_at_period_end ? {} : { outline: "1px solid hsl(var(--border))", outlineOffset: "-1px" }}
+            >
+              <div className="self-stretch flex flex-col justify-start items-start gap-4">
+                <div className="w-full flex items-center justify-between">
+                  <div className={`text-sm font-semibold leading-tight ${
+                    subscription.status === 'active' && !subscription.cancel_at_period_end
+                      ? "text-primary-foreground"
+                      : "text-gray-900"
+                  }`}>
+                    {getPlanName(subscription.plan)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {subscription.status === 'active' && !subscription.cancel_at_period_end ? (
+                      <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Actif
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-gray-100 text-gray-600 border-gray-200 text-xs">
+                        <XCircle className="h-3 w-3 mr-1" />
+                        {subscription.cancel_at_period_end ? 'En annulation' : 'Inactif'}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="self-stretch flex flex-col justify-start items-start gap-1">
+                  <div className="flex justify-start items-center gap-1.5">
+                    <div className={`relative h-7 flex items-center text-lg font-semibold ${
+                      subscription.status === 'active' && !subscription.cancel_at_period_end
+                        ? "text-primary-foreground"
+                        : "text-gray-900"
+                    }`}>
+                      {getPlanPrice(subscription.plan)}
+                    </div>
+                    {subscription.plan !== 'enterprise' && (
+                      <div className={`text-xs font-medium ${
+                        subscription.status === 'active' && !subscription.cancel_at_period_end
+                          ? "text-primary-foreground/70"
+                          : "text-gray-600"
+                      }`}>
+                        /mois
+                      </div>
+                    )}
+                  </div>
+                  <div className={`text-xs font-medium ${
+                    subscription.status === 'active' && !subscription.cancel_at_period_end
+                      ? "text-primary-foreground/70"
+                      : "text-gray-600"
+                  }`}>
+                    {subscription.plan === 'starter' && 'Pour les indépendants et freelances'}
+                    {subscription.plan === 'pro' && 'Pour les petites entreprises'}
+                    {subscription.plan === 'business' && 'Pour les PME et cabinets comptables'}
+                    {subscription.plan === 'enterprise' && 'Pour les grands groupes'}
+                  </div>
+                </div>
+                <div className="self-stretch flex flex-col justify-start items-start gap-2">
+                  <div className={`text-xs font-medium ${
+                    subscription.status === 'active' && !subscription.cancel_at_period_end
+                      ? "text-primary-foreground/70"
+                      : "text-gray-700"
+                  }`}>
+                    Fonctionnalités incluses :
+                  </div>
+                  <div className="self-stretch flex flex-col justify-start items-start gap-2">
+                    {PLANS[subscription.plan]?.features.slice(0, 3).map((feature) => (
+                      <div key={feature} className="self-stretch flex justify-start items-center gap-2">
+                        <div className="w-3 h-3 flex items-center justify-center flex-shrink-0">
+                          <Check
+                            className={`w-full h-full ${
+                              subscription.status === 'active' && !subscription.cancel_at_period_end
+                                ? "text-primary-foreground"
+                                : "text-gray-700"
+                            }`}
+                            strokeWidth={2}
+                          />
+                        </div>
+                        <div className={`leading-tight font-normal text-xs text-left ${
+                          subscription.status === 'active' && !subscription.cancel_at_period_end
+                            ? "text-primary-foreground"
+                            : "text-gray-700"
+                        }`}>
+                          {feature}
+                        </div>
+                      </div>
+                    ))}
+                    {PLANS[subscription.plan]?.features.length > 3 && (
+                      <div className={`text-xs ${
+                        subscription.status === 'active' && !subscription.cancel_at_period_end
+                          ? "text-primary-foreground/70"
+                          : "text-gray-600"
+                      }`}>
+                        + {PLANS[subscription.plan].features.length - 3} autres fonctionnalités
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+              
+              {subscription.cancel_at_period_end && (
+                <div className="self-stretch mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-2 mb-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-amber-900">
+                        Abonnement en cours d'annulation
+                      </p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        Annulation le {formatDate(subscription.current_period_end)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleReactivateSubscription}
+                    disabled={reactivating}
+                    size="sm"
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white text-xs h-8"
+                  >
+                    {reactivating ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                        Réactivation...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Réactiver
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
 
-            {/* Statut */}
-            <div>
-              <p className="text-xs text-muted-foreground mb-2">Statut</p>
-              <div className="flex items-center gap-2">
-                {subscription?.plan && subscription?.status === 'active' ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <span className="text-sm font-medium text-foreground">Actif</span>
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="h-4 w-4 text-gray-400" />
-                    <span className="text-sm font-medium text-muted-foreground">
-                      {subscription?.plan ? 'Inactif' : 'Aucun plan'}
-                    </span>
-                  </>
+              {/* Actions */}
+              <div className="self-stretch pt-3 border-t border-border/30 flex gap-2 flex-wrap">
+                {subscription.plan !== 'enterprise' && subscription.status === 'active' && !subscription.cancel_at_period_end && (
+                  <Button
+                    onClick={handleUpgrade}
+                    size="sm"
+                    className={`text-xs h-8 ${
+                      subscription.status === 'active' && !subscription.cancel_at_period_end
+                        ? "bg-white text-primary hover:bg-white/90"
+                        : "bg-gray-100 text-gray-800 hover:bg-gray-200"
+                    }`}
+                  >
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    Améliorer
+                  </Button>
                 )}
-              </div>
-            </div>
-
-            {/* Prochaine facturation */}
-            <div>
-              <p className="text-xs text-muted-foreground mb-2">Prochaine facturation</p>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">
-                  {subscription?.current_period_end 
-                    ? formatDate(subscription.current_period_end)
-                    : '-'
-                  }
-                </span>
+                {subscription.status === 'active' && !subscription.cancel_at_period_end && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowCancelDialog(true)}
+                    className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs h-8"
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Annuler
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.location.href = '/plans'}
+                  className="text-xs h-8"
+                >
+                  <ArrowUpRight className="h-3 w-3 mr-1" />
+                  Voir tous les plans
+                </Button>
               </div>
             </div>
           </div>
-
-          {subscription?.cancel_at_period_end && (
-            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-amber-900">
-                  Abonnement en cours d'annulation
-                </p>
-                <p className="text-xs text-amber-700 mt-1">
-                  Votre abonnement sera annulé le {formatDate(subscription.current_period_end)}. 
-                  Vous pouvez le réactiver à tout moment.
-                </p>
+        ) : (
+          <Card className="p-6 border-0 shadow-none bg-accent/30">
+            <div className="text-center py-12">
+              <div className="h-16 w-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="h-8 w-8 text-muted-foreground" />
               </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="mt-6 pt-6 border-t border-border/30 flex gap-3 flex-wrap">
-            {subscription?.plan !== 'enterprise' && subscription?.status === 'active' && !subscription?.cancel_at_period_end && (
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                Aucun abonnement actif
+              </h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Choisissez un forfait pour commencer à utiliser toutes les fonctionnalités
+              </p>
               <Button
-                onClick={handleUpgrade}
+                onClick={() => window.location.href = '/plans'}
                 className="text-white hover:opacity-90 transition-all"
                 style={{
                   background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
                 }}
               >
-                <Sparkles className="h-4 w-4 mr-2" />
-                Améliorer mon plan
+                <ArrowUpRight className="h-4 w-4 mr-2" />
+                Voir tous les forfaits
               </Button>
-            )}
-            {subscription?.plan && subscription?.status === 'active' && !subscription?.cancel_at_period_end && (
-              <Button
-                variant="outline"
-                onClick={() => setShowCancelDialog(true)}
-                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Annuler l'abonnement
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => window.location.href = '/plans'}
-              className="border-border/30 hover:bg-accent"
-            >
-              <ArrowUpRight className="h-4 w-4 mr-2" />
-              Voir tous les plans
-            </Button>
-          </div>
-        </Card>
+            </div>
+          </Card>
+        )}
 
         {/* Espaces de travail inclus */}
         <Card className="p-6 border-0 shadow-none bg-accent/30">
@@ -515,6 +766,102 @@ function BillingPageContent() {
           </div>
         </Card>
 
+        {/* Méthodes de paiement */}
+        <Card className="p-6 border-0 shadow-none bg-accent/30">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-lg font-medium text-foreground">Méthodes de paiement</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAddPaymentMethod}
+              disabled={loadingPaymentMethods}
+            >
+              <CreditCard className="h-4 w-4 mr-2" />
+              Ajouter une méthode
+            </Button>
+          </div>
+
+          {loadingPaymentMethods ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+            </div>
+          ) : paymentMethods.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="h-16 w-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-4">
+                <CreditCard className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-base font-semibold text-foreground mb-2">
+                Aucune méthode de paiement
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Ajoutez une méthode de paiement pour faciliter vos futurs paiements
+              </p>
+              <Button variant="outline" onClick={handleAddPaymentMethod}>
+                <CreditCard className="h-4 w-4 mr-2" />
+                Ajouter une carte
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {paymentMethods.map((method) => (
+                <div
+                  key={method.id}
+                  className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                      <CreditCard className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      {method.card ? (
+                        <>
+                          <p className="text-sm font-medium text-foreground">
+                            {method.card.brand.toUpperCase()} •••• {method.card.last4}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Expire le {String(method.card.exp_month).padStart(2, '0')}/{method.card.exp_year}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm font-medium text-foreground">
+                          {method.type}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {method.isDefault && (
+                      <Badge className="bg-green-100 text-green-700 border-green-200">
+                        Par défaut
+                      </Badge>
+                    )}
+                    {!method.isDefault && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSetDefault(method.id)}
+                        >
+                          Définir par défaut
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeletePaymentMethod(method.id)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
         {/* Historique des factures */}
         <Card className="p-6 border-0 shadow-none bg-accent/30">
           <div className="mb-6">
@@ -534,53 +881,83 @@ function BillingPageContent() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {invoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 bg-green-50 rounded-lg flex items-center justify-center">
-                      <CreditCard className="h-5 w-5 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        Facture #{invoice.id.slice(0, 8)}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatDate(invoice.created_at)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {formatCurrency(invoice.amount, invoice.currency)}
-                      </p>
-                      <Badge
-                        className={
-                          invoice.status === 'paid'
-                            ? 'bg-green-100 text-green-700 border-green-200'
-                            : 'bg-gray-100 text-gray-700 border-gray-200'
-                        }
-                      >
-                        {invoice.status === 'paid' ? 'Payée' : 'En attente'}
-                      </Badge>
-                    </div>
-                    {invoice.invoice_pdf && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => window.open(invoice.invoice_pdf!, '_blank')}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border hover:bg-transparent">
+                    <TableHead className="text-xs text-muted-foreground">DATE</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">DESCRIPTION</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">MONTANT</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">STATUT</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">TAPER</TableHead>
+                    <TableHead className="text-xs text-muted-foreground">TÉLÉCHARGER</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invoices.map((invoice) => {
+                    const date = invoice.created || invoice.created_at || ''
+                    const status = invoice.status === 'paid' || invoice.status === 'succeeded' ? 'payé' : 
+                                  invoice.status === 'pending' ? 'en attente' : 
+                                  invoice.status === 'failed' ? 'échoué' : 'inconnu'
+                    const type = invoice.type === 'invoice' ? 'abonnement' : 'unique'
+                    const downloadUrl = invoice.invoice_pdf || invoice.receipt_url
+                    
+                    return (
+                      <TableRow key={invoice.id} className="border-border hover:bg-muted/50">
+                        <TableCell className="text-sm text-foreground">
+                          {date ? formatDate(date) : '-'}
+                        </TableCell>
+                        <TableCell className="text-sm text-foreground">
+                          {invoice.description || '-'}
+                        </TableCell>
+                        <TableCell className="text-sm font-semibold text-foreground">
+                          {formatCurrency(invoice.amount, invoice.currency)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={
+                              status === 'payé' || status === 'réussi'
+                                ? 'bg-green-100 text-green-700 border-green-200'
+                                : status === 'en attente'
+                                ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
+                                : status === 'échoué'
+                                ? 'bg-red-100 text-red-700 border-red-200'
+                                : 'bg-gray-100 text-gray-700 border-gray-200'
+                            }
+                          >
+                            {status === 'payé' ? 'payé' : status === 'réussi' ? 'réussi' : status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={
+                              type === 'abonnement'
+                                ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                : 'bg-purple-100 text-purple-700 border-purple-200'
+                            }
+                          >
+                            {type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {downloadUrl ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => window.open(downloadUrl, '_blank')}
+                            >
+                              <Download className="h-4 w-4 text-blue-600" />
+                            </Button>
+                          ) : (
+                            <Receipt className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </Card>
@@ -631,6 +1008,13 @@ function BillingPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog pour ajouter une méthode de paiement */}
+      <AddPaymentMethodDialog
+        open={showAddPaymentDialog}
+        onOpenChange={setShowAddPaymentDialog}
+        onSuccess={handlePaymentMethodAdded}
+      />
     </div>
   )
 }

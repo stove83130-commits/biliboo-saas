@@ -117,20 +117,32 @@ export default function NewOrganizationPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ex: Mon Entreprise"
-                  className="mt-2"
-                  disabled={loading}
+                  className={`mt-2 ${error ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
+                  disabled={loading || (!canCreateOrg && !isLoadingPermissions)}
                   autoFocus
                 />
                 <p className="text-xs text-gray-500 mt-2">
                   Ce nom sera visible par tous les membres de l'organisation
                 </p>
+                {error && (
+                  <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm font-medium text-red-600 mb-2">{error}</p>
+                    {error.includes('plan') && (
+                      <Button
+                        type="button"
+                        onClick={() => window.location.href = '/plans'}
+                        size="sm"
+                        className="mt-2 text-white hover:opacity-90 transition-all"
+                        style={{
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
+                        }}
+                      >
+                        Voir les plans
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
-
-              {error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
-              )}
 
               <div className="flex gap-3 pt-4">
                 <Button

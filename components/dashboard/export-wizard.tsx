@@ -16,10 +16,10 @@ import {
   FileSpreadsheet,
   Download,
   Mail,
-  Cloud,
   Check,
   Loader2,
-  X
+  X,
+  Archive
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -52,74 +52,153 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
   const [statusFilter, setStatusFilter] = useState("all")
   
   // Format
-  const [format, setFormat] = useState<"pdf" | "excel" | "csv">("pdf")
+  const [format, setFormat] = useState<"pdf" | "zip" | "csv">("pdf")
   
-  // Options PDF
-  const [pdfOptions, setPdfOptions] = useState({
-    includePaymentTerms: true,
-    includeNotes: false,
-    template: "classic"
-  })
-  
-  // Options Excel/CSV
-  const [columns, setColumns] = useState([
-    "invoice_number",
-    "vendor",
-    "date",
-    "amount",
-    "payment_status",
-    "category"
-  ])
+  // Options CSV
+  const [csvFormat, setCsvFormat] = useState<"compact" | "detailed">("compact")
   
   // Destination
-  const [destination, setDestination] = useState<"download" | "email" | "cloud">("download")
+  const [destination, setDestination] = useState<"download" | "email">("download")
   const [email, setEmail] = useState("")
   const [sendCopyToAccountant, setSendCopyToAccountant] = useState(false)
 
+  // Charger les factures au montage et quand les filtres changent
   useEffect(() => {
+    console.log('🔍 [EXPORT] useEffect déclenché - dateFilter:', dateFilter, 'statusFilter:', statusFilter)
     loadInvoices()
   }, [dateFilter, statusFilter])
 
+  // Charger aussi au montage initial
+  useEffect(() => {
+    console.log('🔍 [EXPORT] Montage initial du composant')
+    loadInvoices()
+  }, [])
+
   async function loadInvoices() {
+    console.log('🔍 [EXPORT] loadInvoices() appelé')
     setLoading(true)
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
     
-    if (!user) return
+    if (userError) {
+      console.error('❌ [EXPORT] Erreur authentification:', userError)
+      setLoading(false)
+      return
+    }
+    
+    if (!user) {
+      console.warn('⚠️ [EXPORT] Pas d\'utilisateur connecté')
+      setLoading(false)
+      return
+    }
 
-    // Récupérer le workspace actif - ISOLATION STRICTE
+    console.log('🔍 [EXPORT] Utilisateur connecté:', user.id)
+
+    // Récupérer le workspace actif
     const activeWorkspaceId = typeof window !== 'undefined' 
       ? localStorage.getItem('active_workspace_id') 
       : null
 
-    if (!activeWorkspaceId) return
+    console.log('🔍 [EXPORT] Chargement factures - Workspace ID:', activeWorkspaceId)
 
-    let query = supabase
+    // Déterminer le type de workspace (MÊME LOGIQUE QUE invoice-table-new.tsx)
+    let isPersonalWorkspace = false
+    if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
+      try {
+        const workspaceResponse = await fetch('/api/workspaces')
+        if (workspaceResponse.ok) {
+          const workspaceData = await workspaceResponse.json()
+          const workspace = workspaceData.workspaces?.find((w: any) => w.id === activeWorkspaceId)
+          if (workspace) {
+            isPersonalWorkspace = workspace.type === 'personal'
+          } else {
+            // Workspace non trouvé, considérer comme personnel par défaut
+            isPersonalWorkspace = true
+          }
+        } else {
+          isPersonalWorkspace = true
+        }
+      } catch (error) {
+        console.warn('⚠️ [EXPORT] Erreur lors de la vérification du type de workspace:', error)
+        isPersonalWorkspace = true
+      }
+    } else {
+      // Pas de workspace actif = workspace personnel
+      isPersonalWorkspace = true
+    }
+
+    console.log('🔍 [EXPORT] isPersonalWorkspace:', isPersonalWorkspace)
+
+    // 🔧 FIX : Charger TOUTES les factures de l'utilisateur, puis filtrer côté client (comme dans invoice-table-new.tsx)
+    const { data: allInvoices, error } = await supabase
       .from('invoices')
       .select('*')
       .eq('user_id', user.id)
-      .eq('workspace_id', activeWorkspaceId)
       .order('date', { ascending: false })
 
-    // Filtre par date
+    if (error) {
+      console.error('❌ [EXPORT] Erreur chargement factures:', error)
+      setInvoices([])
+      setLoading(false)
+      return
+    }
+
+    console.log('🔍 [EXPORT] Total factures récupérées:', allInvoices?.length || 0)
+
+    // Filtrer les factures selon le type de workspace (MÊME LOGIQUE QUE invoice-table-new.tsx)
+    let filteredInvoices = allInvoices || []
+    
+    if (isPersonalWorkspace) {
+      // Pour un workspace personnel, charger les factures avec workspace_id = null ou 'personal'
+      filteredInvoices = (allInvoices || []).filter((invoice: any) => 
+        invoice.workspace_id === null || 
+        invoice.workspace_id === 'personal' || 
+        !invoice.workspace_id
+      )
+      console.log('🔍 [EXPORT] Filtre workspace personnel appliqué:', filteredInvoices.length, 'factures sur', allInvoices?.length || 0)
+    } else if (activeWorkspaceId) {
+      // Pour un workspace d'organisation, charger uniquement les factures de ce workspace
+      filteredInvoices = (allInvoices || []).filter((invoice: any) => 
+        invoice.workspace_id === activeWorkspaceId
+      )
+      console.log('🔍 [EXPORT] Filtre workspace organisation appliqué:', filteredInvoices.length, 'factures sur', allInvoices?.length || 0)
+    } else {
+      // Par défaut, charger les factures personnelles
+      filteredInvoices = (allInvoices || []).filter((invoice: any) => 
+        invoice.workspace_id === null || 
+        invoice.workspace_id === 'personal' || 
+        !invoice.workspace_id
+      )
+      console.log('🔍 [EXPORT] Filtre par défaut (personnel) appliqué:', filteredInvoices.length, 'factures sur', allInvoices?.length || 0)
+    }
+
+    // Filtre par date (après filtrage workspace)
     if (dateFilter === "this_month") {
       const startOfMonth = new Date()
       startOfMonth.setDate(1)
       startOfMonth.setHours(0, 0, 0, 0)
-      query = query.gte('date', startOfMonth.toISOString())
+      filteredInvoices = filteredInvoices.filter((inv: any) => {
+        if (!inv.date) return false
+        const invoiceDate = new Date(inv.date)
+        return invoiceDate >= startOfMonth
+      })
     } else if (dateFilter === "last_3_months") {
       const threeMonthsAgo = new Date()
       threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
-      query = query.gte('date', threeMonthsAgo.toISOString())
+      filteredInvoices = filteredInvoices.filter((inv: any) => {
+        if (!inv.date) return false
+        const invoiceDate = new Date(inv.date)
+        return invoiceDate >= threeMonthsAgo
+      })
     }
 
     // Filtre par statut
     if (statusFilter !== "all") {
-      query = query.eq('payment_status', statusFilter)
+      filteredInvoices = filteredInvoices.filter((inv: any) => inv.payment_status === statusFilter)
     }
 
-    const { data } = await query
-    setInvoices(data || [])
+    console.log('🔍 [EXPORT] Factures après tous les filtres:', filteredInvoices.length)
+    setInvoices(filteredInvoices)
     setLoading(false)
   }
 
@@ -149,7 +228,15 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
     setExporting(true)
     
     try {
-      const response = await fetch('/api/exports/generate', {
+      // Récupérer le workspace actif
+      const activeWorkspaceId = typeof window !== 'undefined'
+        ? localStorage.getItem('active_workspace_id')
+        : null
+      
+      // Pour ZIP, PDF et CSV, utiliser /api/exports
+      const apiEndpoint = '/api/exports'
+      
+      const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,28 +245,66 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
           invoiceIds: selectedInvoices,
           format,
           options: {
-            pdfOptions,
-            columns,
+            csvFormat,
           },
           destination,
           destinationEmail: email,
+          workspaceId: activeWorkspaceId || null,
         }),
       })
 
       if (destination === 'download') {
-        // Télécharger le fichier
-        const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `export_factures_${new Date().toISOString().split('T')[0]}.${format === 'pdf' ? 'html' : 'csv'}`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-      } else {
+        // Pour tous les formats (ZIP, PDF, CSV), l'API retourne une URL publique Supabase
+        // On doit télécharger le fichier depuis cette URL
         const data = await response.json()
-        console.log('Export réussi:', data)
+        console.log(`🔍 [EXPORT] Réponse API ${format.toUpperCase()}:`, { ok: data.ok, url: data.url, error: data.error, status: response.status })
+        if (!response.ok || !data.ok) {
+          console.error(`❌ [EXPORT] Erreur API ${format.toUpperCase()}:`, data.error || data)
+          alert(data.error || `Erreur lors de la génération du fichier ${format.toUpperCase()}`)
+          setExporting(false)
+          return
+        }
+        if (data.ok && data.url) {
+          try {
+            // Télécharger le fichier depuis l'URL
+            const fileResponse = await fetch(data.url)
+            if (!fileResponse.ok) {
+              throw new Error(`Erreur HTTP: ${fileResponse.status}`)
+            }
+            const blob = await fileResponse.blob()
+            const url = window.URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            const extension = format === 'zip' ? 'zip' : format === 'pdf' ? 'pdf' : 'csv'
+            const fileName = `export_factures_${new Date().toISOString().split('T')[0]}.${extension}`
+            a.download = fileName
+            document.body.appendChild(a)
+            a.click()
+            window.URL.revokeObjectURL(url)
+            document.body.removeChild(a)
+          } catch (error) {
+            console.error(`Erreur téléchargement ${format.toUpperCase()}:`, error)
+            alert(`Erreur lors du téléchargement du fichier ${format.toUpperCase()}. Veuillez réessayer.`)
+          }
+        } else {
+          console.error(`Erreur: pas d'URL retournée pour le ${format.toUpperCase()}`, data)
+          alert(`Erreur: l'API n'a pas retourné d'URL pour le fichier ${format.toUpperCase()}`)
+        }
+      } else {
+        // Destination email
+        const data = await response.json()
+        console.log('🔍 [EXPORT] Réponse API email:', data)
+        if (!response.ok || (!data.ok && !data.success)) {
+          console.error('❌ [EXPORT] Erreur API email:', data.error || data)
+          alert(data.error || 'Erreur lors de l\'envoi de l\'email')
+          setExporting(false)
+          return
+        }
+        if (data.emailSent === false && data.emailError) {
+          alert(`Email non envoyé: ${data.emailError}`)
+        } else {
+          console.log('✅ [EXPORT] Email envoyé avec succès')
+        }
       }
 
       setExporting(false)
@@ -357,19 +482,19 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
               </div>
             </Card>
 
-            {/* Excel */}
+            {/* ZIP */}
             <Card 
-              className={`p-6 cursor-pointer transition-all ${format === 'excel' ? 'border-green-600 border-2 bg-green-50' : 'hover:border-gray-400'}`}
-              onClick={() => setFormat('excel')}
+              className={`p-6 cursor-pointer transition-all ${format === 'zip' ? 'border-green-600 border-2 bg-green-50' : 'hover:border-gray-400'}`}
+              onClick={() => setFormat('zip')}
             >
-              <RadioGroupItem value="excel" id="excel" className="sr-only" />
+              <RadioGroupItem value="zip" id="zip" className="sr-only" />
               <div className="text-center">
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 text-green-600 mb-4">
-                  <Table2 className="w-8 h-8" />
+                  <Archive className="w-8 h-8" />
                 </div>
-                <h3 className="font-semibold mb-2">Excel</h3>
+                <h3 className="font-semibold mb-2">ZIP</h3>
                 <p className="text-sm text-muted-foreground">
-                  Pour analyser les données
+                  Fichiers originaux compressés
                 </p>
               </div>
             </Card>
@@ -417,87 +542,121 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
           </p>
         </div>
 
-        {format === 'pdf' ? (
+        {format === 'csv' ? (
           <Card className="p-6 mb-8">
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="payment-terms"
-                  checked={pdfOptions.includePaymentTerms}
-                  onCheckedChange={(checked) => 
-                    setPdfOptions(prev => ({ ...prev, includePaymentTerms: checked as boolean }))
-                  }
-                />
-                <label htmlFor="payment-terms" className="text-sm font-medium">
-                  Inclure les conditions de paiement
-                </label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="notes"
-                  checked={pdfOptions.includeNotes}
-                  onCheckedChange={(checked) => 
-                    setPdfOptions(prev => ({ ...prev, includeNotes: checked as boolean }))
-                  }
-                />
-                <label htmlFor="notes" className="text-sm font-medium">
-                  Inclure les notes internes
-                </label>
-              </div>
-              
-              <div className="pt-4">
-                <Label>Modèle de présentation</Label>
-                <RadioGroup value={pdfOptions.template} onValueChange={(v) => setPdfOptions(prev => ({ ...prev, template: v }))}>
-                  <div className="flex items-center space-x-2 mt-2">
-                    <RadioGroupItem value="classic" id="classic" />
-                    <label htmlFor="classic">Classique</label>
+            <div className="mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
+                Choisissez le format de votre exportation CSV. Vous pouvez exporter les reçus sur une seule ligne ou détailler les lignes de commande.
+              </p>
+              <RadioGroup value={csvFormat} onValueChange={(v) => setCsvFormat(v as "compact" | "detailed")}>
+                <div className="space-y-4">
+                  {/* Format compact */}
+                  <div className={`border rounded-lg p-4 cursor-pointer transition-all ${csvFormat === 'compact' ? 'border-green-600 border-2 bg-green-50' : 'hover:border-gray-300'}`} onClick={() => setCsvFormat('compact')}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="compact" id="compact" />
+                        <label htmlFor="compact" className="font-semibold cursor-pointer">Une seule rangée par reçu</label>
+                      </div>
+                      <Badge className="bg-green-600">Recommandé</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Chaque reçu est exporté sur une seule ligne, les articles étant regroupés dans le champ « Résumé ». Idéal pour les logiciels de comptabilité et de reporting.
+                    </p>
+                    <div className="text-xs bg-white border rounded p-2 mb-2">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-1">NUMÉRO DE REÇU</th>
+                            <th className="text-left p-1">MARCHAND</th>
+                            <th className="text-left p-1">TOTAL</th>
+                            <th className="text-left p-1">RÉSUMÉ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="p-1">REC001</td>
+                            <td className="p-1">Starbucks</td>
+                            <td className="p-1">18,70 $</td>
+                            <td className="p-1">Café, Sandwich, Impôt</td>
+                          </tr>
+                          <tr>
+                            <td className="p-1">REC002</td>
+                            <td className="p-1">Amazon</td>
+                            <td className="p-1">49,99 $</td>
+                            <td className="p-1">Souris sans fil</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <div>✓ Format compact</div>
+                      <div>✓ Compatible avec la plupart des logiciels comptables</div>
+                      <div>✓ Analyse simplifiée des totaux des reçus</div>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="compact" id="compact" />
-                    <label htmlFor="compact">Compact</label>
+
+                  {/* Format détaillé */}
+                  <div className={`border rounded-lg p-4 cursor-pointer transition-all ${csvFormat === 'detailed' ? 'border-green-600 border-2 bg-green-50' : 'hover:border-gray-300'}`} onClick={() => setCsvFormat('detailed')}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="detailed" id="detailed" />
+                        <label htmlFor="detailed" className="font-semibold cursor-pointer">Plusieurs lignes par reçu</label>
+                      </div>
+                      <Badge variant="outline">Détaillé</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Chaque poste de dépense est présenté sur une ligne distincte avec des informations détaillées. Idéal pour une analyse approfondie des dépenses et la création de rapports détaillés par article.
+                    </p>
+                    <div className="text-xs bg-white border rounded p-2 mb-2">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-1">IDENTIFIANT</th>
+                            <th className="text-left p-1">MARCHAND</th>
+                            <th className="text-left p-1">TOTAL</th>
+                            <th className="text-left p-1">DESCRIPTION</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="p-1">REC001</td>
+                            <td className="p-1">Starbucks</td>
+                            <td className="p-1">18,70 $</td>
+                            <td className="p-1">Café</td>
+                          </tr>
+                          <tr>
+                            <td className="p-1">REC001</td>
+                            <td className="p-1">Starbucks</td>
+                            <td className="p-1">18,70 $</td>
+                            <td className="p-1">Sandwich</td>
+                          </tr>
+                          <tr>
+                            <td className="p-1">REC001</td>
+                            <td className="p-1">Starbucks</td>
+                            <td className="p-1">18,70 $</td>
+                            <td className="p-1">Impôt</td>
+                          </tr>
+                          <tr>
+                            <td className="p-1">REC002</td>
+                            <td className="p-1">Amazon</td>
+                            <td className="p-1">49,99 $</td>
+                            <td className="p-1">Souris sans fil</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <div>✓ Détails de chaque article</div>
+                      <div>✓ Quantité et prix unitaire</div>
+                      <div>✓ Taxes par article</div>
+                      <div>✓ Idéal pour l'analyse des stocks</div>
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="detailed" id="detailed" />
-                    <label htmlFor="detailed">Détaillé</label>
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-          </Card>
-        ) : (
-          <Card className="p-6 mb-8">
-            <Label className="mb-3 block">Colonnes à inclure</Label>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { id: 'invoice_number', label: 'Numéro de facture' },
-                { id: 'vendor', label: 'Fournisseur' },
-                { id: 'date', label: 'Date' },
-                { id: 'amount', label: 'Montant' },
-                { id: 'currency', label: 'Devise' },
-                { id: 'payment_status', label: 'Statut de paiement' },
-                { id: 'category', label: 'Catégorie' },
-                { id: 'description', label: 'Description' },
-              ].map((col) => (
-                <div key={col.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={col.id}
-                    checked={columns.includes(col.id)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setColumns(prev => [...prev, col.id])
-                      } else {
-                        setColumns(prev => prev.filter(c => c !== col.id))
-                      }
-                    }}
-                  />
-                  <label htmlFor={col.id} className="text-sm">
-                    {col.label}
-                  </label>
                 </div>
-              ))}
+              </RadioGroup>
             </div>
           </Card>
-        )}
+        ) : null}
 
         <div className="flex justify-between">
           <Button variant="outline" onClick={() => setStep(2)}>
@@ -587,25 +746,6 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
                 </div>
               )}
             </Card>
-
-            {/* Cloud */}
-            <Card 
-              className={`p-6 cursor-pointer transition-all ${destination === 'cloud' ? 'border-green-600 border-2 bg-green-50' : 'hover:border-gray-400'}`}
-              onClick={() => setDestination('cloud')}
-            >
-              <div className="flex items-center gap-4">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-orange-100 text-orange-600">
-                  <Cloud className="w-6 h-6" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold mb-1">Sauvegarder dans le cloud</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Google Drive / Dropbox (à configurer)
-                  </p>
-                </div>
-                <RadioGroupItem value="cloud" id="cloud" />
-              </div>
-            </Card>
           </div>
         </RadioGroup>
 
@@ -651,8 +791,12 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
               <span className="text-muted-foreground">Options</span>
               <span className="text-sm">
                 {format === 'pdf' 
-                  ? `Modèle ${pdfOptions.template}` 
-                  : `${columns.length} colonnes`}
+                  ? 'Fichier original' 
+                  : format === 'csv'
+                  ? `Format ${csvFormat === 'compact' ? 'compact' : 'détaillé'}`
+                  : format === 'zip'
+                  ? 'Archive ZIP'
+                  : '-'}
               </span>
             </div>
             <div className="flex justify-between items-center">
@@ -660,7 +804,6 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
               <span className="font-semibold">
                 {destination === 'download' && 'Téléchargement'}
                 {destination === 'email' && `Email à ${email}`}
-                {destination === 'cloud' && 'Cloud'}
               </span>
             </div>
           </div>
@@ -704,7 +847,6 @@ export function ExportWizard({ onClose, onComplete }: ExportWizardProps) {
         <p className="text-muted-foreground mb-8">
           {destination === 'download' && 'Votre fichier a été téléchargé'}
           {destination === 'email' && `Votre fichier a été envoyé à ${email}`}
-          {destination === 'cloud' && 'Votre fichier a été sauvegardé dans le cloud'}
         </p>
 
         <div className="flex gap-4 justify-center">

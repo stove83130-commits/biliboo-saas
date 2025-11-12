@@ -281,8 +281,8 @@ export default function ExtractionPage() {
               if (timeSinceCompleted >= minWaitTime && stableCountRef.current >= requiredStableChecks) {
                 console.log(`✅ [FRONTEND] Job terminé et stable avec ${invoicesCount} factures (${timeSinceCompleted}ms après "completed", ${stableCountRef.current} vérifications stables)`);
                 setLastResult(`✅ ${invoicesCount} factures extraites !`)
-                setIsProcessing(false)
-                setCurrentJobId(null)
+            setIsProcessing(false)
+            setCurrentJobId(null)
                 pollCountRef.current = 0
                 startTimeRef.current = null
                 completedAtRef.current = null
@@ -473,20 +473,20 @@ export default function ExtractionPage() {
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {emailConfigs.map((config) => (
+                    {emailConfigs.map((config) => (
                         <SelectItem key={config.id} value={config.id}>
-                          <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                             <div className="flex h-5 w-5 items-center justify-center">
-                              {config.email_provider === 'gmail' ? (
-                                <GoogleLogo className="h-4 w-4" />
-                              ) : (
-                                <MicrosoftLogo className="h-4 w-4" />
-                              )}
-                            </div>
+                            {config.email_provider === 'gmail' ? (
+                              <GoogleLogo className="h-4 w-4" />
+                            ) : (
+                              <MicrosoftLogo className="h-4 w-4" />
+                            )}
+                          </div>
                             <span>{config.imap_email}</span>
                           </div>
                         </SelectItem>
-                      ))}
+                    ))}
                     </SelectContent>
                   </Select>
                 )}
@@ -643,8 +643,8 @@ export default function ExtractionPage() {
                   <div className="flex items-center gap-2 mb-2">
                     {isProcessing ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                        <span className="text-blue-700 font-medium">Extraction en cours...</span>
+                    <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                    <span className="text-blue-700 font-medium">Extraction en cours...</span>
                       </>
                     ) : (
                       <>

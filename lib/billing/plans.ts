@@ -34,9 +34,7 @@ export const PLANS: Record<string, Plan> = {
     features: [
       '100 factures/mois incluses',
       '1 compte e-mail connecté',
-      'Extraction complète des données',
-      'Export CSV / PDF / ZIP',
-      '0,15 €/facture supplémentaire'
+      'Export CSV / PDF / ZIP'
     ]
   },
   pro: {
@@ -55,9 +53,7 @@ export const PLANS: Record<string, Plan> = {
       '300 factures/mois incluses',
       '3 comptes e-mail',
       'Espaces de travail (organisations)',
-      'Export automatique vers Google Drive ou votre comptable',
-      'Export CSV / PDF / ZIP',
-      '0,15 €/facture supplémentaire'
+      'Export CSV / PDF / ZIP'
     ]
   },
   business: {
@@ -77,8 +73,7 @@ export const PLANS: Record<string, Plan> = {
       '10 comptes e-mail',
       'Espaces de travail (organisations)',
       'Multi-organisations et utilisateurs illimités',
-      'Export CSV / PDF / ZIP',
-      '0,12 €/facture supplémentaire'
+      'Export CSV / PDF / ZIP'
     ]
   },
   enterprise: {

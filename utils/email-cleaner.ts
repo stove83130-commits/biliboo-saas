@@ -70,7 +70,27 @@ export function getEmailDomain(email: string): string {
  */
 export function extractCleanEmailFromProfile(profile: any): string {
   // Microsoft Graph retourne soit userPrincipalName soit mail
-  const email = profile.mail || profile.userPrincipalName || '';
-  return cleanEmailDisplay(email);
+  // Préférer 'mail' car c'est généralement l'email principal sans #EXT#
+  // userPrincipalName peut contenir #EXT# pour les comptes externes
+  let email = profile.mail || profile.userPrincipalName || '';
+  
+  // Nettoyer l'email
+  email = cleanEmailDisplay(email);
+  
+  // Si l'email contient #EXT# (compte Microsoft externe), essayer de le nettoyer
+  // Format: user_gmail.com#EXT#@domain.onmicrosoft.com
+  // On peut soit garder tel quel (si la contrainte DB le permet), soit extraire la partie avant #EXT#
+  if (email.includes('#EXT#')) {
+    // Option 1: Extraire la partie avant #EXT# et reconstruire avec le domaine
+    const parts = email.split('#EXT#');
+    if (parts.length === 2) {
+      const beforeExt = parts[0]; // user_gmail.com
+      const afterExt = parts[1]; // @domain.onmicrosoft.com
+      // Reconstruire: user_gmail.com@domain.onmicrosoft.com
+      email = beforeExt + afterExt;
+    }
+  }
+  
+  return email;
 }
 

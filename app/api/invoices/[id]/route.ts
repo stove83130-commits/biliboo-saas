@@ -81,7 +81,12 @@ export async function GET(
       subtotal: invoice.subtotal || null,
       tax_amount: invoice.tax_amount || null,
       tax_rate: invoice.tax_rate || null,
-      items: invoice.items || null,
+      items: invoice.items ? invoice.items.map((item: any) => ({
+        description: item.description || '',
+        quantity: item.quantity || 0,
+        unitPrice: item.unitPrice || item.unit_price || 0, // Support both formats
+        total: item.total || (item.quantity || 0) * (item.unitPrice || item.unit_price || 0),
+      })) : null,
       notes: invoice.notes || null,
       original_file_url: invoice.original_file_url || null,
       original_file_name: invoice.original_file_name || null,
@@ -124,41 +129,54 @@ export async function PATCH(
     console.log(`🔄 PATCH /api/invoices/${params.id} - User: ${user.id}`);
     console.log('📝 Données à mettre à jour:', Object.keys(body));
 
-    // 3. Mettre à jour la facture
+    // 3. Mapper les champs du frontend vers la base de données
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    // Mapping des champs (frontend -> DB)
+    if (body.supplier_name !== undefined) updateData.vendor = body.supplier_name;
+    if (body.amount !== undefined) updateData.amount = body.amount;
+    if (body.currency !== undefined) updateData.currency = body.currency;
+    if (body.invoice_date !== undefined) updateData.date = body.invoice_date;
+    if (body.invoice_number !== undefined) updateData.invoice_number = body.invoice_number;
+    if (body.category !== undefined) updateData.category = body.category;
+    if (body.description !== undefined) updateData.description = body.description;
+    if (body.payment_method !== undefined) updateData.payment_method = body.payment_method;
+    if (body.payment_status !== undefined) updateData.payment_status = body.payment_status;
+    if (body.vendor_address !== undefined) updateData.vendor_address = body.vendor_address;
+    if (body.vendor_city !== undefined) updateData.vendor_city = body.vendor_city;
+    if (body.vendor_country !== undefined) updateData.vendor_country = body.vendor_country;
+    if (body.vendor_phone !== undefined) updateData.vendor_phone = body.vendor_phone;
+    if (body.vendor_email !== undefined) updateData.vendor_email = body.vendor_email;
+    if (body.vendor_website !== undefined) updateData.vendor_website = body.vendor_website;
+    if (body.customer_name !== undefined) updateData.customer_name = body.customer_name;
+    if (body.customer_address !== undefined) updateData.customer_address = body.customer_address;
+    if (body.customer_city !== undefined) updateData.customer_city = body.customer_city;
+    if (body.customer_country !== undefined) updateData.customer_country = body.customer_country;
+    if (body.customer_phone !== undefined) updateData.customer_phone = body.customer_phone;
+    if (body.customer_email !== undefined) updateData.customer_email = body.customer_email;
+    if (body.customer_vat_number !== undefined) updateData.customer_vat_number = body.customer_vat_number;
+    if (body.due_date !== undefined) updateData.due_date = body.due_date;
+    if (body.payment_date !== undefined) updateData.payment_date = body.payment_date;
+    if (body.subtotal !== undefined) updateData.subtotal = body.subtotal;
+    if (body.tax_amount !== undefined) updateData.tax_amount = body.tax_amount;
+    if (body.tax_rate !== undefined) updateData.tax_rate = body.tax_rate;
+    if (body.items !== undefined) {
+      // Normaliser les items : convertir unitPrice en unit_price pour la DB
+      updateData.items = body.items.map((item: any) => ({
+        description: item.description || '',
+        quantity: item.quantity || 0,
+        unit_price: item.unitPrice || item.unit_price || 0,
+        total: item.total || (item.quantity || 0) * (item.unitPrice || item.unit_price || 0),
+      }));
+    }
+    if (body.notes !== undefined) updateData.notes = body.notes;
+
+    // 4. Mettre à jour la facture
     const { data: invoice, error } = await supabase
       .from('invoices')
-      .update({
-        vendor: body.vendor,
-        amount: body.amount,
-        currency: body.currency,
-        date: body.date,
-        invoice_number: body.invoice_number,
-        category: body.category,
-        description: body.description,
-        payment_method: body.payment_method,
-        payment_status: body.payment_status,
-        vendor_address: body.vendor_address,
-        vendor_city: body.vendor_city,
-        vendor_country: body.vendor_country,
-        vendor_phone: body.vendor_phone,
-        vendor_email: body.vendor_email,
-        vendor_website: body.vendor_website,
-        customer_name: body.customer_name,
-        customer_address: body.customer_address,
-        customer_city: body.customer_city,
-        customer_country: body.customer_country,
-        customer_phone: body.customer_phone,
-        customer_email: body.customer_email,
-        customer_vat_number: body.customer_vat_number,
-        due_date: body.due_date,
-        payment_date: body.payment_date,
-        subtotal: body.subtotal,
-        tax_amount: body.tax_amount,
-        tax_rate: body.tax_rate,
-        items: body.items,
-        notes: body.notes,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', params.id)
       .eq('user_id', user.id)
       .select()

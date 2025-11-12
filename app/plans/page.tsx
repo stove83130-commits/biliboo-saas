@@ -82,9 +82,7 @@ export default function PlansPage() {
       features: [
         "100 factures/mois incluses",
         "1 compte e-mail connecté",
-        "Extraction complète des données",
         "Export CSV / PDF / ZIP",
-        "0,15 €/facture supplémentaire",
       ],
       buttonText: "Passer à Starter",
       buttonClass:
@@ -99,9 +97,7 @@ export default function PlansPage() {
         "300 factures/mois incluses",
         "3 comptes e-mail",
         "Espaces de travail (organisations)",
-        "Export automatique vers Google Drive ou votre comptable",
         "Export CSV / PDF / ZIP",
-        "0,15 €/facture supplémentaire",
       ],
       buttonText: "Passer à Pro",
       buttonClass:
@@ -119,7 +115,6 @@ export default function PlansPage() {
         "Espaces de travail (organisations)",
         "Multi-organisations et utilisateurs illimités",
         "Export CSV / PDF / ZIP",
-        "0,12 €/facture supplémentaire",
       ],
       buttonText: "Passer à Business",
       buttonClass:
@@ -374,7 +369,7 @@ export default function PlansPage() {
                   </svg>
                 </summary>
                 <p className="pb-4 px-1 text-sm text-muted-foreground leading-relaxed">
-                  Vous payez un abonnement mensuel ou annuel qui inclut un nombre de factures. Si vous dépassez ce quota, chaque facture supplémentaire est facturée selon le tarif de votre plan (0,15 € ou 0,12 € selon le plan).
+                  Vous payez un abonnement mensuel ou annuel qui inclut un nombre de factures. Chaque plan a une limite mensuelle de factures incluses.
                 </p>
               </details>
               <div className="border-b border-border/50"></div>
@@ -406,7 +401,7 @@ export default function PlansPage() {
                   </svg>
                 </summary>
                 <p className="pb-4 px-1 text-sm text-muted-foreground leading-relaxed">
-                  Chaque facture supplémentaire est automatiquement facturée au tarif de votre plan. Vous recevez une notification lorsque vous approchez de votre quota.
+                  Si vous approchez de votre quota mensuel, vous recevrez une notification. Vous pouvez upgrader votre plan pour augmenter votre limite de factures.
                 </p>
               </details>
               <div className="border-b border-border/50"></div>

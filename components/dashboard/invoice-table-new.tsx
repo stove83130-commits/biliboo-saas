@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { FileText, RefreshCw, Building2, ChevronRight, Trash2, Search } from "lucide-react"
+import { FileText, RefreshCw, Building2, ChevronRight, Trash2, Search, ArrowUp, ArrowDown } from "lucide-react"
 import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
@@ -75,6 +75,8 @@ export function InvoiceTable({
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState(false)
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
   const fetchInvoices = async () => {
     try {
@@ -220,6 +222,11 @@ export function InvoiceTable({
         return { ...r, isDuplicate: isDup }
       })
       setInvoices(normalized as any)
+      
+      // 🔧 FIX : Notifier les filtres que les factures ont été mises à jour
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('invoices:updated'))
+      }
     } catch (error) {
       console.error('Error:', error)
     } finally {
@@ -246,11 +253,11 @@ export function InvoiceTable({
   }
 
   const toggleSelectAll = () => {
-    console.log('🔍 toggleSelectAll appelé - selectedInvoices:', selectedInvoices.length, 'filteredInvoices:', filteredInvoices.length)
-    if (selectedInvoices.length === filteredInvoices.length) {
+    console.log('🔍 toggleSelectAll appelé - selectedInvoices:', selectedInvoices.length, 'sortedInvoices:', sortedInvoices.length)
+    if (selectedInvoices.length === sortedInvoices.length) {
       onSelectedInvoicesChange?.([])
     } else {
-      onSelectedInvoicesChange?.(filteredInvoices.map(inv => inv.id))
+      onSelectedInvoicesChange?.(sortedInvoices.map(inv => inv.id))
     }
   }
 
@@ -395,10 +402,20 @@ export function InvoiceTable({
         // Utiliser la colonne 'date' (nouvelle structure) ou 'invoice_date' (ancienne)
         const invoiceDate = invoice.date ? new Date(invoice.date) : 
                            invoice.invoice_date ? new Date(invoice.invoice_date) : null
-        if (!invoiceDate) return false
+        if (!invoiceDate || isNaN(invoiceDate.getTime())) return false
 
-        if (filters.dateFrom && invoiceDate < filters.dateFrom) return false
-        if (filters.dateTo && invoiceDate > filters.dateTo) return false
+        // 🔧 FIX : Comparer uniquement les dates (sans heures) pour éviter les problèmes de timezone
+        const invoiceDateOnly = new Date(invoiceDate.getFullYear(), invoiceDate.getMonth(), invoiceDate.getDate())
+        
+        if (filters.dateFrom) {
+          const dateFromOnly = new Date(filters.dateFrom.getFullYear(), filters.dateFrom.getMonth(), filters.dateFrom.getDate())
+          if (invoiceDateOnly < dateFromOnly) return false
+        }
+        
+        if (filters.dateTo) {
+          const dateToOnly = new Date(filters.dateTo.getFullYear(), filters.dateTo.getMonth(), filters.dateTo.getDate())
+          if (invoiceDateOnly > dateToOnly) return false
+        }
         
         return true
       })
@@ -420,25 +437,115 @@ export function InvoiceTable({
 
     // Filtrage par compte email
     if (filters.accountEmail) {
-      filtered = filtered.filter(invoice => 
-        invoice.account_email === filters.accountEmail
-      )
+      console.log('🔍 [FILTRES] Filtrage par compte email:', filters.accountEmail)
+      filtered = filtered.filter(invoice => {
+        // 🔧 FIX : Comparaison insensible à la casse et gestion des valeurs null/undefined
+        const invoiceEmail = (invoice.account_email || '').toString().toLowerCase().trim()
+        const filterEmail = (filters.accountEmail || '').toString().toLowerCase().trim()
+        const matches = invoiceEmail === filterEmail && invoiceEmail !== ''
+        if (!matches) {
+          console.log('🔍 [FILTRES] Email ne correspond pas:', invoiceEmail, 'vs', filterEmail)
+        }
+        return matches
+      })
+      console.log('🔍 [FILTRES] Factures après filtrage email:', filtered.length)
     }
 
     // Filtrage par fournisseur
     if (filters.vendor) {
-      filtered = filtered.filter(invoice => 
+      console.log('🔍 [FILTRES] Filtrage par fournisseur:', filters.vendor)
+      filtered = filtered.filter(invoice => {
+        const vendorName = getVendorName(invoice)
+        const matches = vendorName === filters.vendor || 
         invoice.vendor === filters.vendor ||
         invoice.supplier_name === filters.vendor ||
         invoice.extracted_data?.supplier?.name === filters.vendor
-      )
+        if (!matches) {
+          console.log('🔍 [FILTRES] Fournisseur ne correspond pas:', vendorName, invoice.vendor, 'vs', filters.vendor)
+        }
+        return matches
+      })
+      console.log('🔍 [FILTRES] Factures après filtrage fournisseur:', filtered.length)
     }
 
     return filtered
   }
 
+  // Fonction de tri
+  const sortInvoices = (invoices: Invoice[], column: string, direction: 'asc' | 'desc'): Invoice[] => {
+    const sorted = [...invoices].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+
+      switch (column) {
+        case 'vendor':
+          aValue = getVendorName(a).toLowerCase()
+          bValue = getVendorName(b).toLowerCase()
+          break
+        case 'source':
+          aValue = (a.account_email || '').toLowerCase()
+          bValue = (b.account_email || '').toLowerCase()
+          break
+        case 'date':
+          aValue = getInvoiceDate(a) !== 'N/A' ? new Date(getInvoiceDate(a)).getTime() : 0
+          bValue = getInvoiceDate(b) !== 'N/A' ? new Date(getInvoiceDate(b)).getTime() : 0
+          break
+        case 'amount':
+          aValue = pickNumeric(a.amount) || pickNumeric(a.total_ttc) || pickNumeric(a?.extracted_data?.amount) || 0
+          bValue = pickNumeric(b.amount) || pickNumeric(b.total_ttc) || pickNumeric(b?.extracted_data?.amount) || 0
+          break
+        case 'category':
+          aValue = (a.category || '').toLowerCase()
+          bValue = (b.category || '').toLowerCase()
+          break
+        case 'status':
+          aValue = (a.payment_status || '').toLowerCase()
+          bValue = (b.payment_status || '').toLowerCase()
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return sorted
+  }
+
+  // Gestionnaire de clic sur les en-têtes de colonnes
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Si on clique sur la même colonne, inverser l'ordre
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      // Nouvelle colonne, tri croissant par défaut
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+
   // Factures filtrées
   const filteredInvoices = filterInvoices(invoices, searchQuery, filters)
+  
+  // 🔧 DEBUG : Log pour vérifier le filtrage
+  useEffect(() => {
+    if (Object.keys(filters).some(key => filters[key as keyof FilterState] !== undefined && filters[key as keyof FilterState] !== null && filters[key as keyof FilterState] !== '')) {
+      console.log('🔍 [FILTRES] Filtres actifs:', JSON.stringify(filters, null, 2))
+      console.log('🔍 [FILTRES] Factures avant filtrage:', invoices.length)
+      console.log('🔍 [FILTRES] Factures après filtrage:', filteredInvoices.length)
+      if (filteredInvoices.length === 0 && invoices.length > 0) {
+        console.warn('⚠️ [FILTRES] Aucune facture ne correspond aux filtres!')
+        console.log('🔍 [FILTRES] Exemple de facture:', invoices[0])
+      }
+    }
+  }, [filters, invoices.length, filteredInvoices.length])
+  
+  // Factures triées
+  const sortedInvoices = sortColumn 
+    ? sortInvoices(filteredInvoices, sortColumn, sortDirection)
+    : filteredInvoices
 
   useEffect(() => {
     fetchInvoices()
@@ -485,8 +592,9 @@ export function InvoiceTable({
     )
   }
 
-  // Si on a des factures mais aucune ne correspond à la recherche
-  if (invoices.length > 0 && filteredInvoices.length === 0) {
+  // Si on a des factures mais aucune ne correspond à la recherche/filtres
+  if (invoices.length > 0 && sortedInvoices.length === 0) {
+    const hasFilters = Object.keys(filters).some(key => filters[key as keyof FilterState] !== undefined && filters[key as keyof FilterState] !== null && filters[key as keyof FilterState] !== '')
     return (
       <Card className="border-border bg-card">
         <div className="flex flex-col items-center justify-center py-12 px-4">
@@ -495,10 +603,18 @@ export function InvoiceTable({
             Aucune facture trouvée
           </h3>
           <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-            Aucune facture ne correspond à votre recherche "{searchQuery}"
+            {hasFilters 
+              ? "Aucune facture ne correspond aux filtres appliqués. Essayez de modifier ou d'effacer les filtres."
+              : searchQuery 
+                ? `Aucune facture ne correspond à votre recherche "${searchQuery}"`
+                : "Aucune facture ne correspond aux critères de recherche"}
           </p>
-          <Button variant="outline" onClick={() => window.location.reload()}>
-            Effacer la recherche
+          <Button variant="outline" onClick={() => {
+            if (typeof window !== 'undefined') {
+              window.location.reload()
+            }
+          }}>
+            {hasFilters ? "Effacer les filtres" : "Effacer la recherche"}
           </Button>
         </div>
       </Card>
@@ -510,7 +626,7 @@ export function InvoiceTable({
       <div className="border-b border-border p-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-sm font-semibold text-foreground">
-            {filteredInvoices.length} facture{filteredInvoices.length > 1 ? 's' : ''} trouvée{filteredInvoices.length > 1 ? 's' : ''}
+            {sortedInvoices.length} facture{sortedInvoices.length > 1 ? 's' : ''} trouvée{sortedInvoices.length > 1 ? 's' : ''}
             {searchQuery && (
               <span className="text-muted-foreground font-normal">
                 {" "}sur {invoices.length} au total
@@ -535,23 +651,82 @@ export function InvoiceTable({
             <TableRow className="border-border hover:bg-transparent">
               <TableHead className="w-12">
                 <Checkbox
-                  checked={selectedInvoices.length === filteredInvoices.length && filteredInvoices.length > 0}
+                  checked={selectedInvoices.length === sortedInvoices.length && sortedInvoices.length > 0}
                   onCheckedChange={toggleSelectAll}
                   aria-label="Tout sélectionner"
                 />
               </TableHead>
-              <TableHead className="text-xs text-muted-foreground">Marque</TableHead>
-              <TableHead className="text-xs text-muted-foreground">Fichier</TableHead>
-              <TableHead className="text-xs text-muted-foreground">Source</TableHead>
-              <TableHead className="text-xs text-muted-foreground">Date</TableHead>
-              <TableHead className="text-xs text-muted-foreground">Montant</TableHead>
-              <TableHead className="text-xs text-muted-foreground">Catégorie</TableHead>
-              <TableHead className="text-xs text-muted-foreground">Statut</TableHead>
+              <TableHead 
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('vendor')}
+              >
+                <div className="flex items-center gap-1">
+                  Marque
+                  {sortColumn === 'vendor' && (
+                    sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('source')}
+              >
+                <div className="flex items-center gap-1">
+                  Source
+                  {sortColumn === 'source' && (
+                    sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('date')}
+              >
+                <div className="flex items-center gap-1">
+                  Date
+                  {sortColumn === 'date' && (
+                    sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('amount')}
+              >
+                <div className="flex items-center gap-1">
+                  Montant
+                  {sortColumn === 'amount' && (
+                    sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('category')}
+              >
+                <div className="flex items-center gap-1">
+                  Catégorie
+                  {sortColumn === 'category' && (
+                    sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                  )}
+                </div>
+              </TableHead>
+              <TableHead 
+                className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort('status')}
+              >
+                <div className="flex items-center gap-1">
+                  Statut
+                  {sortColumn === 'status' && (
+                    sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                  )}
+                </div>
+              </TableHead>
               <TableHead className="w-12"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredInvoices.map((invoice) => (
+            {sortedInvoices.map((invoice) => (
               <TableRow 
                 key={invoice.id} 
                 className={`border-border cursor-pointer transition-colors ${invoice.isDuplicate ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-muted/50'}`}
@@ -571,9 +746,6 @@ export function InvoiceTable({
                       {getVendorName(invoice)}
                     </span>
                   </div>
-                </TableCell>
-                <TableCell className="text-sm text-foreground max-w-[200px] truncate">
-                  {invoice.file_name}
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
                   {invoice.account_email || '-'}

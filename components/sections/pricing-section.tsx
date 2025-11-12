@@ -55,9 +55,7 @@ export function PricingSection() {
       features: [
         "100 factures/mois incluses",
         "1 compte e-mail connecté",
-        "Extraction complète des données",
         "Export CSV / PDF / ZIP",
-        "0,15 €/facture supplémentaire",
       ],
       buttonText: "Passer à Starter",
       buttonClass:
@@ -72,9 +70,7 @@ export function PricingSection() {
         "300 factures/mois incluses",
         "3 comptes e-mail",
         "Espaces de travail (organisations)",
-        "Export automatique vers Google Drive ou votre comptable",
         "Export CSV / PDF / ZIP",
-        "0,15 €/facture supplémentaire",
       ],
       buttonText: "Passer à Pro",
       buttonClass:
@@ -92,7 +88,6 @@ export function PricingSection() {
         "Espaces de travail (organisations)",
         "Multi-organisations et utilisateurs illimités",
         "Export CSV / PDF / ZIP",
-        "0,12 €/facture supplémentaire",
       ],
       buttonText: "Passer à Business",
       buttonClass:

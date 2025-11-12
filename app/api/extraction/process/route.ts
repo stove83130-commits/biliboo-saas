@@ -13,8 +13,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
-import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
+import { extractInvoiceData, validateDocumentIsInvoice } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
+// SYSTÈME SIMPLE : Filtre Gmail avec mots-clés → Vérification contenu → Extraction
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -263,8 +264,20 @@ async function processExtractionInBackground(
     // 8. Calculer les dates
     const startDate = job.start_date || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const endDate = job.end_date || new Date().toISOString().split('T')[0];
-    const startTimestamp = new Date(startDate).getTime();
-    const endTimestamp = new Date(endDate).getTime() + 86400000;
+    
+    // 🔧 FIX FUSEAU HORAIRE : Créer les dates en heure locale pour inclure toute la journée
+    // new Date("2025-11-05") crée minuit UTC, ce qui peut exclure des emails du début de journée en heure locale
+    // On crée donc les dates à minuit heure locale, puis on convertit en timestamp
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+    
+    // Créer les dates à minuit heure locale (00:00:00)
+    const startDateLocal = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
+    // Créer la date de fin à 23:59:59.999 heure locale (fin de journée)
+    const endDateLocal = new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999);
+    
+    const startTimestamp = startDateLocal.getTime();
+    const endTimestamp = endDateLocal.getTime();
 
     console.log(`📧 Récupération emails Gmail du ${startDate} au ${endDate}`);
 
@@ -274,14 +287,33 @@ async function processExtractionInBackground(
     let allMessages: any[] = [];
     let pageToken: string | undefined = undefined;
     
-    // Construire une requête de filtrage intelligente pour Gmail
-    // On cherche les emails avec des mots-clés facture/receipt dans le sujet OU avec des PDF attachés
-    const gmailQuery = `after:${Math.floor(startTimestamp / 1000)} before:${Math.floor(endTimestamp / 1000)} (subject:facture OR subject:invoice OR subject:receipt OR subject:reçu OR subject:bill OR has:attachment filename:pdf)`;
-    
-    console.log(`🔍 Recherche emails avec filtre Gmail: ${gmailQuery}`);
+    // 🎯 FILTRE GMAIL ÉLARGI : 
+    // - Option A : pièce jointe avec nom de fichier contenant .pdf/.png/.jpg ET facture/invoice/receipt/recu/refund
+    // - Option B : sujet contenant mots-clés (classiques + nouveaux: réservation/booking/ticket/achat/paiement/etc.) ET pièce jointe
+    // - Option C : sujet contenant mots-clés (classiques + nouveaux) SANS pièce jointe ET HTML contenant un numéro de facture/commande ET une méthode de paiement
+    const dateStart = Math.floor(startTimestamp / 1000);
+    const dateEnd = Math.floor(endTimestamp / 1000);
+    const gmailQuery = `(
+  has:attachment 
+  (
+    filename:(.pdf OR .png OR .jpg)
+    (filename:facture OR filename:invoice OR filename:receipt OR filename:recu OR filename:refund)
+  )
+)
+OR (
+  (subject:facture OR subject:invoice OR subject:"votre commande" OR subject:commande OR subject:receipt OR subject:reçu OR subject:refund OR subject:refunded OR subject:refunds OR subject:réservation OR subject:reservation OR subject:booking OR subject:ticket OR subject:billet OR subject:achat OR subject:purchase OR subject:paiement OR subject:payment OR subject:ordering OR subject:order)
+  has:attachment
+)
+OR (
+  (subject:facture OR subject:invoice OR subject:"votre commande" OR subject:commande OR subject:receipt OR subject:reçu OR subject:refund OR subject:refunded OR subject:refunds OR subject:réservation OR subject:reservation OR subject:booking OR subject:ticket OR subject:billet OR subject:achat OR subject:purchase OR subject:paiement OR subject:payment OR subject:ordering OR subject:order)
+  -has:attachment
+)
+after:${dateStart} before:${dateEnd}`;
+    console.log(`🎯 [FILTRE GMAIL] Query: ${gmailQuery.trim()}`);
+    console.log(`📅 Période: ${startDate} → ${endDate} (${dateStart} → ${dateEnd})`);
     
     do {
-      const response = await gmail.users.messages.list({
+      const response: any = await gmail.users.messages.list({
         userId: 'me',
         q: gmailQuery,
         maxResults: 500,
@@ -293,32 +325,82 @@ async function processExtractionInBackground(
       pageToken = response.data.nextPageToken || undefined;
 
       console.log(`📬 ${batchMessages.length} emails récupérés avec filtre (total: ${allMessages.length})`);
+      
+      // LOG DIAGNOSTIC : Afficher les sujets pour vérifier que les emails sont bien récupérés
+      if (batchMessages.length > 0) {
+        // Récupérer les sujets pour diagnostic (limité à 10 pour ne pas surcharger)
+        const sampleMessages = await Promise.all(
+          batchMessages.slice(0, 10).map(async (msg: any) => {
+            try {
+              const fullMsg = await gmail.users.messages.get({
+                userId: 'me',
+                id: msg.id!,
+                format: 'metadata',
+                metadataHeaders: ['Subject', 'From'],
+              });
+              const headers = fullMsg.data.payload?.headers || [];
+              const subject = headers.find((h: any) => h.name?.toLowerCase() === 'subject')?.value || '';
+              const from = headers.find((h: any) => h.name?.toLowerCase() === 'from')?.value || '';
+              return { subject, from, id: msg.id };
+            } catch (e) {
+              return { subject: 'ERROR', from: 'ERROR', id: msg.id };
+            }
+          })
+        );
+        console.log(`📋 [DIAGNOSTIC] Exemples d'emails récupérés (${sampleMessages.length}):`, sampleMessages.map(m => `"${m.subject.substring(0, 60)}" de ${m.from.substring(0, 30)}`));
+        
+        // Log spécifique pour les emails contenant "refund" ou "cursor"
+        const refundOrCursorEmails = sampleMessages.filter(m => 
+          m.subject.toLowerCase().includes('refund') || 
+          m.subject.toLowerCase().includes('cursor')
+        );
+        if (refundOrCursorEmails.length > 0) {
+          console.log(`🔍 [DIAGNOSTIC REFUND/CURSOR] ${refundOrCursorEmails.length} email(s) trouvé(s) avec "refund" ou "cursor":`, 
+            refundOrCursorEmails.map(m => `"${m.subject}" de ${m.from}`));
+        }
+      }
     } while (pageToken);
 
     console.log(`✅ TOTAL: ${allMessages.length} emails trouvés sur la période (après filtrage Gmail)`);
     
-    // Si aucun email trouvé avec le filtre, essayer sans filtre (fallback)
-    if (allMessages.length === 0) {
-      console.log(`⚠️ Aucun email trouvé avec filtre, recherche sans filtre (fallback)...`);
-      allMessages = [];
-      pageToken = undefined;
+    // 🔍 DIAGNOSTIC : Vérifier si des emails avec "refund" ou "cursor" ont été récupérés
+    if (allMessages.length > 0) {
+      console.log(`🔍 [DIAGNOSTIC] Vérification des emails contenant "refund" ou "cursor"...`);
+      const diagnosticMessages = await Promise.all(
+        allMessages.slice(0, Math.min(50, allMessages.length)).map(async (msg: any) => {
+          try {
+            const fullMsg = await gmail.users.messages.get({
+              userId: 'me',
+              id: msg.id!,
+              format: 'metadata',
+              metadataHeaders: ['Subject', 'From', 'Date'],
+            });
+            const headers = fullMsg.data.payload?.headers || [];
+            const subject = headers.find((h: any) => h.name?.toLowerCase() === 'subject')?.value || '';
+            const from = headers.find((h: any) => h.name?.toLowerCase() === 'from')?.value || '';
+            const date = headers.find((h: any) => h.name?.toLowerCase() === 'date')?.value || '';
+            return { subject, from, date, id: msg.id };
+          } catch (e) {
+            return { subject: 'ERROR', from: 'ERROR', date: '', id: msg.id };
+          }
+        })
+      );
       
-      do {
-        const response = await gmail.users.messages.list({
-          userId: 'me',
-          q: `after:${Math.floor(startTimestamp / 1000)} before:${Math.floor(endTimestamp / 1000)}`,
-          maxResults: 500,
-          pageToken,
+      const refundOrCursorEmails = diagnosticMessages.filter(m => 
+        m.subject.toLowerCase().includes('refund') || 
+        m.subject.toLowerCase().includes('cursor')
+      );
+      
+      if (refundOrCursorEmails.length > 0) {
+        console.log(`✅ [DIAGNOSTIC] ${refundOrCursorEmails.length} email(s) trouvé(s) avec "refund" ou "cursor":`);
+        refundOrCursorEmails.forEach(m => {
+          console.log(`   📧 "${m.subject}" de ${m.from} (Date: ${m.date})`);
         });
-
-        const fallbackMessages = response.data.messages || [];
-        allMessages = allMessages.concat(fallbackMessages);
-        pageToken = response.data.nextPageToken || undefined;
-
-        console.log(`📬 ${fallbackMessages.length} emails récupérés sans filtre (total: ${allMessages.length})`);
-      } while (pageToken);
-      
-      console.log(`✅ TOTAL: ${allMessages.length} emails trouvés sans filtre`);
+      } else {
+        console.log(`⚠️ [DIAGNOSTIC] Aucun email avec "refund" ou "cursor" trouvé dans les ${Math.min(50, allMessages.length)} premiers emails récupérés`);
+        console.log(`   💡 Vérifiez que la période d'extraction inclut la date de l'email de refund`);
+        console.log(`   💡 Vérifiez que le sujet de l'email contient bien "refund" ou "cursor"`);
+      }
     }
     
     const messages = allMessages;
@@ -327,22 +409,20 @@ async function processExtractionInBackground(
     let invoicesDetected = 0; // Compteur pour les factures détectées (même si rejetées ensuite)
     let emailsAnalyzed = 0;
     let emailsRejected = 0;
-    let rejectionReasons: { [key: string]: number } = {};
     let lastProgressUpdate = 0; // Initialiser à 0 pour que la première mise à jour se fasse immédiatement
     
     // ========== OPTIMISATION 1: CACHE EN MÉMOIRE DES FACTURES EXISTANTES ==========
-    // Charger TOUTES les factures de l'utilisateur UNE SEULE FOIS au début
-    // au lieu de les recharger à chaque vérification (économise des requêtes DB)
-    console.log('📦 Chargement du cache des factures existantes...');
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    // Charger UNIQUEMENT les factures de la période d'extraction demandée
+    // pour éviter de rejeter des factures qui ont déjà été extraites dans cette période
+    console.log('📦 Chargement du cache des factures existantes pour la période d\'extraction...');
     
     const { data: existingInvoices } = await supabaseService
       .from('invoices')
       .select('id, vendor, invoice_number, amount, date, payment_status, extracted_data, connection_id, email_id')
       .eq('user_id', userId)
-      .gte('date', sixMonthsAgo.toISOString())
-      .limit(1000); // Charger jusqu'à 1000 factures (6 derniers mois)
+      .gte('date', startDate)
+      .lte('date', endDate)
+      .limit(1000); // Charger jusqu'à 1000 factures de la période
     
     // Créer des Maps pour recherche rapide O(1) au lieu de O(n)
     const invoicesByEmailId = new Map<string, any>();
@@ -439,20 +519,11 @@ async function processExtractionInBackground(
     const processEmail = async (message: any) => {
       emailsAnalyzed++;
       try {
-        // ========== OPTIMISATION 3: VÉRIFICATION DOUBLON AVANT RÉCUPÉRATION EMAIL ==========
-        // Vérifier d'abord si cet email_id existe déjà dans le cache (économise l'appel Gmail API)
+        // ========== RÉ-EXTRACTION FORCÉE : On traite tous les emails même s'ils existent déjà ==========
+        // Vérifier si la facture existe déjà pour afficher un log informatif
         if (invoicesByEmailId.has(message.id)) {
           const existing = invoicesByEmailId.get(message.id);
-          console.log(`⚠️ Email #${emailsAnalyzed} ignoré (doublon email_id - cache): ${message.id} - Facture déjà existante (ID: ${existing.id})`);
-          emailsRejected++;
-          return;
-        }
-        
-        // Si pas dans le cache, vérifier aussi dans la session
-        if (sessionInsertedInvoices.has(`email_id:${message.id}`)) {
-          console.log(`⚠️ Email #${emailsAnalyzed} ignoré (doublon email_id - session): ${message.id}`);
-          emailsRejected++;
-          return;
+          console.log(`🔄 Email #${emailsAnalyzed} déjà extrait, ré-extraction forcée: ${message.id} - Facture existante (ID: ${existing.id})`);
         }
         
         const fullMessage = await gmail.users.messages.get({
@@ -466,821 +537,1123 @@ async function processExtractionInBackground(
         const from = headers.find((h) => h.name?.toLowerCase() === 'from')?.value || '';
         const date = headers.find((h) => h.name?.toLowerCase() === 'date')?.value || '';
 
-        // Extraire le contenu HTML de l'email
-        let emailHtml = '';
-        const payload = fullMessage.data.payload;
-        if (payload?.body?.data) {
-          emailHtml = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-        } else if (payload?.parts) {
-          for (const part of payload.parts) {
-            if (part.mimeType === 'text/html' && part.body?.data) {
-              emailHtml = Buffer.from(part.body.data, 'base64').toString('utf-8');
-              break;
-            }
-          }
-        }
+        console.log(`📧 [EMAIL #${emailsAnalyzed}] Traitement: "${subject.substring(0, 60)}" de ${from.substring(0, 50)}`);
 
-        // ========== VALIDATION PRÉALABLE STRICTE ==========
+        // ========== BLACKLIST : Exclure les newsletters (sauf si c'est un reçu/facture d'abonnement) ==========
         const subjectLower = subject.toLowerCase();
         const fromLower = from.toLowerCase();
+        const isNewsletter = subjectLower.includes('newsletter') || fromLower.includes('newsletter');
         
-        // PRIORITÉ ABSOLUE: Vérifier d'abord les patterns dans le sujet (AVANT tout le reste)
-        // Cela permet de rejeter immédiatement les notifications sans même analyser le contenu
-        const excludedSubjectPatterns = [
-          'automation', 'notification', 'alert', 'reminder', 'update', 'newsletter',
-          'confirmation', 'welcome', 'account', 'security', 'password', 'verify',
-          'conditions générales', 'cgv', 'cgu', 'terms and conditions', 'privacy policy',
-          'politique de confidentialité', 'mentions légales',
-          'export', 'csv', 'report', 'history', 'download', 'link', 'expire', // Patterns pour emails système
-          'receipts history', 'exports history', 'data export', // Patterns spécifiques pour Receiptor
-          'history report', 'receipts report', 'exports report' // Patterns supplémentaires pour Receiptor
-        ];
-        const hasExcludedSubjectPattern = excludedSubjectPatterns.some(pattern => 
-          subjectLower.includes(pattern)
-        );
-        
-        // DÉTECTION Receiptor/Bilibou (pour traitement spécial)
-        const isReceiptorOrBilibou = fromLower.includes('receiptor') || fromLower.includes('bilibou');
-        
-        // LOGIQUE INVERSÉE : Exclure Receiptor/Bilibou PAR DÉFAUT
-        // EXCEPTION : Autoriser UNIQUEMENT si le sujet contient des mots indiquant que c'est LEUR facture
-        if (isReceiptorOrBilibou) {
-          // Mots-clés qui indiquent que c'est la facture de Receiptor lui-même
-          const receiptorInvoiceKeywords = ['invoice', 'subscription', 'billing', 'payment due'];
-          const isReceiptorOwnInvoice = receiptorInvoiceKeywords.some(keyword => 
-            subjectLower.includes(keyword)
-          );
+        if (isNewsletter) {
+          console.log(`🔍 [BLACKLIST] Email détecté comme newsletter: sujet="${subject.substring(0, 50)}", expéditeur="${from.substring(0, 50)}"`);
+          // Exception : Si l'email contient aussi des mots-clés de facture/reçu, c'est probablement un reçu d'abonnement
+          const invoiceKeywords = ['invoice', 'receipt', 'facture', 'reçu', 'payment', 'paiement', 'paid', 'payé', 'order', 'commande', 'purchase', 'achat'];
+          const hasInvoiceKeyword = invoiceKeywords.some(keyword => subjectLower.includes(keyword));
           
-          if (!isReceiptorOwnInvoice) {
-            // Pas de mot-clé de facture Receiptor → c'est une notification/agrégation → REJET
-            console.log(`❌ [EXCLUSION TOTALE] Email Receiptor/Bilibou rejeté`);
-            console.log(`   - Expéditeur: ${from}`);
-            console.log(`   - Sujet: "${subject}"`);
-            console.log(`   - Raison: Receiptor est un agrégateur, pas un émetteur de factures`);
-            console.log(`   - Exception: Uniquement si sujet contient "invoice", "subscription", "billing"`);
-            console.log(`   - Action: Rejet systématique (notification/rapport)`);
+          if (hasInvoiceKeyword) {
+            console.log(`✅ [BLACKLIST] Email avec "newsletter" mais contient aussi un mot-clé de facture/reçu ("${invoiceKeywords.find(kw => subjectLower.includes(kw))}"), accepté (probable reçu d'abonnement)`);
+            // On continue le traitement normalement
+          } else {
+            console.log(`🚫 [BLACKLIST] Email rejeté (newsletter marketing sans mot-clé de facture/reçu) : "${subject.substring(0, 50)}" de ${from.substring(0, 50)}`);
             emailsRejected++;
             return;
           }
+        }
+
+        // ========== SYSTÈME AMÉLIORÉ : EXTRACTION RÉCURSIVE ==========
+        const payload = fullMessage.data.payload;
+        const parts = payload?.parts || [];
+        
+        // Fonction récursive pour extraire le HTML (gère multipart/related, multipart/alternative, etc.)
+        const extractHtmlRecursive = (part: any): string => {
+          if (!part) return '';
           
-          // Si le sujet contient "invoice", "subscription", etc. → c'est peut-être leur facture
-          // On laisse passer pour analyse GPT (rare cas de la facture Receiptor elle-même)
-          console.log(`✅ [EXCEPTION] Email Receiptor autorisé pour analyse`);
-          console.log(`   - Sujet: "${subject}"`);
-          console.log(`   - Raison: Sujet contient un mot-clé de facture Receiptor`);
-          console.log(`   - Action: Analyse GPT pour confirmer que c'est bien leur facture`);
+          // Si c'est une partie HTML avec des données
+          if (part.mimeType === 'text/html' && part.body?.data) {
+            try {
+              const html = Buffer.from(part.body.data, 'base64').toString('utf-8');
+              if (html && html.trim().length > 0) {
+                return html;
+              }
+            } catch (error) {
+              console.warn(`⚠️ Erreur décodage HTML:`, error);
+            }
+          }
+          
+          // Parcourir récursivement les sous-parties (multipart/related, multipart/alternative, etc.)
+          if (part.parts && Array.isArray(part.parts)) {
+            for (const subPart of part.parts) {
+              const html = extractHtmlRecursive(subPart);
+              if (html && html.trim().length > 0) {
+                return html;
+              }
+            }
+          }
+          
+          return '';
+        };
+        
+        // Extraire le HTML (récursif)
+        let emailHtml = '';
+        if (payload?.body?.data && payload?.mimeType === 'text/html') {
+          try {
+            emailHtml = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+          } catch (error) {
+            // Ignorer
+          }
         }
         
-        // 1. EXCLUSION D'EXPÉDITEURS CONNUS POUR ENVOYER DES NON-FACTURES
-        // NOTE: Receiptor et Bilibou sont exclus par défaut, sauf si le sujet contient "invoice", "subscription", "billing"
-        const excludedSenders = [
-          'automation', 'noreply@qonto', 'no-reply@qonto',
-          'notifications@qonto', 'support@qonto'
-        ];
-        const excludedDomains = [
-          // Receiptor et Bilibou retirés - on analyse le contenu à la place
-        ];
-        
-        // Vérifier si l'expéditeur contient un nom exclu (plus strict : doit être présent dans le nom OU l'email)
-        // Format email possible : "Receiptor Automation <noreply@receiptor.ai>" ou "noreply@receiptor.ai"
-        const hasExcludedSenderName = excludedSenders.some(excluded => {
-          // Vérifier dans le nom complet (avant <) et dans l'adresse email (après <)
-          return fromLower.includes(excluded);
-        });
-        
-        // Vérifier si l'expéditeur est d'un domaine exclu (plus strict : doit correspondre exactement au domaine)
-        const hasExcludedDomain = excludedDomains.some(domain => {
-          // Extraire le domaine de l'email (partie après @)
-          // Format possible : "Name <email@domain.com>" ou "email@domain.com" ou "Name email@domain.com"
-          const emailMatch = fromLower.match(/@([^\s<>]+)/);
-          if (emailMatch) {
-            const emailDomain = emailMatch[1];
-            // Vérifier si le domaine correspond exactement ou se termine par le domaine exclu
-            // Ex: "receiptor.ai" doit matcher "noreply@receiptor.ai" ou "receiptor.ai"
-            return emailDomain === domain || 
-                   emailDomain.endsWith('.' + domain) || 
-                   emailDomain.includes(domain.replace('.', ''));
+        if (!emailHtml || emailHtml.trim().length === 0) {
+          if (payload?.parts) {
+            emailHtml = extractHtmlRecursive(payload) || '';
+          } else if (payload) {
+            emailHtml = extractHtmlRecursive(payload) || '';
           }
-          // Si pas de @ trouvé, vérifier si le domaine est présent dans le texte (fallback)
-          return fromLower.includes(domain);
-        });
+        }
         
-        // Exclusion si nom exclu OU domaine exclu
-        const isExcludedSender = hasExcludedSenderName || hasExcludedDomain;
-        
-        // NOTE: Plus besoin de log ici car Receiptor/Bilibou sont déjà rejetés plus haut
-        
-        // 3. DÉTECTION DES MOTS-CLÉS FACTURE (mots entiers uniquement)
-        // Utiliser des regex pour détecter les mots entiers, pas des sous-chaînes
-        const invoiceKeywordPatterns = [
-          /\bfacture\b/i,
-          /\binvoice\b/i,
-          /\breceipt\b/i,
-          /\breçu\b/i,
-          /\bbill\b/i,
-          /\bdevis\b/i,
-          /\bquote\b/i,
-          /\bpayment\b/i
-        ];
-        const hasInvoiceKeywordInSubject = invoiceKeywordPatterns.some(pattern => 
-          pattern.test(subject)
-        );
-        
-        // 4. VÉRIFICATION DES PDFS ATTACHÉS
-        const parts = fullMessage.data.payload?.parts || [];
-        let hasPdfAttachment = false;
-        let pdfAttachment: any = null;
-        let pdfExcluded = false;
-        let pdfExcludedReason = '';
+        if (emailHtml && emailHtml.trim().length > 0) {
+          console.log(`📧 HTML extrait: ${emailHtml.length} caractères`);
+        } else {
+          console.log(`⚠️ Aucun HTML extrait de l'email`);
+        }
 
-        for (const part of parts) {
+        // Fonction récursive pour trouver les PDFs (gère multipart/related, etc.)
+        const findPDFsRecursive = (part: any): any[] => {
+          const pdfs: any[] = [];
+          
+          if (!part) return pdfs;
+          
+          // Vérifier si c'est un PDF
+          const mimeType = part.mimeType?.toLowerCase() || '';
+          const filename = part.filename?.toLowerCase() || '';
+          
           if (
-            part.mimeType === 'application/pdf' ||
-            part.filename?.toLowerCase().endsWith('.pdf')
+            mimeType === 'application/pdf' ||
+            filename.endsWith('.pdf') ||
+            (mimeType === 'application/octet-stream' && filename.endsWith('.pdf'))
           ) {
-            const filename = part.filename?.toLowerCase() || '';
-            
-            // Patterns d'exclusion pour les PDFs (CGU, CGV, etc.)
-            const excludedPdfPatterns = [
+            // 🚫 FILTRE : Exclure les PDF non-factures par nom de fichier
+            const excludedPatterns = [
               'condition', 'cgu', 'cgv', 'terms', 'tcu', 'policy', 'politique',
               'contrat', 'contract', 'agreement', 'accord', 'legal', 'privacy',
-              'confidentialit', 'rgpd', 'gdpr', 'mention', 'statut', 'regulation',
-              'règlement', 'guide', 'manual', 'manuel', 'tutorial', 'tutoriel'
+              'confidentialit', 'rgpd', 'gdpr', 'mention', 'statut'
             ];
             
-            const isExcludedPdf = excludedPdfPatterns.some(pattern => filename.includes(pattern));
+            const isExcludedFile = excludedPatterns.some(pattern => filename.includes(pattern));
             
-            // Vérifier aussi si le sujet contient des patterns d'exclusion
-            const isSubjectExcluded = excludedSubjectPatterns.some(pattern => 
-              subjectLower.includes(pattern)
-            );
-            
-            if (isExcludedPdf || isSubjectExcluded) {
-              pdfExcluded = true;
-              pdfExcludedReason = isExcludedPdf 
-                ? `PDF exclu (nom fichier): ${part.filename}`
-                : `PDF exclu (sujet): ${subject.substring(0, 50)}`;
+            if (!isExcludedFile) {
+              pdfs.push(part);
             } else {
-              // Vérifier que le nom du PDF contient des indicateurs de facture
-              const invoicePdfPatterns = [
-                'facture', 'invoice', 'receipt', 'reçu', 'bill', 'devis', 'quote'
-              ];
-              const hasInvoiceIndicator = invoicePdfPatterns.some(pattern => 
-                filename.includes(pattern)
-              );
-              
-              // Si le PDF n'a pas d'indicateur de facture dans le nom, vérifier le sujet
-              if (!hasInvoiceIndicator && !hasInvoiceKeywordInSubject) {
-                pdfExcluded = true;
-                pdfExcludedReason = `PDF sans indicateur facture: ${part.filename}`;
-              } else {
-                hasPdfAttachment = true;
-                pdfAttachment = part;
-                break;
-              }
+              console.log(`🚫 PDF exclu (non-facture): ${part.filename}`);
+            }
+          }
+          
+          // Parcourir récursivement les sous-parties
+          if (part.parts && Array.isArray(part.parts)) {
+            for (const subPart of part.parts) {
+              pdfs.push(...findPDFsRecursive(subPart));
+            }
+          }
+          
+          return pdfs;
+        };
+        
+        // Fonction récursive pour trouver les images
+        const findImagesRecursive = (part: any): any[] => {
+          const images: any[] = [];
+          
+          if (!part) return images;
+          
+          const mimeType = part.mimeType?.toLowerCase() || '';
+          const filename = part.filename?.toLowerCase() || '';
+          
+          if (
+            mimeType === 'image/jpeg' || mimeType === 'image/jpg' ||
+            mimeType === 'image/png' ||
+            filename.endsWith('.jpg') ||
+            filename.endsWith('.jpeg') ||
+            filename.endsWith('.png')
+          ) {
+            images.push(part);
+          }
+          
+          // Parcourir récursivement les sous-parties
+          if (part.parts && Array.isArray(part.parts)) {
+            for (const subPart of part.parts) {
+              images.push(...findImagesRecursive(subPart));
+            }
+          }
+          
+          return images;
+        };
+
+        // Détection récursive des PDFs et images
+        const pdfAttachments = findPDFsRecursive(payload);
+        const imageAttachments = findImagesRecursive(payload);
+        
+        const hasPdfAttachment = pdfAttachments.length > 0;
+        const hasImageAttachment = imageAttachments.length > 0;
+        const pdfAttachment = pdfAttachments[0] || null;
+        const imageAttachment = imageAttachments[0] || null;
+        
+        // ========== SYSTÈME ÉLARGI : Gmail a déjà filtré, validation supplémentaire pour nouveaux mots-clés ==========
+        // Gmail a déjà vérifié que :
+        // - Option A : pièce jointe avec nom de fichier contenant .pdf/.png/.jpg ET facture/invoice/receipt/recu/refund
+        // - Option B : sujet contenant mots-clés (classiques + nouveaux: réservation/booking/ticket/achat/paiement/etc.) ET pièce jointe
+        // - Option C : sujet contenant mots-clés (classiques + nouveaux) SANS pièce jointe
+        // Pour l'Option B avec nouveaux mots-clés : validation supplémentaire du montant dans le HTML
+        // Pour l'Option C, on vérifie aussi que le HTML contient :
+        //   1. Un numéro de facture/commande (ex: #1730-8862) avec minimum 4 chiffres
+        //   2. Une méthode de paiement (carte bancaire, PayPal, virement, etc.)
+        //   3. Un total avec montant (Total TTC, Total HT, Total, Montant total, À payer, etc.)
+        
+        // Identifier le type d'email (Option A, B ou C)
+        if (hasPdfAttachment || hasImageAttachment) {
+          console.log(`✅ Email accepté pour extraction (Option A ou B - avec pièce jointe): "${subject.substring(0, 50)}"`);
+          
+          // 🔍 VALIDATION POUR NOUVEAUX MOTS-CLÉS : Si le sujet contient un nouveau mot-clé (pas classique)
+          // ET qu'il y a une pièce jointe, vérifier que le HTML contient un montant avec devise
+          const classicKeywords = ['facture', 'invoice', 'votre commande', 'receipt', 'reçu', 'refund', 'refunded', 'refunds'];
+          const newKeywords = ['réservation', 'reservation', 'booking', 'ticket', 'billet', 'achat', 'purchase', 'paiement', 'payment'];
+          
+          const subjectLower = subject.toLowerCase();
+          const hasClassicKeyword = classicKeywords.some(keyword => subjectLower.includes(keyword));
+          const hasNewKeyword = newKeywords.some(keyword => subjectLower.includes(keyword));
+          
+          // Si nouveau mot-clé ET pas de mot-clé classique, vérifier le montant dans le HTML
+          if (hasNewKeyword && !hasClassicKeyword && emailHtml && emailHtml.trim().length > 0) {
+            console.log(`🔍 [VALIDATION NOUVEAUX MOTS-CLÉS] Email avec pièce jointe et nouveau mot-clé détecté: "${subject.substring(0, 50)}"`);
+            console.log(`🔍 [VALIDATION] Vérification de la présence d'un montant avec devise dans le HTML...`);
+            
+            // Nettoyer le HTML pour l'analyse
+            const cleanHtml = emailHtml
+              .replace(/<style[^>]*>.*?<\/style>/gi, '')
+              .replace(/<script[^>]*>.*?<\/script>/gi, '')
+              .replace(/<img[^>]*>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            // Patterns pour détecter un montant avec devise (€, $, £, EUR, USD, etc.)
+            const amountPatterns = [
+              /[\d\s,\.]+[\s]*[€$£]/i,  // 25€, 25 €, 25.00€, 25,50 €
+              /[\d\s,\.]+[\s]*(?:EUR|USD|GBP|euro|dollar)/i,  // 25 EUR, 25.00 USD
+              /(?:total|montant|amount)[\s:]*[\d\s,\.]+[\s]*[€$£]?/i,  // Total: 25€, Montant: 25 €
+              /(?:total|montant|amount)[\s:]*[\d\s,\.]+[\s]*(?:EUR|USD|GBP)/i,  // Total: 25 EUR
+            ];
+            
+            const hasAmount = amountPatterns.some(pattern => pattern.test(cleanHtml));
+            
+            if (!hasAmount) {
+              console.log(`❌ [VALIDATION] Email rejeté : nouveau mot-clé détecté mais aucun montant avec devise trouvé dans le HTML`);
+              emailsRejected++;
+              return;
+            }
+            
+            console.log(`✅ [VALIDATION] Montant avec devise détecté dans le HTML, email accepté`);
+          }
+        } else if (emailHtml && emailHtml.trim().length > 0) {
+          console.log(`📧 Email accepté pour extraction (Option C - HTML uniquement, sans pièce jointe): "${subject.substring(0, 50)}"`);
+        } else {
+          console.log(`✅ Email accepté pour extraction (filtré par Gmail): "${subject.substring(0, 50)}"`);
+        }
+
+        // 📥 TRAITEMENT DE TOUTES LES PIÈCES JOINTES (PDFs et images)
+        // Fonction helper pour traiter une pièce jointe
+        const processAttachment = async (attachment: any, isPdf: boolean): Promise<{ success: boolean; extractedData?: any; fileUrl?: string }> => {
+          try {
+            const attachmentName = attachment.filename || (isPdf ? 'invoice.pdf' : 'invoice.jpg');
+            let attachmentData: string | null = null;
+            
+            // Télécharger la pièce jointe
+            if (attachment.body?.attachmentId) {
+              console.log(`📎 ${isPdf ? 'PDF' : 'Image'} avec attachmentId: ${attachment.body.attachmentId}`);
+              const attachmentResponse = await gmail.users.messages.attachments.get({
+                userId: 'me',
+                messageId: message.id!,
+                id: attachment.body.attachmentId,
+              });
+              attachmentData = attachmentResponse.data.data || null;
+            } else if (attachment.body?.data) {
+              console.log(`📎 ${isPdf ? 'PDF' : 'Image'} avec body.data directement (inline)`);
+              attachmentData = attachment.body.data;
+            }
+            
+            if (!attachmentData) {
+              console.warn(`⚠️ ${isPdf ? 'PDF' : 'Image'} détecté mais pas de données`);
+              return { success: false };
+            }
+            
+            const documentBuffer = Buffer.from(attachmentData, 'base64');
+            
+            // 🔍 VALIDATION : Vérifier si le document est une facture/reçu avant extraction complète
+            console.log(`🔍 [VALIDATION] Validation de la pièce jointe: ${attachmentName}...`);
+            const validation = await validateDocumentIsInvoice(documentBuffer, attachmentName);
+            
+            if (!validation.isValid) {
+              console.log(`🚫 [VALIDATION] Pièce jointe rejetée: ${validation.reason || 'Ce n\'est pas une facture/reçu'}`);
+              console.log(`   📎 Fichier: ${attachmentName}`);
+              return { success: false }; // Rejeter cette pièce jointe, continuer avec la suivante
+            }
+            
+            console.log(`✅ [VALIDATION] Pièce jointe validée, début de l'extraction complète...`);
+            console.log(`📄 Extraction de la pièce jointe: ${attachmentName}...`);
+            
+            // Upload la pièce jointe dans Supabase Storage
+            const fileName = `${userId}/${message.id}_${attachmentName}`;
+            const contentType = isPdf ? 'application/pdf' : (attachment.mimeType || 'image/jpeg');
+            const { data: uploadData, error: uploadError } = await supabaseService.storage
+              .from('invoices')
+              .upload(fileName, documentBuffer, {
+                contentType,
+                upsert: true,
+              });
+            
+            let fileUrl = null;
+            if (!uploadError && uploadData) {
+              const { data: urlData } = supabaseService.storage
+                .from('invoices')
+                .getPublicUrl(fileName);
+              fileUrl = urlData.publicUrl;
+              console.log(`📎 ${isPdf ? 'PDF' : 'Image'} uploadé: ${fileName}`);
+            } else {
+              console.error(`❌ Erreur upload ${isPdf ? 'PDF' : 'image'}:`, uploadError);
+            }
+            
+            // Extraction complète avec GPT
+            const fullExtraction = await extractInvoiceData(documentBuffer, {
+              from,
+              subject,
+              date,
+            });
+            
+            console.log(`📊 Résultats extraction:`);
+            console.log(`   - vendor_name: ${fullExtraction.vendor_name || 'null'}`);
+            console.log(`   - invoice_number: ${fullExtraction.invoice_number || 'null'}`);
+            console.log(`   - receipt_number: ${(fullExtraction as any).receipt_number || 'null'}`);
+            console.log(`   - total_amount: ${fullExtraction.total_amount || 'null'} ${fullExtraction.currency || 'EUR'}`);
+            console.log(`   - subtotal: ${fullExtraction.subtotal || 'null'}`);
+            console.log(`   - tax_amount: ${fullExtraction.tax_amount || 'null'}`);
+            console.log(`   - tax_rate: ${fullExtraction.tax_rate || 'null'}%`);
+            console.log(`   - payment_method: ${fullExtraction.payment_method || 'null'}`);
+            console.log(`   - vendor_address: ${fullExtraction.vendor_address || 'null'}`);
+            console.log(`   - vendor_city: ${fullExtraction.vendor_city || 'null'}`);
+            console.log(`   👤 CLIENT:`);
+            console.log(`      - customer_name: ${fullExtraction.customer_name || 'null'}`);
+            console.log(`      - customer_address: ${fullExtraction.customer_address || 'null'}`);
+            console.log(`      - customer_city: ${fullExtraction.customer_city || 'null'}`);
+            console.log(`      - customer_country: ${fullExtraction.customer_country || 'null'}`);
+            console.log(`      - customer_phone: ${fullExtraction.customer_phone || 'null'}`);
+            console.log(`      - customer_email: ${fullExtraction.customer_email || 'null'}`);
+            console.log(`      - customer_vat_number: ${fullExtraction.customer_vat_number || 'null'}`);
+            
+            // Mapper les champs vers le format de la BDD
+            const invoiceNumber = fullExtraction.invoice_number?.toString().trim() || '';
+            const receiptNumber = (fullExtraction as any).receipt_number?.toString().trim() || '';
+            const identifier = invoiceNumber || receiptNumber;
+            
+            const extractedData = {
+              vendor: fullExtraction.vendor_name || from,
+              category: fullExtraction.category || 'Charges exceptionnelles',
+              vendor_address: fullExtraction.vendor_address,
+              vendor_city: fullExtraction.vendor_city,
+              vendor_country: fullExtraction.vendor_country,
+              vendor_phone: fullExtraction.vendor_phone,
+              vendor_email: fullExtraction.vendor_email,
+              vendor_website: fullExtraction.vendor_website,
+              customer_name: fullExtraction.customer_name,
+              customer_address: fullExtraction.customer_address,
+              customer_city: fullExtraction.customer_city,
+              customer_country: fullExtraction.customer_country,
+              customer_phone: fullExtraction.customer_phone,
+              customer_email: fullExtraction.customer_email,
+              customer_vat_number: fullExtraction.customer_vat_number,
+              amount: fullExtraction.total_amount,
+              subtotal: fullExtraction.subtotal,
+              tax_amount: fullExtraction.tax_amount,
+              tax_rate: fullExtraction.tax_rate,
+              currency: fullExtraction.currency,
+              date: fullExtraction.invoice_date || date,
+              invoice_number: identifier || fullExtraction.invoice_number || subject,
+              payment_status: fullExtraction.payment_status || 'paid',
+              payment_method: fullExtraction.payment_method,
+              payment_date: fullExtraction.payment_date,
+              due_date: fullExtraction.due_date,
+              items: fullExtraction.line_items,
+              extraction_status: fullExtraction.extraction_status || 'completed',
+              confidence_score: fullExtraction.confidence_score || 80,
+              ocr_text: fullExtraction.ocr_text,
+            };
+            
+            console.log(`✅ Extraction terminée : ${fullExtraction.extraction_status || 'completed'} (${fullExtraction.confidence_score || 80}%)`);
+            invoicesDetected++;
+            
+            return { success: true, extractedData, fileUrl };
+            
+          } catch (error) {
+            console.error(`❌ Erreur traitement pièce jointe:`, error);
+            return { success: false };
+          }
+        };
+        
+        // Traiter toutes les pièces jointes PDF en priorité, puis les images
+        let extractedData: any = {};
+        let fileUrl = null;
+        let htmlImageUrl = null;
+        let htmlMimeType = null;
+        let invoiceExtracted = false;
+        
+        // Traiter tous les PDFs
+        if (pdfAttachments.length > 0) {
+          console.log(`📎 Traitement de ${pdfAttachments.length} pièce(s) jointe(s) PDF...`);
+          for (const pdfAtt of pdfAttachments) {
+            const result = await processAttachment(pdfAtt, true);
+            if (result.success && result.extractedData) {
+              extractedData = result.extractedData;
+              fileUrl = result.fileUrl || null;
+              invoiceExtracted = true;
+              break; // On prend la première facture/reçu valide
             }
           }
         }
         
-        // 5. DÉTECTION DES EXPÉDITEURS DE CONFIANCE (liste de domaines connus)
-        const trustedDomains = [
-          'stripe.com', 'paypal.com', 'square.com', 'invoice', 'billing',
-          'noreply', 'no-reply', 'notifications', 'receipts',
-          'apple.com', 'email.apple.com' // Ajouter Apple pour les reçus
-        ];
-        const isTrustedSender = trustedDomains.some(domain => fromLower.includes(domain));
+        // Si aucun PDF valide, traiter les images
+        if (!invoiceExtracted && imageAttachments.length > 0) {
+          console.log(`📎 Traitement de ${imageAttachments.length} pièce(s) jointe(s) image...`);
+          for (const imgAtt of imageAttachments) {
+            const result = await processAttachment(imgAtt, false);
+            if (result.success && result.extractedData) {
+              extractedData = result.extractedData;
+              fileUrl = result.fileUrl || null;
+              invoiceExtracted = true;
+              break; // On prend la première facture/reçu valide
+            }
+          }
+        }
         
-        // 6. DÉTECTION GÉNÉRIQUE DES EMAILS D'ENTREPRISES (pas personnels)
-        // Un email d'entreprise a généralement :
-        // - Un domaine personnalisé (pas gmail.com, outlook.com, etc.)
-        // - Un format "noreply@", "no-reply@", "receipts@", "billing@", etc.
-        // - Un domaine avec extension .com, .fr, .net, etc. (pas les domaines personnels)
-        const personalDomains = ['@gmail.com', '@outlook.com', '@hotmail.com', '@yahoo.com', '@icloud.com'];
-        const isPersonalEmail = personalDomains.some(domain => fromLower.includes(domain));
+        // Si aucune pièce jointe valide n'a été trouvée
+        if (!invoiceExtracted) {
+          if (pdfAttachments.length > 0 || imageAttachments.length > 0) {
+            console.log(`❌ Aucune pièce jointe valide (facture/reçu) trouvée parmi ${pdfAttachments.length + imageAttachments.length} pièce(s) jointe(s)`);
+            emailsRejected++;
+            return;
+          }
+        }
         
-        // Détecter si c'est un email d'entreprise (générique, pas seulement Apple)
-        // Un email d'entreprise = pas un email personnel ET (domaine personnalisé OU format noreply/no-reply/receipts/billing)
-        const hasBusinessEmailPattern = fromLower.includes('noreply') || 
-                                       fromLower.includes('no-reply') || 
-                                       fromLower.includes('receipts') || 
-                                       fromLower.includes('billing') || 
-                                       fromLower.includes('invoice') ||
-                                       fromLower.includes('order') ||
-                                       fromLower.includes('payment');
+        // Si une facture a été extraite, continuer avec le processus de sauvegarde
+        // (extractedData et fileUrl sont déjà remplis)
         
-        // Un domaine personnalisé = contient un point ET n'est pas un domaine personnel
-        const hasCustomDomain = fromLower.includes('.') && !isPersonalEmail;
-        
-        // C'est une entreprise si : domaine personnalisé OU pattern email d'entreprise
-        const isBusinessEmail = hasCustomDomain || hasBusinessEmailPattern;
-        
-        // ========== RÈGLES DE DÉTECTION FINALE (STRICTES) ==========
-        // RÈGLE 1: PDF attaché avec indicateur de facture = CANDIDAT (sera validé par GPT après extraction)
-        // RÈGLE 2: Mot-clé facture dans sujet + pas email personnel = CANDIDAT (mais OBLIGATOIREMENT analyser le HTML pour confirmer)
-        // RÈGLE 3: Expéditeur exclu = REJETÉ IMMÉDIATEMENT (sauf Receiptor/Bilibou - on analyse le contenu)
-        // RÈGLE 4: Pattern d'exclusion dans sujet = REJETÉ IMMÉDIATEMENT (history, report, export, etc.)
-        // 
-        // IMPORTANT: On ne marque PAS comme facture tant qu'on n'a pas vérifié le contenu (PDF ou HTML)
-        // Un simple mot-clé dans le sujet ne suffit PLUS - il faut une preuve concrète (PDF ou analyse HTML)
-        // 
-        // NOTE: Receiptor/Bilibou ne sont plus exclus - leurs emails seront analysés par GPT qui déterminera
-        // si c'est une vraie facture (montant + numéro) ou une notification (lien de téléchargement, rapport, etc.)
-        
-        // Candidat si : PDF attaché OU (mot-clé facture + expéditeur valide + pas email personnel)
-        // OU (Expéditeur de confiance comme Apple + pas de pattern notification + contenu HTML disponible)
-        // NOTE: Receiptor/Bilibou ne sont PLUS dans cette logique car exclus totalement plus haut
-        // Mais on ne marquera comme facture qu'après validation du contenu
-        // IMPORTANT: L'exclusion de l'expéditeur et du sujet est PRIORITAIRE - même avec un PDF, on rejette si expéditeur exclu
-        const isInvoiceCandidate = !isExcludedSender && 
-                                   !hasExcludedSubjectPattern &&
-                                   (hasPdfAttachment || 
-                                    (hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail) && !isPersonalEmail && emailHtml) ||
-                                    (isReceiptorOrBilibou && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail) || // Receiptor/Bilibou: analyser le contenu (GPT ULTRA STRICT déterminera si vraie facture)
-                                    (isTrustedSender && !hasExcludedSubjectPattern && emailHtml && !isPersonalEmail)); // Expéditeurs de confiance (Apple, etc.): analyser même sans mot-clé facture
-        
-        // Log critique si un email exclu passe quand même
-        if ((isExcludedSender || hasExcludedSubjectPattern) && isInvoiceCandidate) {
-          console.error(`❌ [ERREUR CRITIQUE] Email exclu est passé comme candidat !`);
-          console.error(`   - Expéditeur: ${from}`);
-          console.error(`   - Sujet: ${subject}`);
-          console.error(`   - isExcludedSender: ${isExcludedSender}`);
-          console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
-          console.error(`   - isInvoiceCandidate: ${isInvoiceCandidate}`);
-          // Forcer le rejet
+        // Si aucune pièce jointe valide, essayer l'Option C (HTML uniquement)
+        if (!invoiceExtracted && !pdfAttachments.length && !imageAttachments.length && emailHtml && emailHtml.trim().length > 0) {
+          // 📧 CAS 2 : Email sans PDF/image mais avec HTML → Option C → Extraire avec GPT
+          try {
+            console.log(`📧 [OPTION C] Début des validations pour l'email: "${subject.substring(0, 50)}"`);
+            console.log(`📧 [OPTION C] HTML disponible: ${emailHtml.length} caractères`);
+            
+            // ========== VALIDATION OPTION C : TOUTES LES CONDITIONS DOIVENT ÊTRE REMPLIES ==========
+            // Condition 1 : Le sujet doit contenir un mot-clé (classiques ou nouveaux)
+            console.log(`🔍 [OPTION C] Validation 1/7 : Vérification du sujet de l'email...`);
+            const classicKeywords = ['facture', 'invoice', 'votre commande', 'receipt', 'reçu', 'refund', 'refunded', 'refunds', 'commande'];
+            const newKeywords = ['réservation', 'reservation', 'booking', 'ticket', 'billet', 'achat', 'purchase', 'paiement', 'payment', 'ordering', 'order'];
+            const subjectKeywords = [...classicKeywords, ...newKeywords];
+            const subjectLower = subject.toLowerCase();
+            const hasSubjectKeyword = subjectKeywords.some(keyword => subjectLower.includes(keyword));
+            
+            if (!hasSubjectKeyword) {
+              console.log(`❌ [OPTION C] Email rejeté : le sujet ne contient aucun mot-clé requis`);
+              console.log(`   Mots-clés classiques: ${classicKeywords.join(', ')}`);
+              console.log(`   Nouveaux mots-clés: ${newKeywords.join(', ')}`);
+              console.log(`   Sujet actuel: "${subject}"`);
+              emailsRejected++;
+              return;
+            }
+            console.log(`✅ [OPTION C] Validation 1/7 réussie : Sujet contient un mot-clé`);
+            
+            // Condition 2 : L'email ne doit pas avoir de pièce jointe (PDF/image)
+            console.log(`🔍 [OPTION C] Validation 2/7 : Vérification de l'absence de pièce jointe...`);
+            if (hasPdfAttachment || hasImageAttachment) {
+              console.log(`❌ [OPTION C] Email rejeté : l'email contient une pièce jointe (PDF ou image), ce n'est pas l'Option C`);
+              emailsRejected++;
+              return;
+            }
+            console.log(`✅ [OPTION C] Validation 2/7 réussie : Aucune pièce jointe détectée`);
+            
+            // Condition 3 : Le HTML doit être présent et non vide
+            console.log(`🔍 [OPTION C] Validation 3/7 : Vérification de la présence de HTML...`);
+            if (!emailHtml || emailHtml.trim().length === 0) {
+              console.log(`❌ [OPTION C] Email rejeté : aucun contenu HTML disponible`);
+              emailsRejected++;
+              return;
+            }
+            console.log(`✅ [OPTION C] Validation 3/7 réussie : HTML présent (${emailHtml.length} caractères)`);
+            
+            // Nettoyer le HTML pour l'analyse texte
+            // IMPORTANT: Extraire le texte des attributs alt et title des images avant de les supprimer
+            let htmlWithAltText = emailHtml;
+            // Extraire le texte des attributs alt et title des images
+            htmlWithAltText = htmlWithAltText.replace(/<img[^>]*alt\s*=\s*["']([^"']*)["'][^>]*>/gi, ' $1 ');
+            htmlWithAltText = htmlWithAltText.replace(/<img[^>]*title\s*=\s*["']([^"']*)["'][^>]*>/gi, ' $1 ');
+            
+            const cleanHtml = htmlWithAltText
+              .replace(/<style[^>]*>.*?<\/style>/gi, '')
+              .replace(/<script[^>]*>.*?<\/script>/gi, '')
+              .replace(/<img[^>]*>/gi, ' ')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .substring(0, 30000);
+            
+            // Condition 4 : Le HTML doit contenir un numéro de facture/commande (minimum 4 chiffres)
+            // 🔍 VALIDATION OPTION C : Vérifier la présence d'un numéro de facture/commande dans le HTML
+            // Patterns recherchés : #1730-8862, # 1730-8862, Commande #1730-8862, Facture #1730-8862, etc.
+            // ⚠️ RENFORCEMENT : Exiger au minimum 4 chiffres pour éviter les faux positifs
+            console.log(`🔍 [OPTION C] Validation 4/7 : Recherche d'un numéro de facture/commande (minimum 4 chiffres)...`);
+            const invoiceNumberPatterns = [
+              /#\s*(\d{4,}[-\s]?\d*|\d+[-\s]?\d{4,})/i,                    // #1730-8862, # 1730-8862, #1730 8862 (minimum 4 chiffres)
+              /(?:commande|order|facture|invoice|receipt|référence|reference|ref)[\s:]*#?\s*(\d{4,}[-\s]?\d*|\d+[-\s]?\d{4,})/i,  // Commande #1730-8862, Order #1730-8862 (minimum 4 chiffres)
+              /(?:n°|no\.?|numéro|number)[\s:]*(\d{4,}[-\s]?\d*|\d+[-\s]?\d{4,})/i,  // N°1730-8862, No. 1730-8862 (minimum 4 chiffres)
+              // Pattern pour "N° DE COMMANDE" suivi d'un numéro alphanumérique (format Apple)
+              /(?:n°|no\.?|numéro|number)[\s:]*de\s+(?:commande|order)[\s:]*([A-Z0-9]{6,})/i,  // N° DE COMMANDE MVWS25VDLN, No. DE COMMANDE ABC123
+              /\d{4,}[-\s]\d{3,}/,                     // 1730-8862, 1730 8862 (format général - déjà strict avec 4+ et 3+)
+              // Numéros de commande alphanumériques - Pattern amélioré pour détecter même sans # après nettoyage HTML
+              /(?:commande|order|facture|invoice|receipt|référence|reference|ref)[\s:]*#?\s*([A-Z0-9]{4,})/i,  // Commande 0ADCF, Order ABC123, Commande #FWN18749, Commande FWN20651
+              // Numéros alphanumériques avec # seul (ex: "#FWN18749", "#ABC123", "#FWN20651")
+              /#\s*([A-Z0-9]{4,})/i,  // #FWN18749, #ABC123, #FWN20651 (minimum 4 caractères alphanumériques après #)
+              // Numéros alphanumériques sans # mais précédés de "commande" ou "order" (cas où # est supprimé par nettoyage HTML)
+              /(?:commande|order)[\s:]+([A-Z]{2,}\d{3,}|\d{3,}[A-Z]{2,}|[A-Z0-9]{5,})/i,  // Commande FWN20651, Order ABC123 (sans #, format: lettres+chiffres ou chiffres+lettres)
+              // Numéros alphanumériques isolés dans un contexte transactionnel (ex: "FWN20651" près de "commande", "total", "paiement")
+              /(?:commande|order|total|paiement|payment|facture|invoice)[\s:]*.{0,30}([A-Z]{2,}\d{3,}|\d{3,}[A-Z]{2,}|[A-Z0-9]{5,})/i,  // FWN20651 près de "commande" ou "total" (dans les 30 caractères)
+            ];
+            
+            const hasInvoiceNumber = invoiceNumberPatterns.some(pattern => pattern.test(cleanHtml));
+            
+            if (!hasInvoiceNumber) {
+              // Log de diagnostic pour comprendre pourquoi le numéro n'est pas détecté
+              const htmlSnippet = cleanHtml.substring(0, 1000).toLowerCase();
+              const hasFWN = htmlSnippet.includes('fwn') || htmlSnippet.includes('commande') || htmlSnippet.includes('#');
+              const hasNumber = /\d{4,}/.test(htmlSnippet);
+              const hasAlphanumeric = /[a-z]{2,}\d{3,}|\d{3,}[a-z]{2,}/i.test(htmlSnippet);
+              console.log(`❌ [OPTION C] Email rejeté : aucun numéro de facture/commande détecté dans le HTML (minimum 4 chiffres requis)`);
+              if (hasFWN || hasNumber || hasAlphanumeric) {
+                console.log(`   🔍 [DIAGNOSTIC] Le HTML contient "FWN", "commande", "#", un numéro à 4+ chiffres, ou un alphanumérique mais le pattern n'a pas matché`);
+                console.log(`   📄 Extrait HTML (1000 premiers caractères): ${cleanHtml.substring(0, 1000)}`);
+                // Chercher spécifiquement "#FWN" ou "FWN" dans le HTML
+                const fwnMatch = cleanHtml.match(/#?\s*FWN\d+/i);
+                if (fwnMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern "#FWN" ou "FWN" trouvé dans le HTML: "${fwnMatch[0]}"`);
+                }
+              }
+              emailsRejected++;
+              return;
+            }
+            
+            console.log(`✅ [OPTION C] Validation 4/7 réussie : Numéro de facture/commande détecté dans le HTML`);
+            
+            // Condition 5 : Le HTML doit contenir une méthode de paiement
+            // 💳 VALIDATION OPTION C : Vérifier la présence d'une méthode de paiement dans le HTML
+            // Patterns recherchés : Carte bancaire, PayPal, Virement, etc.
+            console.log(`💳 [OPTION C] Validation 5/7 : Recherche d'une méthode de paiement...`);
+            const paymentMethodPatterns = [
+              /(?:carte|card)\s*(?:bancaire|de\s*crédit|de\s*crédit|de\s*débit|bleue|bank)/i,  // Carte bancaire, carte de crédit, credit card
+              /(?:visa|mastercard|amex|american\s*express)/i,  // Marques de cartes (Mastercard, Visa, etc.)
+              /mastercard/i,  // Mastercard (pattern spécifique pour être sûr de le détecter)
+              /visa/i,  // Visa (pattern spécifique)
+              /paypal/i,  // PayPal
+              /(?:virement|wire\s*transfer|bank\s*transfer|transfert\s*bancaire)/i,  // Virement
+              /(?:chèque|check|cheque)/i,  // Chèque
+              /(?:espèces|cash)/i,  // Espèces
+              /(?:apple\s*pay|google\s*pay|samsung\s*pay)/i,  // Paiements mobiles
+              /stripe/i,  // Stripe
+              /(?:prélèvement|direct\s*debit|sepa)/i,  // Prélèvement
+              /(?:cryptocurrency|crypto|bitcoin|ethereum)/i,  // Cryptomonnaies
+              /(?:paiement|payment)\s*(?:par|via|with|par\s*le\s*biais\s*de)/i,  // "Paiement par/via"
+              /(?:payé|paid|payment)\s*(?:avec|with|par|via)/i,  // "Payé avec/par"
+              // Patterns pour détecter les méthodes de paiement avec contexte (ex: "Mastercard se terminant par", "Visa ending with")
+              /(?:mastercard|visa|amex|american\s*express)\s+(?:se\s+terminant\s+par|ending\s+with|terminant\s+par|finissant\s+par)/i,  // "Mastercard se terminant par 3645"
+              // Pattern pour "Paiement Mastercard se terminant par" (avec "Paiement" avant, flexible avec sauts de ligne)
+              /(?:paiement|payment)[\s\n]+(?:mastercard|visa|amex|american\s*express)[\s\n]+(?:se\s+terminant\s+par|ending\s+with|terminant\s+par|finissant\s+par)/i,  // "Paiement\nMastercard se terminant par 3645"
+              // Pattern flexible pour "Paiement" suivi de "Mastercard se terminant par" (dans un rayon de 50 caractères)
+              /(?:paiement|payment).{0,50}(?:mastercard|visa|amex|american\s*express)\s+(?:se\s+terminant\s+par|ending\s+with|terminant\s+par|finissant\s+par)/i,  // "Paiement\nMastercard se terminant par 3645" (flexible)
+              /(?:paiement|payment)\s*(?:par|with|via)\s*(?:mastercard|visa|amex|card)/i,  // "Paiement par Mastercard"
+              // Pattern très simple : "Mastercard" suivi de "terminant" dans un rayon de 30 caractères (sans exiger "Paiement" avant)
+              /mastercard.{0,30}terminant/i,  // "Mastercard se terminant par" ou "Mastercard terminant par" (très flexible)
+              // Pattern pour détecter "terminant par" suivi de chiffres (indicateur fort de méthode de paiement, même sans "Mastercard" explicite)
+              /(?:se\s+)?terminant\s+par\s+\d{4,}/i,  // "se terminant par 3645" ou "terminant par 3645" (détecte même sans "Mastercard")
+              // Pattern pour détecter "ending with" suivi de chiffres (anglais)
+              /ending\s+with\s+\d{4,}/i,  // "ending with 1234"
+            ];
+            
+            const hasPaymentMethod = paymentMethodPatterns.some(pattern => pattern.test(cleanHtml));
+            
+            if (!hasPaymentMethod) {
+              // Log de diagnostic pour comprendre pourquoi la méthode de paiement n'est pas détectée
+              const htmlSnippet = cleanHtml.substring(0, 1000).toLowerCase();
+              const hasMastercard = htmlSnippet.includes('mastercard') || htmlSnippet.includes('paiement') || htmlSnippet.includes('visa');
+              const hasTerminant = htmlSnippet.includes('terminant') || htmlSnippet.includes('ending');
+              console.log(`❌ [OPTION C] Email rejeté : aucune méthode de paiement détectée dans le HTML`);
+              
+              // TOUJOURS afficher un extrait autour de "paiement" et "mastercard" pour diagnostic
+              const paiementIndex = cleanHtml.toLowerCase().indexOf('paiement');
+              const mastercardIndex = cleanHtml.toLowerCase().indexOf('mastercard');
+              
+              if (paiementIndex !== -1) {
+                const paiementContext = cleanHtml.substring(Math.max(0, paiementIndex - 50), Math.min(cleanHtml.length, paiementIndex + 200));
+                console.log(`   🔍 [DIAGNOSTIC] Contexte autour de "Paiement" (index ${paiementIndex}): "${paiementContext}"`);
+              }
+              
+              if (mastercardIndex !== -1) {
+                const mastercardContext = cleanHtml.substring(Math.max(0, mastercardIndex - 50), Math.min(cleanHtml.length, mastercardIndex + 200));
+                console.log(`   🔍 [DIAGNOSTIC] Contexte autour de "Mastercard" (index ${mastercardIndex}): "${mastercardContext}"`);
+              }
+              
+              if (hasMastercard || hasTerminant) {
+                console.log(`   🔍 [DIAGNOSTIC] Le HTML contient "mastercard", "paiement", "visa", "terminant" ou "ending" mais le pattern n'a pas matché`);
+                console.log(`   📄 Extrait HTML (1000 premiers caractères): ${cleanHtml.substring(0, 1000)}`);
+                // Chercher spécifiquement "Mastercard se terminant par" dans le HTML
+                const mastercardMatch = cleanHtml.match(/mastercard\s+se\s+terminant\s+par/i);
+                if (mastercardMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern "Mastercard se terminant par" trouvé dans le HTML: "${mastercardMatch[0]}"`);
+                }
+                // Chercher spécifiquement "Paiement Mastercard se terminant par" dans le HTML
+                const paiementMastercardMatch = cleanHtml.match(/(?:paiement|payment)\s+mastercard\s+se\s+terminant\s+par/i);
+                if (paiementMastercardMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern "Paiement Mastercard se terminant par" trouvé dans le HTML: "${paiementMastercardMatch[0]}"`);
+                }
+                // Tester le pattern simple "mastercard" seul
+                const simpleMastercardMatch = cleanHtml.match(/mastercard/i);
+                if (simpleMastercardMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern simple "mastercard" trouvé dans le HTML: "${simpleMastercardMatch[0]}" (mais validation échouée quand même !)`);
+                }
+                // Tester le pattern flexible "mastercard...terminant"
+                const flexibleMatch = cleanHtml.match(/mastercard.{0,30}terminant/i);
+                if (flexibleMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern flexible "mastercard...terminant" trouvé dans le HTML: "${flexibleMatch[0]}"`);
+                }
+                // Tester le pattern "terminant par" suivi de chiffres
+                const terminantParMatch = cleanHtml.match(/(?:se\s+)?terminant\s+par\s+\d{4,}/i);
+                if (terminantParMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern "terminant par" suivi de chiffres trouvé dans le HTML: "${terminantParMatch[0]}"`);
+                }
+                // Tester le pattern "ending with" suivi de chiffres
+                const endingWithMatch = cleanHtml.match(/ending\s+with\s+\d{4,}/i);
+                if (endingWithMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern "ending with" suivi de chiffres trouvé dans le HTML: "${endingWithMatch[0]}"`);
+                }
+              }
+              emailsRejected++;
+              return;
+            }
+            
+            console.log(`✅ [OPTION C] Validation 5/7 réussie : Méthode de paiement détectée dans le HTML`);
+            
+            // Condition 6 : Le HTML doit contenir un total avec montant
+            // 💰 VALIDATION OPTION C : Vérifier la présence d'un total/montant dans le HTML
+            console.log(`💰 [OPTION C] Validation 6/7 : Recherche d'un total avec montant...`);
+            const totalAmountPatterns = [
+              // Français - Patterns renforcés
+              /total\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Total : 125,50 €", "Total: 100.00€"
+              /total\s+ht\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Total HT : 100.00€"
+              /total\s+ttc\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Total TTC : 120 EUR"
+              /total\s+à\s+payer\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "TOTAL À PAYER : 150€", "Total à payer: 25€"
+              /à\s+payer\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "À payer : 25€"
+              /montant\s+total\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Montant total : 99,99 €"
+              /montant\s+payé\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Montant payé : 99,99€"
+              /facturé\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Facturé : 6,00 €", "Facturé: 100.00€"
+              /billed\s*:?\s*\$?[\d\s,\.]+\s*(?:usd|eur|gbp|€|\$|£)?/i,  // "Billed: $99.99", "Billed: 100.00 EUR"
+              /total\s*\([^)]*\)\s*:?\s*[\d\s,\.]+\s*[€$£]?/i,  // "Total (TVA incluse) : 99€"
+              // Anglais
+              /total\s*:?\s*\$?[\d\s,\.]+\s*(?:usd|eur|gbp|€|\$|£)?/i,  // "Total: $299.99", "Total: 150.00 USD"
+              /total\s+amount\s*:?\s*\$?[\d\s,\.]+\s*(?:usd|eur|gbp|€|\$|£)?/i,  // "Total Amount: 150.00 USD"
+              /grand\s+total\s*:?\s*\$?[\d\s,\.]+\s*(?:usd|eur|gbp|€|\$|£)?/i,  // "Grand Total: £99"
+              /amount\s+(?:due|paid)\s*:?\s*\$?[\d\s,\.]+\s*(?:usd|eur|gbp|€|\$|£)?/i,  // "Amount Due: $250", "Amount paid: $4.93"
+              /net\s+to\s+pay\s*:?\s*\$?[\d\s,\.]+\s*(?:usd|eur|gbp|€|\$|£)?/i,  // "Net to Pay: 100.00 EUR"
+              // Formats génériques avec montant
+              /(?:total|montant|amount)\s*:?\s*[\d\s,\.]{2,}\s*(?:€|\$|£|usd|eur|gbp)/i,  // Format générique avec devise
+              // Pattern spécifique pour "Total 18,12 EUR" (montant suivi de EUR en lettres, sans deux-points)
+              /total\s+[\d\s,\.]{2,}\s*(?:eur|usd|gbp)/i,  // "Total 18,12 EUR", "Total 25.00 USD"
+              /total\s*:?\s*[\d\s,\.]{2,}\s*(?:eur|usd|gbp)/i,  // "Total: 18,12 EUR", "Total : 25.00 USD"
+            ];
+            
+            const hasTotalAmount = totalAmountPatterns.some(pattern => pattern.test(cleanHtml));
+            
+            if (!hasTotalAmount) {
+              // Log de diagnostic pour comprendre pourquoi le total n'est pas détecté
+              const htmlSnippet = cleanHtml.substring(0, 1000).toLowerCase();
+              const hasTotal = htmlSnippet.includes('total');
+              const hasFacture = htmlSnippet.includes('facturé') || htmlSnippet.includes('facture');
+              const hasAmount = /[\d\s,\.]{2,}\s*(?:eur|usd|gbp|€|\$|£)/i.test(htmlSnippet);
+              console.log(`❌ [OPTION C] Email rejeté : aucun total/montant détecté dans le HTML`);
+              if (hasTotal || hasFacture || hasAmount) {
+                console.log(`   🔍 [DIAGNOSTIC] Le HTML contient "total", "facturé" ou un montant mais le pattern n'a pas matché`);
+                // Chercher spécifiquement "Facturé :" dans le HTML
+                const factureMatch = cleanHtml.match(/facturé\s*:?\s*[\d\s,\.]+\s*[€$£]/i);
+                if (factureMatch) {
+                  console.log(`   🔍 [DIAGNOSTIC] Pattern "Facturé :" suivi d'un montant trouvé dans le HTML: "${factureMatch[0]}"`);
+                }
+                console.log(`   📄 Extrait HTML (1000 premiers caractères): ${cleanHtml.substring(0, 1000)}`);
+              }
+              emailsRejected++;
+              return;
+            }
+            
+            console.log(`✅ [OPTION C] Validation 6/7 réussie : Total avec montant détecté dans le HTML`);
+            
+            // Condition 7 : Le HTML doit contenir une date de paiement ou de facture
+            // 📅 VALIDATION OPTION C : Vérifier la présence d'une date de paiement/facture dans le HTML
+            // ⚠️ FILTRE ANTI-FAUX POSITIFS : Les vrais reçus/factures ont obligatoirement une date
+            console.log(`📅 [OPTION C] Validation 7/7 : Recherche d'une date de paiement/facture...`);
+            const datePatterns = [
+              // Français - Date de paiement/facture
+              /(?:date\s+de\s+paiement|date\s+paiement|date\s+payé|payé\s+le|paiement\s+le)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Date de paiement : 15/12/2024", "Payé le 15-12-2024"
+              /(?:date\s+de\s+la\s+facture|date\s+facture|facture\s+du|facturé\s+le)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Date de la facture : 15/12/2024", "Facturé le 15-12-2024"
+              // Format "DATE DE LA FACTURE" suivi de "15 févr. 2025" ou "4 nov. 2025" (format Apple)
+              /(?:date\s+de\s+la\s+facture|date\s+facture|facture\s+du|facturé\s+le)\s*:?\s*\d{1,2}\s+(?:jan\.?|fév\.?|févr\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|january|february|march|april|may|june|july|august|september|october|november|december)\s+\.?\s*\d{4}/i,  // "Date de la facture : 15 févr. 2025", "Facture du 4 nov 2025"
+              /(?:date\s+de\s+commande|date\s+commande|commandé\s+le)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Date de commande : 15/12/2024"
+              /(?:date\s+de\s+transaction|date\s+transaction|transaction\s+du)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Date de transaction : 15/12/2024"
+              // Anglais - Date paid/invoice
+              /(?:date\s+paid|paid\s+on|payment\s+date|date\s+of\s+payment)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Date paid: 12/15/2024", "Paid on 12-15-2024"
+              /(?:invoice\s+date|date\s+of\s+invoice|billed\s+on|invoice\s+on)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Invoice date: 12/15/2024", "Billed on 12-15-2024"
+              /(?:order\s+date|date\s+of\s+order|ordered\s+on)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Order date: 12/15/2024"
+              /(?:transaction\s+date|date\s+of\s+transaction)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Transaction date: 12/15/2024"
+              // Formats avec date suivie d'un label
+              /\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\s*(?:date\s+de\s+paiement|date\s+paiement|date\s+paid|payment\s+date)/i,  // "15/12/2024 Date de paiement"
+              /\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\s*(?:date\s+de\s+la\s+facture|date\s+facture|invoice\s+date)/i,  // "15/12/2024 Date de la facture"
+              // Formats Apple et autres formats courants
+              /(?:purchase\s+date|purchased\s+on|date\s+of\s+purchase)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Purchase date: 12/15/2024"
+              /(?:receipt\s+date|date\s+of\s+receipt)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i,  // "Receipt date: 12/15/2024"
+              // Dates en format texte (ex: "January 15, 2024", "15 janvier 2024")
+              /(?:date\s+paid|paid\s+on|payment\s+date|purchase\s+date|invoice\s+date|receipt\s+date)\s*:?\s*(?:january|february|march|april|may|june|july|august|september|october|november|december|janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+\d{1,2},?\s+\d{4}/i,  // "Date paid: January 15, 2024", "Payé le 15 janvier 2024"
+              // Dates avec format YYYY-MM-DD (ISO)
+              /(?:date\s+paid|paid\s+on|payment\s+date|purchase\s+date|invoice\s+date|receipt\s+date|date\s+de\s+paiement|date\s+facture)\s*:?\s*\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}/i,  // "Date paid: 2024-12-15"
+              // Dates simples avec contexte transactionnel (date proche d'un mot-clé transactionnel)
+              /(?:date|le|on)\s*:?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\s*(?:paid|paiement|payment|purchase|achat|invoice|facture|receipt|reçu|transaction)/i,  // "Date: 12/15/2024 Paid", "Le 15/12/2024 paiement"
+              /\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\s*(?:paid|paiement|payment|purchase|achat|invoice|facture|receipt|reçu|transaction)/i,  // "12/15/2024 Paid", "15/12/2024 paiement"
+              // Pattern flexible : date (n'importe quel format) dans un contexte transactionnel (dans les 50 caractères)
+              /(?:date|purchase|receipt|invoice|facture|paiement|payment|paid|achat|transaction).{0,50}\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|(?:date|purchase|receipt|invoice|facture|paiement|payment|paid|achat|transaction).{0,50}\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}|(?:date|purchase|receipt|invoice|facture|paiement|payment|paid|achat|transaction).{0,50}(?:january|february|march|april|may|june|july|august|september|october|november|december|janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+\d{1,2},?\s+\d{4}/i,  // Date flexible dans un contexte transactionnel
+              // Pattern très flexible pour "DATE DE LA FACTURE" suivi de n'importe quelle date (format Apple)
+              /(?:date\s+de\s+la\s+facture|date\s+facture).{0,30}\d{1,2}\s+(?:jan\.?|fév\.?|févr\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|january|february|march|april|may|june|july|august|september|october|november|december)\s*\.?\s*\d{4}/i,  // "DATE DE LA FACTURE" suivi de "15 févr. 2025" ou "4 nov. 2025" (même sur plusieurs lignes)
+              // Pattern pour dates avec mois abrégés sans label explicite (dans un contexte de facture)
+              /\d{1,2}\s+(?:jan\.?|fév\.?|févr\.?|mars|avr\.?|mai|juin|juil\.?|août|sept\.?|oct\.?|nov\.?|déc\.?|january|february|march|april|may|june|july|august|september|october|november|december)\s*\.?\s*\d{4}/i,  // "15 févr. 2025", "4 nov. 2025", "4 nov 2025", "Nov 4, 2025"
+              // Pattern pour "Date paid" suivi de date avec mois abrégé (format: "Oct 24, 2025" ou "Sep 16, 2025" avec saut de ligne possible)
+              /(?:date\s+paid|paid\s+on|payment\s+date).{0,30}(?:jan\.?|fév\.?|févr\.?|feb\.?|mars|mar\.?|avr\.?|apr\.?|mai|may|juin|jun\.?|juil\.?|jul\.?|août|aug\.?|sept\.?|sep\.?|oct\.?|nov\.?|déc\.?|dec\.?|january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}/i,  // "Date paid\nOct 24, 2025" ou "Date paid: Sep 16, 2025"
+            ];
+            
+            const hasDate = datePatterns.some(pattern => pattern.test(cleanHtml));
+            
+            if (!hasDate) {
+              // Exception pour les confirmations de commande : si tous les autres critères sont remplis
+              // (numéro, total, méthode de paiement) ET que le sujet contient "commande" ou "order",
+              // on accepte même sans date explicite dans le HTML (on utilisera la date de l'email)
+              // ⚠️ IMPORTANT : Exclure les newsletters de cette exception
+              const isNewsletter = subjectLower.includes('newsletter') || fromLower.includes('newsletter');
+              const isOrderConfirmation = (subjectLower.includes('commande') || subjectLower.includes('order') || subjectLower.includes('command')) 
+                && hasInvoiceNumber 
+                && hasPaymentMethod 
+                && hasTotalAmount
+                && !isNewsletter; // Exclure les newsletters de cette exception
+              
+              if (isOrderConfirmation) {
+                console.log(`✅ [OPTION C] Validation 7/7 réussie (exception confirmation de commande) : Date de l'email utilisée comme date de commande`);
+                console.log(`   📅 Date de l'email: ${date}`);
+              } else {
+                if (isNewsletter) {
+                  console.log(`❌ [OPTION C] Email rejeté : newsletter détectée, exception confirmation de commande non applicable`);
+                } else {
+                  console.log(`❌ [OPTION C] Email rejeté : aucune date de paiement/facture détectée dans le HTML`);
+                  console.log(`   💡 Les vrais reçus/factures contiennent obligatoirement une date de paiement ou de facture`);
+                }
+                emailsRejected++;
+                return;
+              }
+            } else {
+              console.log(`✅ [OPTION C] Validation 7/7 réussie : Date de paiement/facture détectée dans le HTML`);
+            }
+            console.log(`✅ [OPTION C] ✅ TOUTES LES VALIDATIONS RÉUSSIES (7/7) - Extraction des données...`);
+            
+            const openai = new OpenAI({
+              apiKey: process.env.OPENAI_API_KEY,
+            });
+            
+            const prompt = `Extrais TOUTES les données de cette facture/reçu depuis le contenu HTML de l'email.
+
+📧 EMAIL :
+De: ${from}
+Sujet: ${subject}
+Date: ${date}
+
+CONTENU HTML:
+${cleanHtml}
+
+⚠️ OBLIGATOIRE : Retourne UNIQUEMENT un JSON valide. TOUS les champs ci-dessous DOIVENT être présents dans ta réponse (mets null si absent, mais ne les oublie JAMAIS) :
+{
+  "vendor": "nom du fournisseur/entreprise" (ou null),
+  "invoice_number": "numéro de facture/commande/reçu" (ou null),
+  "receipt_number": "numéro de reçu (si différent de invoice_number)" (ou null),
+  "total_amount": nombre (montant TTC) (ou null),
+  "currency": "EUR/USD/GBP/etc" (ou null),
+  "date": "YYYY-MM-DD" (ou null),
+  "due_date": "YYYY-MM-DD" (ou null),
+  "subtotal": nombre (montant HT/Sous-total HT) (ou null),
+  "tax_amount": nombre (montant TVA) (ou null),
+  "tax_rate": nombre (taux TVA en %) (ou null),
+  "payment_method": "mode de paiement (carte bancaire, virement, PayPal, chèque, espèces, etc.)" (ou null),
+  "payment_date": "YYYY-MM-DD" (ou null),
+  "vendor_address": "adresse complète du fournisseur" (ou null),
+  "vendor_city": "ville du fournisseur" (ou null),
+  "vendor_country": "pays du fournisseur" (ou null),
+  "vendor_phone": "téléphone du fournisseur" (ou null),
+  "vendor_email": "email du fournisseur" (ou null),
+  "vendor_website": "site web du fournisseur" (ou null),
+  "customer_name": "nom du client/destinataire" (ou null),
+  "customer_address": "adresse complète du client" (ou null),
+  "customer_city": "ville du client" (ou null),
+  "customer_country": "pays du client" (ou null),
+  "customer_phone": "téléphone du client" (ou null),
+  "customer_email": "email du client" (ou null),
+  "customer_vat_number": "numéro de TVA intracommunautaire du client" (ou null),
+  "items": [{"description": "...", "quantity": 1, "unit_price": 0, "total": 0}] (ou null)
+}
+
+⚠️ RÈGLES OBLIGATOIRES - TU DOIS EXTRAIRE TOUS CES CHAMPS (mets null si absent, mais inclus-les TOUJOURS dans ta réponse JSON) :
+
+1. **COORDONNÉES CLIENT (OBLIGATOIRE)** : Cherche et extrait les coordonnées du DESTINATAIRE/CLIENT. Elles sont généralement dans une section "Facturé à", "Bill to", "Client", "Customer", "Destinataire", "Billing address", ou dans le coin supérieur droit. Les coordonnées client sont DIFFÉRENTES des coordonnées fournisseur (en-tête). Si tu vois deux adresses, celle qui n'est PAS l'en-tête/fournisseur est celle du client.
+
+   EXEMPLES CONCRETS (formats variés) :
+   - Format "Bill to:" : "Bill to: stove83130-7604's projects, 126 rue andre vuillet 83100, 83100 Toulon, France, stove83130@gmail.com" → Extrait customer_name="stove83130-7604's projects", customer_address="126 rue andre vuillet 83100", customer_city="Toulon", customer_country="France", customer_email="stove83130@gmail.com"
+   - Format "Facturé à:" : "Facturé à: Jean Dupont, 15 Avenue des Champs, 75008 Paris, France, jean@example.com" → Extrait customer_name="Jean Dupont", customer_address="15 Avenue des Champs", customer_city="Paris", customer_country="France", customer_email="jean@example.com"
+   - Format "Client:" : "Client: Société ABC, 10 Rue de la Paix, 69001 Lyon, France" → Extrait customer_name="Société ABC", customer_address="10 Rue de la Paix", customer_city="Lyon", customer_country="France"
+   - Format "Customer:" : "Customer: John Smith, 123 Main Street, New York, NY 10001, USA" → Extrait customer_name="John Smith", customer_address="123 Main Street", customer_city="New York", customer_country="USA"
+
+   Extrait TOUS ces champs (mets null si absent) :
+   - **customer_name** : Le nom du client/destinataire. Cherche après "Client", "Customer", "Destinataire", "Bill to", "Facturé à", "Billed to", "Nom", "Name", "Entreprise", "Company", "Société", "Raison sociale", ou tout nom/projet qui suit ces mots-clés
+   - **customer_address** : L'adresse complète du client. Cherche après "Adresse client", "Customer address", "Adresse de facturation", "Billing address", "Adresse", "Address", ou toute adresse (Rue, Street, Avenue, Boulevard, numéro) qui suit le nom du client dans la section client
+   - **customer_city** : La ville du client. Extrait la ville de l'adresse client (ex: "Toulon" dans "126 rue andre vuillet 83100, 83100 Toulon, France"), ou cherche "Ville", "City", "Localité", "Commune" dans la section client
+   - **customer_country** : Le pays du client. Extrait le pays de l'adresse client (ex: "France" dans "126 rue andre vuillet 83100, 83100 Toulon, France"), ou cherche "Pays", "Country", "Nation" dans la section client
+   - **customer_phone** : Le téléphone du client. Cherche "Téléphone", "Phone", "Tel", "Tél", "Mobile", "Portable", "Tél." dans la section client
+   - **customer_email** : L'email du client. Cherche "Email", "E-mail", "Mail", "Courriel" dans la section client, ou un format email@domain.com dans la section client
+   - **customer_vat_number** : Le numéro de TVA du client. Cherche "TVA", "VAT", "Numéro de TVA", "VAT number", "TVA intracommunautaire", "Intra-community VAT", "Numéro TVA client" dans la section client. Formats : FR12345678901, BE123456789, DE123456789, etc.
+2. **MONTANTS (OBLIGATOIRE)** : Cherche et extrait TOUS ces montants (mets null si absent) :
+   - **subtotal** (Sous-total HT) : Cherche "Sous-total HT", "Total HT", "HT", "Subtotal", "Sub-total", "Montant HT", "Base HT"
+   - **tax_amount** (Montant TVA) : Cherche "TVA", "Montant TVA", "Tax", "Tax amount", "VAT", "VAT amount", "Montant de la TVA"
+   - **tax_rate** (Taux TVA) : Cherche "Taux TVA", "TVA à", "TVA %", "Tax rate", "VAT rate", "Taux de TVA", "20%", "10%", "5.5%" (si c'est le taux de TVA)
+   - Si tu trouves "Total TTC" et "Total HT", calcule tax_amount = TTC - HT
+   - Si tu trouves "Taux TVA" et "Total HT", calcule tax_amount = HT × (taux/100)
+3. **Coordonnées fournisseur (OBLIGATOIRE)** : Extrait l'adresse complète, ville, pays, téléphone, email, site web (généralement en haut/en-tête de la facture). Mets null si absent.
+4. **Mode de paiement (OBLIGATOIRE)** : Cherche "Paiement par", "Payment method", "Mode de paiement", "Carte", "Virement", etc. Mets null si absent.
+5. **Dates (OBLIGATOIRE)** : Format ISO YYYY-MM-DD. Mets null si absent.
+6. **Line items (OBLIGATOIRE)** : Extrait TOUTES les lignes de la facture. Mets null si absent.
+
+⚠️ IMPORTANT : Tous les champs listés dans la structure JSON ci-dessus DOIVENT être présents dans ta réponse, même s'ils sont null. Ne supprime JAMAIS un champ de ta réponse JSON. Les montants doivent être des nombres uniquement (pas de symboles €/$).`;
+
+            const completion = await openai.chat.completions.create({
+              model: 'gpt-4o',
+              messages: [
+                { role: 'system', content: 'Tu es un expert comptable. Tu réponds UNIQUEMENT avec du JSON valide. Extrais TOUTES les données possibles de la facture/reçu. ⚠️ OBLIGATOIRE : Tu DOIS inclure TOUS les champs demandés dans ta réponse JSON, même s\'ils sont null. Ne supprime JAMAIS un champ. Extrait absolument : subtotal (HT), tax_amount (TVA), tax_rate (taux TVA), ET toutes les coordonnées client (nom, adresse, ville, pays, téléphone, email, numéro de TVA). Les coordonnées client sont généralement dans une section "Facturé à", "Bill to", "Client", "Customer", "Destinataire", ou dans le coin supérieur droit. Elles sont DIFFÉRENTES des coordonnées fournisseur (en-tête). EXEMPLES : "Bill to: John, 123 Main St, Paris, France" OU "Facturé à: Jean, 15 Rue X, Lyon, France" OU "Client: Société ABC, 10 Avenue Y, Marseille, France" → Extrait toujours customer_name, customer_address, customer_city, customer_country, customer_email.' },
+                { role: 'user', content: prompt }
+              ],
+              temperature: 0.1,
+              max_tokens: 3000, // Augmenté pour inclure tous les champs (coordonnées fournisseur, client, etc.)
+            });
+            
+            const responseText = completion.choices[0].message.content || '{}';
+            console.log(`📄 [GPT-4o HTML] Réponse brute (premiers 1000 caractères):`, responseText.substring(0, 1000));
+            console.log(`📄 [GPT-4o HTML] Réponse brute (derniers 500 caractères):`, responseText.substring(Math.max(0, responseText.length - 500)));
+            
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              let analysisResult;
+              try {
+                analysisResult = JSON.parse(jsonMatch[0]);
+                console.log(`✅ [GPT-4o HTML] JSON parsé avec succès`);
+                console.log(`🔍 [DEBUG HTML] customer_name dans la réponse GPT:`, analysisResult.customer_name);
+                console.log(`🔍 [DEBUG HTML] customer_address dans la réponse GPT:`, analysisResult.customer_address);
+                console.log(`🔍 [DEBUG HTML] customer_city dans la réponse GPT:`, analysisResult.customer_city);
+                console.log(`🔍 [DEBUG HTML] customer_country dans la réponse GPT:`, analysisResult.customer_country);
+                console.log(`🔍 [DEBUG HTML] customer_email dans la réponse GPT:`, analysisResult.customer_email);
+              } catch (parseError) {
+                console.error(`❌ [GPT-4o HTML] Erreur parsing JSON:`, parseError);
+                console.error(`❌ [GPT-4o HTML] JSON brut:`, jsonMatch[0]);
+                throw parseError;
+              }
+              
+              console.log(`📊 Résultats extraction HTML:`);
+              console.log(`   - vendor: ${analysisResult.vendor || 'null'}`);
+              console.log(`   - invoice_number: ${analysisResult.invoice_number || 'null'}`);
+              console.log(`   - receipt_number: ${analysisResult.receipt_number || 'null'}`);
+              console.log(`   - total_amount: ${analysisResult.total_amount || 'null'} ${analysisResult.currency || 'EUR'}`);
+              console.log(`   - subtotal: ${analysisResult.subtotal || 'null'}`);
+              console.log(`   - tax_amount: ${analysisResult.tax_amount || 'null'}`);
+              console.log(`   - tax_rate: ${analysisResult.tax_rate || 'null'}%`);
+              console.log(`   - payment_method: ${analysisResult.payment_method || 'null'}`);
+              console.log(`   - vendor_address: ${analysisResult.vendor_address || 'null'}`);
+              console.log(`   - vendor_city: ${analysisResult.vendor_city || 'null'}`);
+              console.log(`   👤 CLIENT:`);
+              console.log(`      - customer_name: ${analysisResult.customer_name || 'null'}`);
+              console.log(`      - customer_address: ${analysisResult.customer_address || 'null'}`);
+              console.log(`      - customer_city: ${analysisResult.customer_city || 'null'}`);
+              console.log(`      - customer_country: ${analysisResult.customer_country || 'null'}`);
+              console.log(`      - customer_phone: ${analysisResult.customer_phone || 'null'}`);
+              console.log(`      - customer_email: ${analysisResult.customer_email || 'null'}`);
+              console.log(`      - customer_vat_number: ${analysisResult.customer_vat_number || 'null'}`);
+              
+              // Extraire les données (TOUS les champs)
+              extractedData = {
+                vendor: analysisResult.vendor || from,
+                category: 'Charges exceptionnelles', // Par défaut, peut être amélioré avec GPT
+                vendor_address: analysisResult.vendor_address || null,
+                vendor_city: analysisResult.vendor_city || null,
+                vendor_country: analysisResult.vendor_country || null,
+                vendor_phone: analysisResult.vendor_phone || null,
+                vendor_email: analysisResult.vendor_email || null,
+                vendor_website: analysisResult.vendor_website || null,
+                customer_name: analysisResult.customer_name || null,
+                customer_address: analysisResult.customer_address || null,
+                customer_city: analysisResult.customer_city || null,
+                customer_country: analysisResult.customer_country || null,
+                customer_phone: analysisResult.customer_phone || null,
+                customer_email: analysisResult.customer_email || null,
+                customer_vat_number: analysisResult.customer_vat_number || null,
+                amount: analysisResult.total_amount || null,
+                subtotal: analysisResult.subtotal || null,
+                tax_amount: analysisResult.tax_amount || null,
+                tax_rate: analysisResult.tax_rate || null,
+                currency: analysisResult.currency || 'EUR',
+                date: analysisResult.date || date,
+                due_date: analysisResult.due_date || null,
+                invoice_number: analysisResult.invoice_number || analysisResult.receipt_number || subject,
+                payment_status: 'paid',
+                payment_method: analysisResult.payment_method || null,
+                payment_date: analysisResult.payment_date || null,
+                items: analysisResult.items || null,
+                extraction_status: 'completed',
+                confidence_score: 80,
+              };
+              
+              console.log(`✅ Facture/reçu HTML extrait`);
+              invoicesDetected++;
+
+              // 📸 Capturer une image du contenu HTML de l'email (OPTIONNEL)
+              try {
+                console.log(`📸 Tentative de capture d'image du contenu de l'email...`);
+                
+                const htmlForScreenshot = cleanHtmlForScreenshot(emailHtml);
+                
+                // Convertir en image avec timeout de 10 secondes max
+                const imageBuffer = await Promise.race([
+                  convertHtmlToImage(htmlForScreenshot, 800),
+                  new Promise<never>((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout: capture image trop longue')), 10000)
+                  )
+                ]);
+                
+                const timestamp = Date.now();
+                const sanitizedSubject = subject.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+                const fileName = `email_${timestamp}_${sanitizedSubject}.png`;
+                const filePath = `${userId}/${fileName}`;
+                
+                const { data: uploadData, error: uploadError } = await supabaseService.storage
+                  .from('invoices')
+                  .upload(filePath, imageBuffer, {
+                    contentType: 'image/png',
+                    upsert: false,
+                  });
+                
+                if (uploadError) {
+                  console.error(`❌ Erreur upload image email:`, uploadError);
+                } else {
+                  console.log(`✅ Image email uploadée: ${filePath}`);
+                  
+                  const { data: publicUrlData } = supabaseService.storage
+                    .from('invoices')
+                    .getPublicUrl(filePath);
+                  
+                  extractedData.original_file_url = publicUrlData.publicUrl;
+                  extractedData.original_file_name = fileName;
+                  extractedData.original_mime_type = 'image/png';
+                  htmlImageUrl = publicUrlData.publicUrl;
+                  htmlMimeType = 'image/png';
+                }
+              } catch (screenshotError: any) {
+                console.warn(`⚠️ Capture image email ignorée (non bloquant):`, screenshotError?.message || screenshotError);
+              }
+            } else {
+              console.log(`❌ Erreur: impossible d'analyser le contenu HTML (JSON invalide)`);
+              emailsRejected++;
+              return;
+            }
+          } catch (error) {
+            console.error(`❌ Erreur analyse HTML:`, error);
+            emailsRejected++;
+            return;
+          }
+        } else if (!invoiceExtracted) {
+          // Si aucune pièce jointe valide ET pas d'Option C, rejeter l'email
+          console.log(`❌ Email rejeté: pas de PDF/image valide ni de HTML`);
           emailsRejected++;
           return;
         }
         
-        // Pour les emails sans PDF, on devra analyser le HTML AVANT de confirmer que c'est une facture
-        // IMPORTANT: Pour les expéditeurs de confiance (Apple, etc.), analyser le HTML même sans mot-clé facture dans le sujet
-        // (car ils peuvent envoyer des factures avec des sujets différents)
-        const needsHtmlAnalysis = !hasPdfAttachment && 
-                                 emailHtml && 
-                                 !isPersonalEmail &&
-                                 ((hasInvoiceKeywordInSubject && (isTrustedSender || isBusinessEmail)) || 
-                                  (isReceiptorOrBilibou && !hasExcludedSubjectPattern) || // Receiptor/Bilibou: analyser avec GPT ULTRA STRICT
-                                  (isTrustedSender && !hasExcludedSubjectPattern)); // Expéditeurs de confiance (Apple, etc.): analyser si pas de pattern notification
+        // Si on arrive ici, c'est une facture validée (PDF/image ou HTML)
+        // invoicesDetected a déjà été incrémenté dans les blocs précédents
+        
+        // Sauvegarder la facture
+        const cleanedData = sanitizeForPostgres(extractedData);
+        const cleanedVendor = sanitizeForPostgres(extractedData.vendor || from);
+        const cleanedSubject = sanitizeForPostgres(subject);
 
-        // Logs détaillés pour comprendre pourquoi un email est rejeté
-        if (!isInvoiceCandidate) {
-          emailsRejected++;
-          let reason = '';
-          if (isExcludedSender) {
-            reason = `Expéditeur exclu: ${from}`;
-          } else if (hasExcludedSubjectPattern) {
-            reason = `Pattern d'exclusion dans sujet: ${subject.substring(0, 50)}`;
-          } else if (pdfExcluded) {
-            reason = pdfExcludedReason;
-          } else if (hasInvoiceKeywordInSubject) {
-            if (isPersonalEmail) {
-              reason = 'Email personnel avec mot-clé facture (rejeté)';
-            } else if (!isTrustedSender && !isBusinessEmail) {
-              reason = `Mot-clé facture mais expéditeur non reconnu comme entreprise: ${from}`;
-            } else if (!emailHtml) {
-              reason = 'Mot-clé facture mais pas de contenu HTML à analyser';
-            }
-          } else if (isTrustedSender && !emailHtml) {
-            reason = `Expéditeur de confiance (${from}) mais pas de contenu HTML à analyser`;
+        // Récupérer le workspace_id depuis le progress JSONB (car la table n'a pas de colonne workspace_id)
+        let workspaceIdToUse = null;
+        const workspaceIdFromProgress = job.progress?.workspaceId || null;
+        
+        if (workspaceIdFromProgress) {
+          // Vérifier que le workspace existe ET appartient à l'utilisateur
+          const { data: workspaceExists, error: workspaceError } = await supabaseService
+            .from('workspaces')
+            .select('id, owner_id')
+            .eq('id', workspaceIdFromProgress)
+            .eq('owner_id', userId) // Vérifier que le workspace appartient à l'utilisateur
+            .single();
+          
+          if (workspaceError || !workspaceExists) {
+            // Le workspace n'existe pas ou n'appartient pas à l'utilisateur
+            console.warn(`⚠️ Workspace ${workspaceIdFromProgress} n'existe pas ou n'appartient pas à l'utilisateur ${userId}, utilisation de null (personnel)`);
+            console.warn(`   Erreur workspace:`, workspaceError?.message || 'Workspace introuvable');
+            workspaceIdToUse = null; // Utiliser null pour workspace personnel
           } else {
-            reason = 'Pas de PDF ni mot-clé facture ni expéditeur de confiance';
+            // Le workspace existe et appartient à l'utilisateur
+            workspaceIdToUse = workspaceIdFromProgress;
+            console.log(`✅ Workspace ${workspaceIdFromProgress} vérifié et valide`);
           }
-          // Logger tous les emails rejetés pour debug (limité aux 20 premiers pour éviter trop de logs)
-          if (emailsRejected <= 20) {
-            console.log(`🔍 Email ${emailsAnalyzed} rejeté: "${subject.substring(0, 50)}" de ${from.substring(0, 40)} - Raison: ${reason}`);
-          }
+        } else {
+          // Pas de workspace_id dans le progress = workspace personnel
+          workspaceIdToUse = null;
         }
 
-        // Si c'est un candidat, on va analyser le contenu (PDF ou HTML) pour confirmer
-        if (isInvoiceCandidate) {
-          // Ne pas incrémenter invoicesDetected tout de suite - on attendra la validation du contenu
-          const detectionReason = hasPdfAttachment 
-            ? ' (PDF attaché - validation en cours)' 
-            : ' (mot-clé détecté - analyse HTML requise)';
-          console.log(`🔍 Candidat facture détecté: "${subject}" de ${from}${detectionReason}`);
+        // ========== RÉ-EXTRACTION FORCÉE : On insère/met à jour toutes les factures ==========
+        // Normaliser les valeurs pour la clé de session
+        const normalizedVendor = normalizeString(cleanedVendor);
+        const normalizedInvoiceNumber = normalizeString(cleanedData.invoice_number);
+        const normalizedAmount = normalizeAmount(cleanedData.amount);
+        const invoiceDate = cleanedData.date ? new Date(cleanedData.date).toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
+        
+        // Vérification session uniquement pour éviter les doublons dans la même extraction
+        const sessionCacheKey = `${normalizedVendor}|${normalizedInvoiceNumber}|${normalizedAmount}|${invoiceDate}`;
+        if (sessionInsertedInvoices.has(sessionCacheKey)) {
+          console.log(`⚠️ Facture #${invoicesDetected} déjà traitée dans cette session, ignorée: ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate}`);
+          return;
+        }
+
+        // Vérifier si la facture existe déjà par email_id pour décider entre insert et update
+        const existingByEmailId = invoicesByEmailId.get(message.id);
+        const isUpdate = existingByEmailId !== undefined;
+        
+        console.log(`${isUpdate ? '🔄 Mise à jour' : '✅ Insertion'} de la facture: ${cleanedVendor} - ${cleanedData.invoice_number || 'N/A'} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'}`);
+
+        // Construire extracted_data avec TOUTES les données (y compris celles qui n'ont pas de colonnes dédiées)
+        const fullExtractedData = {
+          ...cleanedData,
+          // Ajouter les métadonnées supplémentaires
+          workspace_id: workspaceIdToUse,
+          account_email: emailAccount.email,
+        };
+        
+        // 🔍 DEBUG : Vérifier que les coordonnées client sont bien présentes avant sauvegarde
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] customer_name dans cleanedData:`, cleanedData.customer_name);
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] customer_address dans cleanedData:`, cleanedData.customer_address);
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] customer_city dans cleanedData:`, cleanedData.customer_city);
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] customer_country dans cleanedData:`, cleanedData.customer_country);
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] customer_email dans cleanedData:`, cleanedData.customer_email);
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] fullExtractedData.customer_name:`, fullExtractedData.customer_name);
+        console.log(`🔍 [DEBUG AVANT SAUVEGARDE] fullExtractedData.customer_address:`, fullExtractedData.customer_address);
+
+        // Utiliser upsert pour insérer ou mettre à jour selon si email_id existe déjà
+        const invoiceData = {
+          user_id: userId,
+          connection_id: job.connection_id,
+          email_id: message.id,
+          workspace_id: workspaceIdToUse, // IMPORTANT: Ajouter workspace_id pour le filtrage dans le tableau
+          // NOTE: subtotal, tax_amount, tax_rate, customer_*, account_email
+          // n'existent pas dans la table invoices - toutes ces données sont dans extracted_data (JSONB)
+          vendor: cleanedVendor,
+          amount: cleanedData.amount || null,
+          currency: cleanedData.currency || 'EUR',
+          date: cleanedData.date ? new Date(cleanedData.date).toISOString() : new Date(date).toISOString(),
+          invoice_number: cleanedData.invoice_number || cleanedSubject,
+          description: cleanedData.description || null,
+          category: cleanedData.category || 'Charges exceptionnelles',
+          // Les colonnes suivantes n'existent pas dans le schéma, stockées dans extracted_data :
+          // subtotal, tax_amount, tax_rate, customer_*, workspace_id, account_email
+          vendor_address: cleanedData.vendor_address || null,
+          vendor_city: cleanedData.vendor_city || null,
+          vendor_country: cleanedData.vendor_country || null,
+          vendor_phone: cleanedData.vendor_phone || null,
+          vendor_email: cleanedData.vendor_email || null,
+          vendor_website: cleanedData.vendor_website || null,
+          payment_status: cleanedData.payment_status || 'unpaid',
+          payment_method: cleanedData.payment_method || null,
+          payment_date: cleanedData.payment_date ? new Date(cleanedData.payment_date).toISOString() : null,
+          due_date: cleanedData.due_date ? new Date(cleanedData.due_date).toISOString() : null,
+          original_file_name: cleanedData.original_file_name || (pdfAttachments[0]?.filename || imageAttachments[0]?.filename) || (htmlImageUrl ? extractedData.original_file_name : null),
+          original_mime_type: cleanedData.original_mime_type || (pdfAttachments.length > 0 ? 'application/pdf' : (htmlMimeType || null)),
+          original_file_url: cleanedData.original_file_url || fileUrl || htmlImageUrl,
+          source: 'gmail',
+          items: cleanedData.items || null, // Stocker les items dans la colonne items (JSONB)
+          // 🔧 FIX : Ajouter les colonnes customer_* pour qu'elles soient sauvegardées dans les colonnes dédiées
+          customer_name: cleanedData.customer_name || null,
+          customer_address: cleanedData.customer_address || null,
+          customer_city: cleanedData.customer_city || null,
+          customer_country: cleanedData.customer_country || null,
+          customer_phone: cleanedData.customer_phone || null,
+          customer_email: cleanedData.customer_email || null,
+          customer_vat_number: cleanedData.customer_vat_number || null,
+          // 🔧 FIX : Ajouter les colonnes subtotal, tax_amount, tax_rate pour qu'elles soient sauvegardées dans les colonnes dédiées
+          subtotal: cleanedData.subtotal || null,
+          tax_amount: cleanedData.tax_amount || null,
+          tax_rate: cleanedData.tax_rate || null,
+          // 🔧 FIX : Ajouter account_email pour qu'il soit sauvegardé dans la colonne dédiée (affiché dans la colonne "Source")
+          account_email: emailAccount.email || null,
+          extracted_data: fullExtractedData, // Toutes les données supplémentaires dans extracted_data (JSONB)
+        };
+
+        // Vérifier si la facture existe déjà par email_id et faire update ou insert
+        let dbError = null;
+        
+        if (isUpdate && existingByEmailId) {
+          // Mise à jour de la facture existante
+          const { error: updateError } = await supabaseService
+            .from('invoices')
+            .update(invoiceData)
+            .eq('email_id', message.id)
+            .eq('user_id', userId);
           
-          // Télécharger le PDF si présent
-          let fileUrl = null;
-          let pdfBuffer: Buffer | null = null;
-          let htmlImageUrl = null;
-          let htmlMimeType = null;
-          
-          if (hasPdfAttachment && pdfAttachment.body?.attachmentId) {
-            try {
-              const attachment = await gmail.users.messages.attachments.get({
-                userId: 'me',
-                messageId: message.id!,
-                id: pdfAttachment.body.attachmentId,
-              });
-
-              if (attachment.data.data) {
-                pdfBuffer = Buffer.from(attachment.data.data, 'base64');
-                
-                const fileName = `${userId}/${message.id}_${pdfAttachment.filename}`;
-                const { data: uploadData, error: uploadError } = await supabaseService.storage
-                  .from('invoices')
-                  .upload(fileName, pdfBuffer, {
-                    contentType: 'application/pdf',
-                    upsert: true,
-                  });
-
-                if (!uploadError && uploadData) {
-                  const { data: urlData } = supabaseService.storage
-                    .from('invoices')
-                    .getPublicUrl(fileName);
-                  
-                  fileUrl = urlData.publicUrl;
-                }
-              }
-            } catch (error) {
-              console.error(`❌ Erreur upload PDF:`, error);
-            }
-          } else if (emailHtml && emailHtml.trim().length > 0) {
-            // Si pas de PDF mais HTML disponible, sauvegarder le HTML comme image ou HTML
-            try {
-              console.log(`📸 Conversion HTML en image pour email ${message.id}...`);
-              
-              // Nettoyer le HTML pour le screenshot
-              const cleanedHtml = cleanHtmlForScreenshot(emailHtml);
-              
-              // Convertir le HTML en image PNG
-              const imageBuffer = await convertHtmlToImage(cleanedHtml, 1200);
-              
-              // Uploader l'image dans Supabase Storage
-              const imageFileName = `${userId}/${message.id}_email_screenshot.png`;
-              const { data: uploadData, error: uploadError } = await supabaseService.storage
-                .from('invoices')
-                .upload(imageFileName, imageBuffer, {
-                  contentType: 'image/png',
-                  upsert: true,
-                });
-
-              if (!uploadError && uploadData) {
-                const { data: urlData } = supabaseService.storage
-                  .from('invoices')
-                  .getPublicUrl(imageFileName);
-                
-                htmlImageUrl = urlData.publicUrl;
-                htmlMimeType = 'image/png';
-                console.log(`✅ Screenshot HTML sauvegardé: ${htmlImageUrl}`);
-              } else {
-                console.error(`❌ Erreur upload screenshot HTML:`, uploadError);
-                // Fallback: sauvegarder le HTML en base64
-                const htmlBase64 = Buffer.from(emailHtml).toString('base64');
-                htmlImageUrl = `data:text/html;base64,${htmlBase64}`;
-                htmlMimeType = 'text/html';
-                console.log(`⚠️ Fallback: HTML sauvegardé en base64`);
-              }
-            } catch (error) {
-              console.error(`❌ Erreur conversion HTML en image:`, error);
-              // Fallback: sauvegarder le HTML en base64 si la conversion échoue
-              try {
-                const htmlBase64 = Buffer.from(emailHtml).toString('base64');
-                htmlImageUrl = `data:text/html;base64,${htmlBase64}`;
-                htmlMimeType = 'text/html';
-                console.log(`⚠️ Fallback: HTML sauvegardé en base64 après erreur conversion`);
-              } catch (fallbackError) {
-                console.error(`❌ Erreur fallback HTML base64:`, fallbackError);
-              }
-            }
-          }
-
-          // Extraction des données
-          let extractedData: any = {};
-          
-          if (pdfBuffer) {
-            try {
-              const fullExtraction = await extractInvoiceData(pdfBuffer, {
-                from,
-                subject,
-                date,
-              });
-              
-              if (fullExtraction.document_type && 
-                  fullExtraction.document_type !== 'invoice' && 
-                  fullExtraction.document_type !== 'receipt') {
-                console.log(`❌ Candidat facture rejeté après extraction GPT: type document = ${fullExtraction.document_type} (attendu: invoice/receipt)`);
-                emailsRejected++;
-                return;
-              }
-              
-              // ========== VALIDATION STRICTE POST-EXTRACTION GPT ==========
-              // RÈGLE EN BÉTON : Une facture/reçu VALIDE doit avoir OBLIGATOIREMENT LES DEUX :
-              // 1. Un numéro de facture valide (pas vide, pas juste le sujet de l'email, au moins 3 caractères)
-              // 2. Un montant valide (nombre > 0)
-              // Si l'un des deux manque, ce n'est PAS une facture/reçu valide
-              
-              // Vérifier si le numéro de facture est valide
-              const invoiceNumber = fullExtraction.invoice_number?.toString().trim() || '';
-              const isValidInvoiceNumber = invoiceNumber.length > 0 && 
-                                         invoiceNumber !== subject.trim() && 
-                                         invoiceNumber.length >= 3; // Au moins 3 caractères
-              
-              // Vérifier si le montant est valide
-              const totalAmount = fullExtraction.total_amount;
-              const isValidAmount = totalAmount !== null && 
-                                   totalAmount !== undefined && 
-                                   !isNaN(Number(totalAmount)) && 
-                                   Number(totalAmount) > 0;
-              
-              // REJETER si le numéro OU le montant n'est pas valide (les DEUX sont obligatoires)
-              if (!isValidInvoiceNumber || !isValidAmount) {
-                console.log(`❌ Candidat facture rejeté après extraction GPT: numéro ET montant obligatoires`);
-                console.log(`   - Numéro facture: "${invoiceNumber}" (valide: ${isValidInvoiceNumber})`);
-                console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
-                console.log(`   - Raison: ${!isValidInvoiceNumber ? 'Numéro de facture manquant ou invalide' : 'Montant manquant ou invalide'}`);
-                emailsRejected++;
-                return;
-              }
-              
-              // Validation supplémentaire: score de confiance minimum
-              const minConfidenceScore = 50; // Score minimum de 50%
-              if (fullExtraction.confidence_score !== undefined && fullExtraction.confidence_score < minConfidenceScore) {
-                console.log(`❌ Candidat facture rejeté après extraction GPT: score de confiance trop bas (${fullExtraction.confidence_score} < ${minConfidenceScore})`);
-                emailsRejected++;
-                return;
-              }
-              
-              // VÉRIFICATION DE SÉCURITÉ FINALE: Même si le PDF est valide,
-              // rejeter si l'expéditeur est dans la liste d'exclusion
-              // NOTE: Receiptor/Bilibou sont déjà exclus totalement au début de la boucle
-              if (isExcludedSender || hasExcludedSubjectPattern) {
-                console.error(`❌ [SÉCURITÉ] Email rejeté malgré PDF valide: expéditeur ou sujet exclu`);
-                console.error(`   - Expéditeur: ${from}`);
-                console.error(`   - Sujet: ${subject}`);
-                console.error(`   - isExcludedSender: ${isExcludedSender}`);
-                console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
-                emailsRejected++;
-                return; // Rejeter même si le PDF est valide
-              }
-              
-              // Si on arrive ici, c'est une vraie facture validée (PDF)
-              invoicesDetected++;
-              console.log(`✅ Facture validée après extraction PDF (#${invoicesDetected}): numéro="${invoiceNumber}", montant=${totalAmount} ${fullExtraction.currency || 'EUR'}`);
-              
-              extractedData = {
-                vendor: fullExtraction.vendor_name,
-                category: fullExtraction.category || 'Charges exceptionnelles',
-                vendor_address: fullExtraction.vendor_address,
-                vendor_city: fullExtraction.vendor_city,
-                vendor_country: fullExtraction.vendor_country,
-                vendor_phone: fullExtraction.vendor_phone,
-                vendor_email: fullExtraction.vendor_email,
-                vendor_website: fullExtraction.vendor_website,
-                customer_name: fullExtraction.customer_name,
-                customer_address: fullExtraction.customer_address,
-                customer_city: fullExtraction.customer_city,
-                customer_country: fullExtraction.customer_country,
-                customer_phone: fullExtraction.customer_phone,
-                customer_email: fullExtraction.customer_email,
-                customer_vat_number: fullExtraction.customer_vat_number,
-                amount: fullExtraction.total_amount,
-                subtotal: fullExtraction.subtotal,
-                tax_amount: fullExtraction.tax_amount,
-                tax_rate: fullExtraction.tax_rate,
-                currency: fullExtraction.currency,
-                date: fullExtraction.invoice_date,
-                invoice_number: fullExtraction.invoice_number,
-                payment_status: fullExtraction.payment_status,
-                payment_method: fullExtraction.payment_method,
-                payment_date: fullExtraction.payment_date,
-                due_date: fullExtraction.due_date,
-                items: fullExtraction.line_items,
-                extraction_status: fullExtraction.extraction_status,
-                confidence_score: fullExtraction.confidence_score,
-                ocr_text: fullExtraction.ocr_text,
-              };
-            } catch (error) {
-              console.error(`❌ Erreur extraction complète:`, error);
-              extractedData = {
-                vendor: from,
-                date: date,
-                invoice_number: subject,
-                extraction_status: 'failed',
-                confidence_score: 0,
-              };
-            }
-          } else if (needsHtmlAnalysis) {
-            // OBLIGATOIRE: Analyser le HTML pour confirmer que c'est vraiment une facture
-            // On ne peut plus accepter juste sur la base d'un mot-clé dans le sujet
-            try {
-              console.log(`🔍 Analyse HTML requise pour confirmer la facture: "${subject}"`);
-              
-              const openai = new OpenAI({
-                apiKey: process.env.OPENAI_API_KEY,
-              });
-              
-              const cleanHtml = emailHtml
-                .replace(/<style[^>]*>.*?<\/style>/gis, '')
-                .replace(/<script[^>]*>.*?<\/script>/gis, '')
-                .replace(/<img[^>]*>/gi, '')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .substring(0, 30000);
-              
-              const prompt = `Analyse cet email et détermine s'il s'agit d'une VRAIE facture ou d'un VRAI reçu.
-
-RÈGLES ULTRA STRICTES - Ce n'est une facture/reçu QUE si tu trouves :
-1. Un montant payé RÉEL (nombre > 0, pas juste "0" ou vide, pas un total de plusieurs factures)
-2. Un numéro de facture/reçu VALIDE (pas juste le sujet de l'email, au moins 3 caractères, pas un ID de rapport)
-3. Des détails de transaction CONCRETS (date, fournisseur qui a émis la facture, description du service/produit)
-
-ATTENTION PARTICULIÈRE - Rejette "is_invoice": false si :
-- C'est une NOTIFICATION sur des factures (ex: "Vous avez 5 nouvelles factures")
-- C'est un RAPPORT d'activité (ex: "Receipts History Report", "Export de factures")
-- C'est un LIEN de téléchargement (ex: "Cliquez ici pour télécharger vos reçus")
-- C'est un EMAIL de Receiptor/Bilibou qui liste des factures mais n'est pas une facture lui-même
-- Le montant est une SOMME de plusieurs factures (pas une transaction unique)
-- Il n'y a pas de détails sur le SERVICE/PRODUIT acheté
-
-CAS SPÉCIAL - Si l'expéditeur est Receiptor/Bilibou :
-- C'est une facture UNIQUEMENT si c'est LEUR propre facture d'abonnement
-- Si c'est une notification/rapport sur d'autres factures → "is_invoice": false
-
-CONTEXTE:
-- De: ${from}
-- Sujet: ${subject}
-- Date: ${date}
-
-CONTENU EMAIL:
-${cleanHtml}
-
-Retourne un JSON avec :
-{
-  "is_invoice": true/false,
-  "vendor": "nom fournisseur" (si facture),
-  "amount": montant_ttc (si facture, doit être > 0),
-  "currency": "EUR/USD" (si facture),
-  "date": "YYYY-MM-DD" (si facture),
-  "invoice_number": "numéro" (si facture, doit être valide),
-  "payment_status": "paid/unpaid" (si facture),
-  "payment_method": "méthode" (si facture),
-  "confidence_score": 0-100,
-  "rejection_reason": "raison du rejet si is_invoice=false (requis si is_invoice=false)"
-}`;
-
-              const completion = await openai.chat.completions.create({
-                model: 'gpt-4o',
-                messages: [
-                  { role: 'system', content: 'Tu réponds uniquement avec du JSON valide. Sois ULTRA STRICT : ce n\'est une facture que si tu trouves un montant réel ET un numéro de facture valide ET une transaction concrète. Rejette les notifications, rapports, et emails d\'agrégateurs comme Receiptor qui ne sont pas leurs propres factures.' },
-                  { role: 'user', content: prompt }
-                ],
-                temperature: 0.0, // Température à 0 pour maximum de déterminisme et strictitude
-                max_tokens: 1000,
-              });
-              
-              const responseText = completion.choices[0].message.content || '{}';
-              const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-              if (jsonMatch) {
-                const analysisResult = JSON.parse(jsonMatch[0]);
-                
-                // Vérifier d'abord si GPT a déterminé que c'est une facture
-                if (!analysisResult.is_invoice) {
-                  console.log(`❌ Email rejeté après analyse HTML: "${subject}" - ${analysisResult.rejection_reason || 'Pas une facture/reçu valide'}`);
-                  emailsRejected++;
-                  return; // Rejeter l'email
-                }
-                
-                // VÉRIFICATION DE SÉCURITÉ FINALE: Même si GPT dit que c'est une facture,
-                // rejeter si l'expéditeur est dans la liste d'exclusion
-                // NOTE: Receiptor/Bilibou sont déjà exclus totalement au début de la boucle
-                if (isExcludedSender || hasExcludedSubjectPattern) {
-                  console.error(`❌ [SÉCURITÉ] Email rejeté malgré validation GPT: expéditeur ou sujet exclu`);
-                  console.error(`   - Expéditeur: ${from}`);
-                  console.error(`   - Sujet: ${subject}`);
-                  console.error(`   - isExcludedSender: ${isExcludedSender}`);
-                  console.error(`   - hasExcludedSubjectPattern: ${hasExcludedSubjectPattern}`);
-                  emailsRejected++;
-                  return; // Rejeter même si GPT a dit que c'est une facture
-                }
-                
-                // Si GPT confirme que c'est une facture, extraire les données
-                extractedData = {
-                  vendor: analysisResult.vendor || from,
-                  amount: analysisResult.amount || null,
-                  currency: analysisResult.currency || 'EUR',
-                  date: analysisResult.date || date,
-                  invoice_number: analysisResult.invoice_number || null,
-                  payment_status: analysisResult.payment_status || 'unpaid',
-                  payment_method: analysisResult.payment_method || null,
-                  extraction_status: 'partial',
-                  confidence_score: analysisResult.confidence_score || 0,
-                };
-                
-                // ========== VALIDATION STRICTE POST-EXTRACTION GPT (pour emails HTML) ==========
-                // RÈGLE EN BÉTON : Même validation que pour les PDFs - numéro ET montant OBLIGATOIRES
-                const invoiceNumber = extractedData.invoice_number?.toString().trim() || '';
-                const isValidInvoiceNumber = invoiceNumber.length > 0 && 
-                                           invoiceNumber !== subject.trim() && 
-                                           invoiceNumber.length >= 3;
-                
-                const totalAmount = extractedData.amount;
-                const isValidAmount = totalAmount !== null && 
-                                     totalAmount !== undefined && 
-                                     !isNaN(Number(totalAmount)) && 
-                                     Number(totalAmount) > 0;
-                
-                // REJETER si le numéro OU le montant n'est pas valide (les DEUX sont obligatoires)
-                if (!isValidInvoiceNumber || !isValidAmount) {
-                  console.log(`❌ Email rejeté après analyse HTML: numéro ET montant obligatoires`);
-                  console.log(`   - Numéro facture: "${invoiceNumber}" (valide: ${isValidInvoiceNumber})`);
-                  console.log(`   - Montant: ${totalAmount} (valide: ${isValidAmount})`);
-                  console.log(`   - Raison: ${!isValidInvoiceNumber ? 'Numéro de facture manquant ou invalide' : 'Montant manquant ou invalide'}`);
-                  emailsRejected++;
-                  return; // Sortir de la boucle pour cet email
-                }
-                
-                // Si on arrive ici, c'est une vraie facture validée
-                invoicesDetected++;
-                console.log(`✅ Facture validée après analyse HTML (#${invoicesDetected}): numéro="${invoiceNumber}", montant=${totalAmount} ${extractedData.currency || 'EUR'}`);
-              } else {
-                // Impossible de parser la réponse GPT, rejeter par sécurité
-                console.log(`❌ Email rejeté: impossible d'analyser le contenu HTML`);
-                emailsRejected++;
-                return;
-              }
-            } catch (error) {
-              console.error(`❌ Erreur analyse HTML:`, error);
-              // En cas d'erreur, rejeter par sécurité
-              console.log(`❌ Email rejeté: erreur lors de l'analyse HTML`);
-              emailsRejected++;
-              return;
-            }
-          } else {
-            // Pas de PDF et pas d'analyse HTML requise = pas une facture
-            console.log(`❌ Email rejeté: pas de PDF et pas de contenu HTML à analyser`);
-            emailsRejected++;
-            return;
-          }
-          
-          // Si on arrive ici, c'est une facture validée (PDF ou HTML)
-          // invoicesDetected a déjà été incrémenté dans les blocs précédents
-
-          // Sauvegarder la facture
-          const cleanedData = sanitizeForPostgres(extractedData);
-          const cleanedVendor = sanitizeForPostgres(extractedData.vendor || from);
-          const cleanedSubject = sanitizeForPostgres(subject);
-
-          // Récupérer le workspace_id depuis le progress JSONB (car la table n'a pas de colonne workspace_id)
-          let workspaceIdToUse = null;
-          const workspaceIdFromProgress = job.progress?.workspaceId || null;
-          
-          if (workspaceIdFromProgress) {
-            // Vérifier que le workspace existe ET appartient à l'utilisateur
-            const { data: workspaceExists, error: workspaceError } = await supabaseService
-              .from('workspaces')
-              .select('id, owner_id')
-              .eq('id', workspaceIdFromProgress)
-              .eq('owner_id', userId) // Vérifier que le workspace appartient à l'utilisateur
-              .single();
-            
-            if (workspaceError || !workspaceExists) {
-              // Le workspace n'existe pas ou n'appartient pas à l'utilisateur
-              console.warn(`⚠️ Workspace ${workspaceIdFromProgress} n'existe pas ou n'appartient pas à l'utilisateur ${userId}, utilisation de null (personnel)`);
-              console.warn(`   Erreur workspace:`, workspaceError?.message || 'Workspace introuvable');
-              workspaceIdToUse = null; // Utiliser null pour workspace personnel
-            } else {
-              // Le workspace existe et appartient à l'utilisateur
-              workspaceIdToUse = workspaceIdFromProgress;
-              console.log(`✅ Workspace ${workspaceIdFromProgress} vérifié et valide`);
-            }
-          } else {
-            // Pas de workspace_id dans le progress = workspace personnel
-            workspaceIdToUse = null;
-          }
-
-          // ========== VÉRIFICATION DE DOUBLONS AVANT INSERTION ==========
-          // Vérifier si cette facture existe déjà dans la base de données
-          // Critères de détection de doublon (NORMALISÉS pour éviter les variations) :
-          // 1. Même email_id (même email traité plusieurs fois) - PRIORITÉ ABSOLUE
-          // 2. Même vendor (normalisé) + invoice_number (normalisé) + amount (normalisé) + date (même facture, même workspace)
-          // 3. Même vendor (normalisé) + amount (normalisé) + date (si pas de numéro de facture fiable)
-          
-          // Normaliser les valeurs pour la comparaison
-          const normalizedVendor = normalizeString(cleanedVendor);
-          const normalizedInvoiceNumber = normalizeString(cleanedData.invoice_number);
-          const normalizedAmount = normalizeAmount(cleanedData.amount);
-          const invoiceDate = cleanedData.date ? new Date(cleanedData.date).toISOString().split('T')[0] : new Date(date).toISOString().split('T')[0];
-          
-          // Vérification 0: CACHE EN MÉMOIRE (vérifier si déjà inséré dans cette session) - PRIORITÉ ABSOLUE
-          // Construire une clé unique pour cette facture (vendor + invoice_number + amount + date)
-          const sessionCacheKey = `${normalizedVendor}|${normalizedInvoiceNumber}|${normalizedAmount}|${invoiceDate}`;
-          if (sessionInsertedInvoices.has(sessionCacheKey)) {
-            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - cache session): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Déjà insérée dans cette session`);
-            return;
-          }
-          
-          // Vérification 1: Même email_id (CACHE - instantané, pas de requête DB)
-          // NOTE: Cette vérification a déjà été faite au début de processEmail(), mais on la refait ici
-          // au cas où plusieurs emails auraient le même contenu facture (sécurité supplémentaire)
-          const existingByEmailId = invoicesByEmailId.get(message.id);
-          if (existingByEmailId) {
-            console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon email_id - cache): ${message.id} - Facture déjà existante (ID: ${existingByEmailId.id})`);
-            return; // return au lieu de continue car on est dans une fonction
-          }
-          
-          // Vérification 2: Même vendor + invoice_number + amount + date (CACHE - instantané)
-          if (normalizedVendor && normalizedInvoiceNumber && normalizedAmount && normalizedInvoiceNumber.length >= 3) {
-            const detailsKey = `${normalizedVendor}|${normalizedInvoiceNumber}|${normalizedAmount}|${invoiceDate}`;
-            const existingByDetails = invoicesByDetails.get(detailsKey);
-            
-            if (existingByDetails) {
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon détails - cache): ${cleanedVendor} - ${cleanedData.invoice_number} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture existante (ID: ${existingByDetails.id})`);
-              return; // return au lieu de continue
-            }
-          }
-          
-          // Vérification 3: Même vendor + amount + date (CACHE - si pas de numéro fiable)
-          const isInvoiceNumberReliable = normalizedInvoiceNumber && 
-                                        normalizedInvoiceNumber.length >= 3 && 
-                                        normalizedInvoiceNumber !== normalizeString(subject);
-          
-          if (normalizedVendor && normalizedAmount && !isInvoiceNumberReliable) {
-            const vendorAmountDateKey = `${normalizedVendor}|${normalizedAmount}|${invoiceDate}`;
-            const existingByVendorAmountDate = invoicesByVendorAmountDate.get(vendorAmountDateKey);
-            
-            if (existingByVendorAmountDate) {
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon vendor+montant+date - cache): ${cleanedVendor} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'} - ${invoiceDate} - Facture existante (ID: ${existingByVendorAmountDate.id})`);
-              return; // return au lieu de continue
-            }
-          }
-
-          console.log(`✅ Aucun doublon détecté, insertion de la facture: ${cleanedVendor} - ${cleanedData.invoice_number || 'N/A'} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'}`);
-
-          // Construire extracted_data avec TOUTES les données (y compris celles qui n'ont pas de colonnes dédiées)
-          const fullExtractedData = {
-            ...cleanedData,
-            // Ajouter les métadonnées supplémentaires
-            workspace_id: workspaceIdToUse,
-            account_email: emailAccount.email,
-          };
-
+          dbError = updateError;
+        } else {
+          // Insertion d'une nouvelle facture
           const { error: insertError } = await supabaseService
             .from('invoices')
-            .insert({
-              user_id: userId,
-              connection_id: job.connection_id,
-              email_id: message.id,
-              // NOTE: workspace_id, subtotal, tax_amount, tax_rate, customer_*, account_email
-              // n'existent pas dans la table invoices - toutes ces données sont dans extracted_data (JSONB)
-              vendor: cleanedVendor,
-              amount: cleanedData.amount || null,
-              currency: cleanedData.currency || 'EUR',
-              date: cleanedData.date ? new Date(cleanedData.date).toISOString() : new Date(date).toISOString(),
-              invoice_number: cleanedData.invoice_number || cleanedSubject,
-              description: cleanedData.description || null,
-              category: cleanedData.category || 'Charges exceptionnelles',
-              // Les colonnes suivantes n'existent pas dans le schéma, stockées dans extracted_data :
-              // subtotal, tax_amount, tax_rate, customer_*, workspace_id, account_email
-              vendor_address: cleanedData.vendor_address || null,
-              vendor_city: cleanedData.vendor_city || null,
-              vendor_country: cleanedData.vendor_country || null,
-              vendor_phone: cleanedData.vendor_phone || null,
-              vendor_email: cleanedData.vendor_email || null,
-              vendor_website: cleanedData.vendor_website || null,
-              payment_status: cleanedData.payment_status || 'unpaid',
-              payment_method: cleanedData.payment_method || null,
-              payment_date: cleanedData.payment_date ? new Date(cleanedData.payment_date).toISOString() : null,
-              due_date: cleanedData.due_date ? new Date(cleanedData.due_date).toISOString() : null,
-              original_file_name: cleanedData.original_file_name || pdfAttachment?.filename || (htmlImageUrl ? `${message.id}_email_screenshot.png` : null),
-              original_mime_type: cleanedData.original_mime_type || (pdfAttachment ? 'application/pdf' : (htmlMimeType || null)),
-              original_file_url: cleanedData.original_file_url || fileUrl || htmlImageUrl,
-              source: 'gmail',
-              items: cleanedData.items || null, // Stocker les items dans la colonne items (JSONB)
-              extracted_data: fullExtractedData, // Toutes les données supplémentaires dans extracted_data (JSONB)
-            });
+            .insert(invoiceData);
+          
+          dbError = insertError;
+        }
 
-          if (!insertError) {
-            invoicesFound++;
-            // Ajouter au cache en mémoire pour éviter les doublons dans la même session
-            sessionInsertedInvoices.set(sessionCacheKey, true);
-            console.log(`✅ Facture #${invoicesFound} sauvegardée: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} - Workspace: ${workspaceIdToUse || 'null (personnel)'}`);
-            // Mettre à jour le progress immédiatement après chaque facture sauvegardée (force = true)
-            await updateProgress(true);
-          } else {
-            // Vérifier si l'erreur est due à la contrainte UNIQUE (doublon)
-            const isDuplicateError = insertError.code === '23505' || // PostgreSQL unique violation
-                                   insertError.message?.includes('duplicate') ||
-                                   insertError.message?.includes('unique') ||
-                                   insertError.message?.includes('UNIQUE') ||
-                                   insertError.message?.includes('violates unique constraint');
-            
-            if (isDuplicateError) {
-              // C'est un doublon détecté par la contrainte UNIQUE de la DB
-              // (race condition ou vérification qui a échoué)
-              // Ajouter quand même au cache pour éviter de réessayer
-              sessionInsertedInvoices.set(sessionCacheKey, true);
-              console.log(`⚠️ Facture #${invoicesDetected} rejetée (doublon - contrainte UNIQUE DB): ${message.id} - Facture déjà existante, ignorée`);
-              // Ne pas incrémenter invoicesFound car c'est un doublon
-            } else {
-              // Autre erreur d'insertion
-              console.error(`❌ Erreur insertion facture #${invoicesDetected}:`, insertError);
-              console.error(`   Vendor: ${cleanedVendor}`);
-              console.error(`   Amount: ${cleanedData.amount}`);
-              console.error(`   Workspace: ${workspaceIdToUse || 'null'}`);
-              console.error(`   Email ID: ${message.id}`);
-            }
+        if (!dbError) {
+          invoicesFound++;
+          // Ajouter au cache en mémoire pour éviter les doublons dans la même session
+          sessionInsertedInvoices.set(sessionCacheKey, true);
+          console.log(`${isUpdate ? '🔄 Facture #' + invoicesFound + ' mise à jour' : '✅ Facture #' + invoicesFound + ' sauvegardée'}: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} - Workspace: ${workspaceIdToUse || 'null (personnel)'}`);
+          // ⚠️ LOG SPÉCIAL pour Cursor/Replit (DIAGNOSTIC)
+          if (from.toLowerCase().includes('cursor') || from.toLowerCase().includes('replit') || subject.toLowerCase().includes('cursor') || subject.toLowerCase().includes('replit')) {
+            console.log(`🎉 [CURSOR/REPLIT ${isUpdate ? 'MIS À JOUR' : 'ACCEPTÉ'}] Sujet: "${subject}" | De: ${from} | Vendor: ${extractedData.vendor} | Montant: ${cleanedData.amount} ${cleanedData.currency}`);
           }
+          // Mettre à jour le progress immédiatement après chaque facture sauvegardée (force = true)
+          await updateProgress(true);
+        } else {
+          // Erreur d'insertion/mise à jour
+          console.error(`❌ Erreur ${isUpdate ? 'mise à jour' : 'insertion'} facture #${invoicesDetected}:`, dbError);
+          console.error(`   Vendor: ${cleanedVendor}`);
+          console.error(`   Amount: ${cleanedData.amount}`);
+          console.error(`   Workspace: ${workspaceIdToUse || 'null'}`);
+          console.error(`   Email ID: ${message.id}`);
         }
       } catch (error) {
         console.error(`❌ Erreur traitement email:`, error);
@@ -1291,8 +1664,8 @@ Retourne un JSON avec :
     }; // Fin de la fonction processEmail
 
     // ========== OPTIMISATION 4: TRAITEMENT PAR BATCHES PARALLÈLES ==========
-    // Traiter les emails par batches de 5 en parallèle au lieu d'un par un
-    const BATCH_SIZE = 5;
+    // Traiter les emails par batches de 10 en parallèle (GPT-4o-mini est plus rapide)
+    const BATCH_SIZE = 10;
     const batches: any[][] = [];
     
     // Découper les messages en batches
@@ -1316,13 +1689,19 @@ Retourne un JSON avec :
       console.log(`✅ Batch ${batchIndex + 1}/${batches.length} terminé (${emailsAnalyzed}/${messages.length} emails analysés, ${invoicesFound} factures trouvées)`);
     }
 
+    const gptAnalysisCount = emailsAnalyzed - emailsRejected; // Nombre d'emails analysés par GPT
+    
     console.log(`\n📊 RÉSUMÉ EXTRACTION:`);
+    console.log(`   📬 ${messages.length} emails récupérés`);
+    console.log(`   📧 ${emailsAnalyzed} emails traités`);
+    console.log(`   ❌ ${emailsRejected} emails rejetés`);
+    console.log(`   🤖 ${gptAnalysisCount} emails analysés par GPT-4o-mini`);
     console.log(`   🔍 ${invoicesDetected} factures détectées`);
     console.log(`   ✅ ${invoicesFound} factures sauvegardées`);
-    console.log(`   📧 ${emailsAnalyzed} emails analysés`);
-    console.log(`   ❌ ${emailsRejected} emails rejetés`);
-    console.log(`   📈 Taux de détection: ${emailsAnalyzed > 0 ? ((invoicesDetected / emailsAnalyzed) * 100).toFixed(2) : 0}%`);
-    console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%\n`);
+    console.log(`   📈 Taux de détection: ${gptAnalysisCount > 0 ? ((invoicesDetected / gptAnalysisCount) * 100).toFixed(2) : 0}%`);
+    console.log(`   💾 Taux de sauvegarde: ${invoicesDetected > 0 ? ((invoicesFound / invoicesDetected) * 100).toFixed(2) : 0}%`);
+    console.log(`   💰 Coût GPT estimé: ${gptAnalysisCount} appels × $0.0006 = ~$${(gptAnalysisCount * 0.0006).toFixed(2)}`);
+    console.log(`   💸 Économie vs GPT-4o: ~$${((gptAnalysisCount * 0.018) - (gptAnalysisCount * 0.0006)).toFixed(2)} économisés (30x moins cher)\n`);
 
     // 11. Vérifier le nombre réel de factures sauvegardées dans la DB
     // IMPORTANT: Attendre que toutes les insertions soient terminées avant de marquer comme "completed"
@@ -1418,16 +1797,17 @@ Retourne un JSON avec :
     console.error(`❌ Erreur traitement extraction:`, error);
 
     // Mettre à jour le job en erreur
-    await supabaseService
-      .from('extraction_jobs')
-      .update({
-        status: 'failed',
-        error_message: error.message || String(error),
-      })
-      .eq('id', jobId)
-      .catch((updateError) => {
-        console.error('❌ Erreur mise à jour statut job:', updateError);
-      });
+    try {
+      await supabaseService
+        .from('extraction_jobs')
+        .update({
+          status: 'failed',
+          error_message: error.message || String(error),
+        })
+        .eq('id', jobId);
+    } catch (updateError: any) {
+      console.error('❌ Erreur mise à jour statut job:', updateError);
+    }
   }
 }
 

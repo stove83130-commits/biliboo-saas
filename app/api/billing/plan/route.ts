@@ -11,12 +11,12 @@ export async function GET() {
 
   // Log uniquement en mode développement pour éviter trop de logs en production
   if (process.env.NODE_ENV === 'development') {
-    console.log('🔍 Plan API - Métadonnées utilisateur:', {
-      selected_plan: user.user_metadata?.selected_plan,
-      subscription_status: user.user_metadata?.subscription_status,
-      stripe_subscription_id: user.user_metadata?.stripe_subscription_id,
-      user_id: user.id
-    })
+  console.log('🔍 Plan API - Métadonnées utilisateur:', {
+    selected_plan: user.user_metadata?.selected_plan,
+    subscription_status: user.user_metadata?.subscription_status,
+    stripe_subscription_id: user.user_metadata?.stripe_subscription_id,
+    user_id: user.id
+  })
   }
 
   // Ne pas assigner de plan par défaut - l'utilisateur doit choisir un plan

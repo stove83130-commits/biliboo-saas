@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, Save, Download } from 'lucide-react';
 
@@ -257,16 +256,6 @@ export default function InvoiceDetailsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Description</label>
-                  <Textarea
-                    value={invoice.description || ''}
-                    onChange={(e) => updateField('description', e.target.value)}
-                    placeholder="Description de la transaction"
-                    rows={3}
-                  />
-                </div>
               </div>
             </Card>
 
@@ -469,33 +458,131 @@ export default function InvoiceDetailsPage() {
               </div>
             </Card>
 
-            {invoice.items && invoice.items.length > 0 && (
               <Card className="p-6">
-                <h2 className="text-xl font-semibold mb-4">Articles / Services</h2>
-                
-                <div className="space-y-3">
-                  {invoice.items.map((item: any, index: number) => (
-                    <div key={index} className="border-b pb-3 last:border-b-0">
-                      <div className="font-medium">{item.description}</div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        Quantité: {item.quantity} × {item.unitPrice} {invoice.currency} = {item.total} {invoice.currency}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
-
-            <Card className="p-6">
-              <h2 className="text-xl font-semibold mb-4">Notes</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">Articles / Services</h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const newItem = {
+                      description: '',
+                      quantity: 1,
+                      unitPrice: 0,
+                      total: 0
+                    };
+                    const currentItems = invoice.items || [];
+                    updateField('items', [...currentItems, newItem]);
+                  }}
+                >
+                  + Ajouter une ligne
+                </Button>
+              </div>
               
-              <Textarea
-                value={invoice.notes || ''}
-                onChange={(e) => updateField('notes', e.target.value)}
-                placeholder="Notes supplémentaires..."
-                rows={4}
-              />
-            </Card>
+              {invoice.items && invoice.items.length > 0 ? (
+                <div className="space-y-3">
+                  {invoice.items.map((item: any, index: number) => {
+                    const quantity = item.quantity || 0;
+                    const unitPrice = item.unitPrice || 0;
+                    const total = quantity * unitPrice;
+                    
+                    return (
+                      <div key={index} className="border rounded-lg p-4 space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Nom du produit</label>
+                          <Input
+                            value={item.description || ''}
+                            onChange={(e) => {
+                              const updatedItems = [...(invoice.items || [])];
+                              updatedItems[index] = { ...updatedItems[index], description: e.target.value };
+                              updateField('items', updatedItems);
+                            }}
+                            placeholder="Nom du produit ou service"
+                          />
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Quantité</label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={quantity}
+                              onChange={(e) => {
+                                const newQuantity = parseFloat(e.target.value) || 0;
+                                const updatedItems = [...(invoice.items || [])];
+                                updatedItems[index] = { 
+                                  ...updatedItems[index], 
+                                  quantity: newQuantity,
+                                  total: newQuantity * (updatedItems[index].unitPrice || 0)
+                                };
+                                updateField('items', updatedItems);
+                              }}
+                              placeholder="1"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Prix unitaire ({invoice.currency || 'EUR'})</label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={unitPrice}
+                              onChange={(e) => {
+                                const newUnitPrice = parseFloat(e.target.value) || 0;
+                                const updatedItems = [...(invoice.items || [])];
+                                updatedItems[index] = { 
+                                  ...updatedItems[index], 
+                                  unitPrice: newUnitPrice,
+                                  total: (updatedItems[index].quantity || 0) * newUnitPrice
+                                };
+                                updateField('items', updatedItems);
+                              }}
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-between pt-2 border-t">
+                          <div className="text-sm text-gray-600">
+                            Total: <span className="font-semibold">{total.toFixed(2)} {invoice.currency || 'EUR'}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const updatedItems = invoice.items?.filter((_: any, i: number) => i !== index) || [];
+                              updateField('items', updatedItems);
+                            }}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            Supprimer
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                    </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p className="mb-4">Aucun article pour le moment</p>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const newItem = {
+                        description: '',
+                        quantity: 1,
+                        unitPrice: 0,
+                        total: 0
+                      };
+                      updateField('items', [newItem]);
+                    }}
+                  >
+                    + Ajouter le premier article
+                  </Button>
+                </div>
+              )}
+              </Card>
           </div>
 
           {/* DROITE : PRÉVISUALISATION FICHIER - FIXE - 60% */}
