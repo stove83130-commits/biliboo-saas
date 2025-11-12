@@ -116,11 +116,23 @@ function BillingPageContent() {
       }
       
       const currentPeriodEnd = user.user_metadata?.current_period_end || null
+      const trialEndsAt = user.user_metadata?.trial_ends_at || null
       const cancelAtPeriodEnd = user.user_metadata?.subscription_ends_at ? true : false
+      
+      // Vérifier si la période est terminée (période normale ou période d'essai)
+      const periodEndDate = currentPeriodEnd || trialEndsAt
+      const isPeriodEnded = periodEndDate && new Date(periodEndDate) < new Date()
+      
+      // Si la période est terminée, considérer l'abonnement comme expiré
+      if (isPeriodEnded && (subscriptionStatus === 'active' || subscriptionStatus === 'trialing')) {
+        subscriptionStatus = 'expired'
+      }
       
       console.log('📊 Données facturation:', {
         planKey,
         subscriptionStatus,
+        currentPeriodEnd,
+        isPeriodEnded,
         user_metadata: user.user_metadata
       })
 
@@ -128,7 +140,7 @@ function BillingPageContent() {
       setSubscription({
         plan: planKey,
         status: subscriptionStatus,
-        current_period_end: currentPeriodEnd,
+        current_period_end: currentPeriodEnd || trialEndsAt, // Utiliser trial_ends_at si current_period_end n'existe pas
         cancel_at_period_end: cancelAtPeriodEnd
       })
 
@@ -486,14 +498,45 @@ function BillingPageContent() {
         {/* Plan actuel - Carte compacte */}
         {subscription?.plan ? (
           <div className="relative">
-            <div
-              className={`p-4 overflow-hidden rounded-xl flex flex-col justify-start items-start gap-4 relative z-10 ${
-                subscription.status === 'active' && !subscription.cancel_at_period_end
-                  ? "bg-primary shadow-[0px_4px_8px_-2px_rgba(0,0,0,0.10)]"
-                  : "bg-gray-50 shadow-sm"
-              }`}
-              style={subscription.status === 'active' && !subscription.cancel_at_period_end ? {} : { outline: "1px solid hsl(var(--border))", outlineOffset: "-1px" }}
-            >
+            {/* Message si la période est terminée */}
+            {(() => {
+              const periodEnd = subscription.current_period_end
+              const isPeriodEnded = periodEnd && new Date(periodEnd) < new Date()
+              return isPeriodEnded
+            })() ? (
+              <Card className="p-6 border-0 shadow-none bg-accent/30">
+                <div className="text-center py-8">
+                  <div className="h-16 w-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="h-8 w-8 text-amber-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">
+                    Période d'essai terminée
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Votre période d'essai s'est terminée le {formatDate(subscription.current_period_end)}. 
+                    Pour continuer à utiliser le service, veuillez choisir un plan.
+                  </p>
+                  <Button
+                    onClick={() => window.location.href = '/plans'}
+                    className="text-white hover:opacity-90 transition-all"
+                    style={{
+                      background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
+                    }}
+                  >
+                    <ArrowUpRight className="h-4 w-4 mr-2" />
+                    Choisir un plan
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <div
+                className={`p-4 overflow-hidden rounded-xl flex flex-col justify-start items-start gap-4 relative z-10 ${
+                  subscription.status === 'active' && !subscription.cancel_at_period_end
+                    ? "bg-primary shadow-[0px_4px_8px_-2px_rgba(0,0,0,0.10)]"
+                    : "bg-gray-50 shadow-sm"
+                }`}
+                style={subscription.status === 'active' && !subscription.cancel_at_period_end ? {} : { outline: "1px solid hsl(var(--border))", outlineOffset: "-1px" }}
+              >
               <div className="self-stretch flex flex-col justify-start items-start gap-4">
                 <div className="w-full flex items-center justify-between">
                   <div className={`text-sm font-semibold leading-tight ${
@@ -662,6 +705,7 @@ function BillingPageContent() {
                 </Button>
               </div>
             </div>
+            )}
           </div>
         ) : (
           <Card className="p-6 border-0 shadow-none bg-accent/30">
