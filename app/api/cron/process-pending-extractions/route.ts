@@ -24,11 +24,23 @@ const supabaseService = createServiceClient(
 
 export async function GET(req: NextRequest) {
   try {
-    // Vérifier l'autorisation (secret partagé pour les cron jobs)
+    // Vérifier l'autorisation pour les cron jobs
+    // Vercel Cron Jobs envoie le header "x-vercel-cron" automatiquement
+    // Sinon, on peut utiliser un Bearer token dans l'Authorization header
+    const vercelCronHeader = req.headers.get('x-vercel-cron');
     const authHeader = req.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET || 'change-me-in-production';
     
-    if (authHeader !== `Bearer ${cronSecret}`) {
+    // Accepter si c'est un appel de Vercel Cron Jobs OU si le Bearer token est correct
+    const isVercelCron = vercelCronHeader === '1';
+    const isAuthorized = authHeader === `Bearer ${cronSecret}`;
+    
+    if (!isVercelCron && !isAuthorized) {
+      console.log('❌ Cron job non autorisé:', {
+        hasVercelCron: !!vercelCronHeader,
+        hasAuthHeader: !!authHeader,
+        cronSecretSet: !!process.env.CRON_SECRET
+      });
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

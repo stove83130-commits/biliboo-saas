@@ -14,7 +14,6 @@ import { invoiceStorageService } from '@/lib/services/invoice-storage';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
-import { processExtractionInBackground } from '@/app/api/extraction/process/route';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -677,27 +676,47 @@ Retourne un JSON avec :
     
     console.log(`🟢 Job ${job.id} marqué comme 'processing', démarrage extraction...`);
     
-    // Appeler directement la fonction en arrière-plan
-    // Utiliser setImmediate pour forcer l'exécution après le retour de la réponse
-    const extractionPromise = Promise.resolve().then(() => {
-      console.log(`🚀 Démarrage processExtractionInBackground pour job ${job.id}`);
-      return processExtractionInBackground(job.id, user.id, job, emailAccount);
-    }).then(() => {
-      console.log(`✅ Extraction job ${job.id} terminée avec succès`);
-    }).catch((error) => {
-      console.error(`❌ Erreur extraction job ${job.id}:`, error);
-      // La fonction processExtractionInBackground gère déjà la mise à jour du statut en cas d'erreur
-    });
+    // IMPORTANT: Sur Vercel, les fonctions serverless se terminent après la réponse HTTP
+    // SOLUTION: Faire un fetch() vers /api/extraction/process pour créer une NOUVELLE invocation
+    // qui ne sera pas interrompue quand cette fonction se termine
+    //
+    // On utilise l'URL de l'origine de la requête pour s'assurer que l'appel fonctionne
+    // même en production avec des domaines personnalisés
     
-    // Si waitUntil est disponible (Edge Runtime), l'utiliser pour garantir l'exécution
-    if (typeof (globalThis as any).waitUntil === 'function') {
-      (globalThis as any).waitUntil(extractionPromise);
-      console.log('✅ waitUntil() utilisé pour garantir l\'exécution');
+    // Construire l'URL de l'endpoint process
+    const origin = req.headers.get('origin') || req.headers.get('host') || 'www.bilibou.com';
+    let baseUrl: string;
+    
+    if (origin.startsWith('http://') || origin.startsWith('https://')) {
+      baseUrl = origin;
     } else {
-      // Sinon, on laisse la promesse s'exécuter en arrière-plan
-      // Vercel peut tuer le processus, mais au moins on aura marqué le job comme "processing"
-      console.log('⚠️ waitUntil() non disponible, extraction lancée en arrière-plan');
+      baseUrl = `https://${origin}`;
     }
+    
+    const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
+    
+    console.log(`🚀 Appel fetch() vers ${processUrl} pour démarrer l'extraction...`);
+    
+    // Faire un fetch() SANS await pour ne pas bloquer la réponse HTTP
+    // Cette nouvelle invocation serverless continuera même après que cette fonction se termine
+    fetch(processUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Transmettre les cookies de session pour l'authentification
+        'Cookie': req.headers.get('cookie') || '',
+      },
+      // Ne pas attendre la réponse, laisser l'extraction se faire en arrière-plan
+    }).then((response) => {
+      if (response.ok) {
+        console.log(`✅ Extraction job ${job.id} démarrée avec succès via fetch()`);
+      } else {
+        console.error(`❌ Erreur démarrage extraction job ${job.id} via fetch():`, response.status, response.statusText);
+      }
+    }).catch((error) => {
+      console.error(`❌ Erreur fetch() pour job ${job.id}:`, error);
+      // Si le fetch() échoue, le cron job relancera le job plus tard
+    });
 
     return NextResponse.json({
       success: true,
