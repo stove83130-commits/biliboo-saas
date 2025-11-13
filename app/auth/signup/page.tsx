@@ -72,6 +72,9 @@ export default function SignupPage() {
       const redirectUrl = `${baseUrl}/auth/callback`;
       
       console.log('📧 URL de redirection email:', redirectUrl);
+      console.log('📧 Base URL utilisée:', baseUrl);
+      console.log('📧 NEXT_PUBLIC_APP_URL:', process.env.NEXT_PUBLIC_APP_URL || 'non défini');
+      console.log('📧 window.location.origin:', window.location.origin);
       
       const { error } = await supabase.auth.signUp({
         email,
@@ -85,7 +88,13 @@ export default function SignupPage() {
       });
 
       if (error) {
-        setError(error.message);
+        // Améliorer le message d'erreur pour l'envoi d'email
+        if (error.message.includes('email') || error.message.includes('Email') || error.message.includes('confirmation')) {
+          console.error('❌ Erreur envoi email:', error)
+          setError(`Erreur lors de l'envoi de l'email de confirmation. Vérifiez que l'URL ${redirectUrl} est autorisée dans Supabase (Authentication → URL Configuration → Redirect URLs).`);
+        } else {
+          setError(error.message);
+        }
         return;
       }
 
