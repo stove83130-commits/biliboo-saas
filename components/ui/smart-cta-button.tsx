@@ -61,8 +61,9 @@ export function SmartCTAButton({
             })
             setCurrentPlan(planData.planKey)
             setHasActivePlan(planData.hasActivePlan)
-          } else {
-            // Fallback sur les métadonnées utilisateur si l'API échoue
+          } else if (response.status === 401) {
+            // 401 = utilisateur non authentifié, ne pas logger d'erreur
+            // Utiliser les métadonnées utilisateur comme fallback
             const selectedPlan = user.user_metadata?.selected_plan
             const subscriptionStatus = user.user_metadata?.subscription_status
             const isTrial = user.user_metadata?.is_trial
@@ -76,6 +77,26 @@ export function SmartCTAButton({
                                          (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
             
             setHasActivePlan(hasActiveSubscription)
+          } else {
+            // Autre erreur (500, etc.) - fallback sur les métadonnées utilisateur
+            const selectedPlan = user.user_metadata?.selected_plan
+            const subscriptionStatus = user.user_metadata?.subscription_status
+            const isTrial = user.user_metadata?.is_trial
+            const trialEndsAt = user.user_metadata?.trial_ends_at
+            
+            setCurrentPlan(selectedPlan)
+            
+            // Déterminer si l'utilisateur a un plan actif
+            const hasActiveSubscription = subscriptionStatus === 'active' || 
+                                         subscriptionStatus === 'trialing' ||
+                                         (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
+            
+            setHasActivePlan(hasActiveSubscription)
+            
+            // Logger uniquement en développement
+            if (process.env.NODE_ENV === 'development') {
+              console.warn('⚠️ Erreur vérification plan (status:', response.status, ')')
+            }
           }
         }
       } catch (error) {

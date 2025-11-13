@@ -22,6 +22,18 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
   const checkPlanStatus = async () => {
     try {
+      // Vérifier d'abord si l'utilisateur est connecté pour éviter les appels inutiles
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // Si l'utilisateur n'est pas connecté, ne pas appeler l'API
+      if (!user) {
+        setHasActivePlan(false)
+        setCurrentPlan(null)
+        setIsLoading(false)
+        return
+      }
+      
       const response = await fetch('/api/billing/plan', { credentials: 'include', cache: 'no-store' })
       if (response.ok) {
         const data = await response.json()
@@ -38,12 +50,24 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           return newValue
         })
         setCurrentPlan(data.planKey || null)
+      } else if (response.status === 401) {
+        // 401 = utilisateur non authentifié, c'est normal pour les pages publiques
+        // Ne pas logger d'erreur, juste définir les valeurs par défaut
+        setHasActivePlan(false)
+        setCurrentPlan(null)
       } else {
+        // Autre erreur (500, etc.) - logger uniquement en développement
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ Erreur vérification plan (status:', response.status, ')')
+        }
         setHasActivePlan(false)
         setCurrentPlan(null)
       }
     } catch (error) {
-      console.error('Erreur vérification plan:', error)
+      // Erreur réseau - logger uniquement en développement
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Erreur vérification plan:', error)
+      }
       setHasActivePlan(false)
       setCurrentPlan(null)
     } finally {
