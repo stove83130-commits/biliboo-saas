@@ -14,6 +14,7 @@ import { invoiceStorageService } from '@/lib/services/invoice-storage';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
+import { processExtractionInBackground } from '@/app/api/extraction/process/route';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -653,97 +654,50 @@ Retourne un JSON avec :
     // On utilise l'URL de l'origine de la requête pour s'assurer que l'appel fonctionne
     // même en production avec des domaines personnalisés
     
-    console.log('✅ Job créé, appel de /api/extraction/process pour traitement');
+    console.log('✅ Job créé, démarrage direct de l\'extraction en arrière-plan');
     
-    // IMPORTANT: Utiliser l'URL EXACTE de la requête pour éviter les redirections 307
-    // Vercel peut rediriger bilibou.com → www.bilibou.com, donc on doit utiliser
-    // l'URL exacte de la requête originale
-    let baseUrl: string | null = null;
+    // IMPORTANT: Sur Vercel, les fetch() internes ne fonctionnent pas de manière fiable
+    // SOLUTION: Appeler directement la fonction, mais utiliser waitUntil() si disponible
+    // pour garantir que l'exécution continue après la réponse HTTP
+    //
+    // Si waitUntil() n'est pas disponible (Next.js standard), on utilise une approche
+    // avec Promise.resolve().then() pour forcer l'exécution asynchrone
     
-    // Méthode 1: Utiliser l'URL de la requête si disponible
-    const requestUrl = req.url;
-    if (requestUrl) {
-      try {
-        const url = new URL(requestUrl);
-        baseUrl = `${url.protocol}//${url.host}`;
-        console.log(`🔍 URL construite depuis req.url: ${baseUrl}`);
-      } catch (e) {
-        console.log(`⚠️ Erreur parsing req.url: ${e}`);
-      }
-    }
+    // Marquer le job comme "processing" immédiatement pour éviter les doubles traitements
+    await supabaseService
+      .from('extraction_jobs')
+      .update({
+        status: 'processing',
+        progress: {
+          ...(job.progress || {}),
+          processing_started_at: new Date().toISOString(),
+        },
+      })
+      .eq('id', job.id);
     
-    // Méthode 2: Utiliser les headers de la requête
-    if (!baseUrl) {
-      const host = req.headers.get('host') || req.headers.get('x-forwarded-host');
-      const protocol = req.headers.get('x-forwarded-proto') || 'https';
-      
-      if (host) {
-        baseUrl = `${protocol}://${host}`;
-        console.log(`🔍 URL construite depuis headers: ${baseUrl}`);
-      }
-    }
+    console.log(`🟢 Job ${job.id} marqué comme 'processing', démarrage extraction...`);
     
-    // Méthode 3: Fallback sur NEXT_PUBLIC_APP_URL
-    if (!baseUrl && process.env.NEXT_PUBLIC_APP_URL) {
-      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-      console.log(`🔍 URL depuis NEXT_PUBLIC_APP_URL: ${baseUrl}`);
-    }
-    
-    // Méthode 4: Fallback final
-    if (!baseUrl) {
-      baseUrl = 'https://www.bilibou.com'; // Utiliser www. par défaut pour éviter la redirection
-      console.log(`🔍 URL fallback: ${baseUrl}`);
-    }
-    
-    // NE PAS normaliser - utiliser l'URL exacte pour éviter les redirections 307
-    const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
-    
-    console.log(`🚀 Appel endpoint extraction process: ${processUrl}`);
-    console.log(`🔍 Host header: ${req.headers.get('host')}`);
-    console.log(`🔍 Origin header: ${req.headers.get('origin')}`);
-    console.log(`🔍 X-Forwarded-Host: ${req.headers.get('x-forwarded-host')}`);
-    console.log(`🔍 X-Forwarded-Proto: ${req.headers.get('x-forwarded-proto')}`);
-    
-    // Appeler l'endpoint de traitement en arrière-plan (non bloquant)
-    // Cette invocation serverless séparée ne sera pas interrompue
-    fetch(processUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Transmettre les cookies pour l'authentification
-        'Cookie': req.headers.get('cookie') || '',
-        // Transmettre l'authorization si présent
-        'Authorization': req.headers.get('authorization') || '',
-        // User-Agent pour identifier les appels internes
-        'User-Agent': 'Bilibou-Extraction-Internal/1.0',
-      },
-      // Ne pas attendre la réponse pour ne pas bloquer
-    }).then((response) => {
-      console.log(`✅ Endpoint /api/extraction/process appelé, status: ${response.status}`);
-      if (!response.ok) {
-        console.error(`❌ Erreur HTTP endpoint process: ${response.status} ${response.statusText}`);
-        // Si l'appel échoue, marquer le job comme failed
-        supabaseService
-          .from('extraction_jobs')
-          .update({
-            status: 'failed',
-            error_message: `Erreur lors de l'appel à /api/extraction/process: ${response.status} ${response.statusText}`,
-          })
-          .eq('id', job.id)
-          .catch((err) => console.error('Erreur mise à jour job failed:', err));
-      }
+    // Appeler directement la fonction en arrière-plan
+    // Utiliser setImmediate pour forcer l'exécution après le retour de la réponse
+    const extractionPromise = Promise.resolve().then(() => {
+      console.log(`🚀 Démarrage processExtractionInBackground pour job ${job.id}`);
+      return processExtractionInBackground(job.id, user.id, job, emailAccount);
+    }).then(() => {
+      console.log(`✅ Extraction job ${job.id} terminée avec succès`);
     }).catch((error) => {
-      console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
-      // Si l'appel échoue, marquer le job comme failed
-      supabaseService
-        .from('extraction_jobs')
-        .update({
-          status: 'failed',
-          error_message: `Erreur réseau lors de l'appel à /api/extraction/process: ${error.message}`,
-        })
-        .eq('id', job.id)
-        .catch((err) => console.error('Erreur mise à jour job failed:', err));
+      console.error(`❌ Erreur extraction job ${job.id}:`, error);
+      // La fonction processExtractionInBackground gère déjà la mise à jour du statut en cas d'erreur
     });
+    
+    // Si waitUntil est disponible (Edge Runtime), l'utiliser pour garantir l'exécution
+    if (typeof (globalThis as any).waitUntil === 'function') {
+      (globalThis as any).waitUntil(extractionPromise);
+      console.log('✅ waitUntil() utilisé pour garantir l\'exécution');
+    } else {
+      // Sinon, on laisse la promesse s'exécuter en arrière-plan
+      // Vercel peut tuer le processus, mais au moins on aura marqué le job comme "processing"
+      console.log('⚠️ waitUntil() non disponible, extraction lancée en arrière-plan');
+    }
 
     return NextResponse.json({
       success: true,
