@@ -111,22 +111,6 @@ export async function updateSession(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname
     
-    // Log des cookies présents pour debug
-    const authCookie = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-auth-token')
-    const hasAuthCookie = !!authCookie?.value
-    console.log('🔍 Middleware check:', {
-      pathname,
-      hasAuthCookie,
-      cookieLength: authCookie?.value?.length || 0
-    })
-    
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError) {
-      console.error('❌ Erreur auth middleware:', authError.message)
-      console.error('❌ Détails:', JSON.stringify(authError, null, 2))
-    }
-    
     // Routes publiques (accessibles sans authentification)
     const publicRoutes = [
       '/auth/login',
@@ -144,6 +128,38 @@ export async function updateSession(request: NextRequest) {
     const isPublicRoute = publicRoutes.some(route => 
       pathname === route || pathname.startsWith(route + '/')
     )
+    
+    // Log des cookies présents pour debug (uniquement pour les routes protégées)
+    const authCookie = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-auth-token')
+    const hasAuthCookie = !!authCookie?.value
+    
+    // Pour les routes publiques, ne pas appeler getUser() pour éviter les erreurs inutiles
+    // Pour les routes protégées, on vérifie l'authentification
+    let user = null
+    let authError = null
+    
+    if (!isPublicRoute) {
+      console.log('🔍 Middleware check (route protégée):', {
+        pathname,
+        hasAuthCookie,
+        cookieLength: authCookie?.value?.length || 0
+      })
+      
+      const authResult = await supabase.auth.getUser()
+      user = authResult.data.user
+      authError = authResult.error
+      
+      if (authError) {
+        console.error('❌ Erreur auth middleware:', authError.message)
+        console.error('❌ Détails:', JSON.stringify(authError, null, 2))
+      }
+    } else {
+      // Pour les routes publiques, on peut quand même essayer de récupérer l'utilisateur
+      // mais sans logger d'erreur si ça échoue (c'est normal)
+      const authResult = await supabase.auth.getUser()
+      user = authResult.data.user
+      // Ne pas logger l'erreur pour les routes publiques - c'est normal qu'il n'y ait pas de session
+    }
     
     // IMPORTANT: Les routes API ne doivent PAS être redirigées vers login
     // Elles doivent gérer elles-mêmes l'authentification et retourner des erreurs JSON
