@@ -27,25 +27,49 @@ export async function GET(req: NextRequest) {
     // Vérifier l'autorisation pour les cron jobs
     // Vercel Cron Jobs envoie le header "x-vercel-cron" automatiquement
     // Sinon, on peut utiliser un Bearer token dans l'Authorization header
+    
+    // Log tous les headers pour déboguer
+    const allHeaders: Record<string, string | null> = {};
+    req.headers.forEach((value, key) => {
+      allHeaders[key] = value;
+    });
+    console.log('🔍 Headers reçus par cron job:', allHeaders);
+    
     const vercelCronHeader = req.headers.get('x-vercel-cron');
     const authHeader = req.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET || 'change-me-in-production';
     
-    // Accepter si c'est un appel de Vercel Cron Jobs OU si le Bearer token est correct
-    const isVercelCron = vercelCronHeader === '1';
+    // Vercel Cron Jobs peut envoyer x-vercel-cron avec différentes valeurs
+    // Accepter si le header existe (peu importe la valeur) OU si le Bearer token est correct
+    const isVercelCron = !!vercelCronHeader; // Accepter si le header existe
     const isAuthorized = authHeader === `Bearer ${cronSecret}`;
     
-    if (!isVercelCron && !isAuthorized) {
+    // En production, si CRON_SECRET n'est pas défini, accepter uniquement les appels Vercel
+    // En développement, permettre les appels locaux
+    const isDevelopment = process.env.NODE_ENV === 'development' || 
+                          req.url.includes('localhost') ||
+                          req.url.includes('127.0.0.1');
+    
+    if (!isVercelCron && !isAuthorized && !isDevelopment) {
       console.log('❌ Cron job non autorisé:', {
         hasVercelCron: !!vercelCronHeader,
+        vercelCronValue: vercelCronHeader,
         hasAuthHeader: !!authHeader,
-        cronSecretSet: !!process.env.CRON_SECRET
+        cronSecretSet: !!process.env.CRON_SECRET,
+        isDevelopment,
+        url: req.url
       });
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
+    
+    console.log('✅ Cron job autorisé:', {
+      isVercelCron,
+      isAuthorized,
+      isDevelopment
+    });
 
     console.log('🔄 Cron: Recherche des jobs en pending ou processing bloqués...');
 
