@@ -29,13 +29,39 @@ const nextConfig = {
   // Optimisations pour Vercel
   swcMinify: true,
   reactStrictMode: true,
-  experimental: {
-    isrMemoryCacheSize: 0,
-  },
-  // Exclure puppeteer et chromium du bundling (uniquement serveur)
+  // Exclure puppeteer et chromium du bundling (Next.js 14+)
+  serverComponentsExternalPackages: [
+    'puppeteer',
+    'puppeteer-core',
+    '@sparticuz/chromium',
+  ],
+  // Exclure puppeteer et chromium du bundling Webpack
   webpack: (config, { isServer }) => {
-    if (!isServer) {
-      // Exclure ces modules du bundling client
+    if (isServer) {
+      // Côté serveur: exclure complètement du bundling
+      // Utiliser une fonction pour mieux gérer les externals
+      const originalExternals = config.externals;
+      config.externals = [
+        ...(Array.isArray(originalExternals) ? originalExternals : [originalExternals]),
+        ({ request }, callback) => {
+          if (
+            request === 'puppeteer' ||
+            request === 'puppeteer-core' ||
+            request === '@sparticuz/chromium' ||
+            request?.startsWith('puppeteer/') ||
+            request?.startsWith('puppeteer-core/') ||
+            request?.startsWith('@sparticuz/chromium/')
+          ) {
+            return callback(null, `commonjs ${request}`);
+          }
+          if (typeof originalExternals === 'function') {
+            return originalExternals({ request }, callback);
+          }
+          callback();
+        },
+      ];
+    } else {
+      // Côté client: fallback à false
       config.resolve.fallback = {
         ...config.resolve.fallback,
         'puppeteer': false,
@@ -43,6 +69,7 @@ const nextConfig = {
         '@sparticuz/chromium': false,
       };
     }
+    
     return config;
   },
 }
