@@ -1438,20 +1438,25 @@ ${cleanHtml}
                 console.log(`📸 Tentative de capture d'image du contenu de l'email...`);
                 
                 const htmlForScreenshot = cleanHtmlForScreenshot(emailHtml);
+                console.log(`📸 HTML nettoyé, longueur: ${htmlForScreenshot.length} caractères`);
                 
-                // Convertir en image avec timeout de 10 secondes max
+                // Convertir en image avec timeout de 30 secondes max (augmenté pour Vercel + @sparticuz/chromium)
+                console.log(`📸 Démarrage conversion HTML → Image (timeout: 30s)...`);
                 const imageBuffer = await Promise.race([
                   convertHtmlToImage(htmlForScreenshot, 800),
                   new Promise<never>((_, reject) => 
-                    setTimeout(() => reject(new Error('Timeout: capture image trop longue')), 10000)
+                    setTimeout(() => reject(new Error('Timeout: capture image trop longue (>30s)')), 30000)
                   )
                 ]);
+                
+                console.log(`✅ Image générée, taille: ${imageBuffer.length} bytes`);
                 
                 const timestamp = Date.now();
                 const sanitizedSubject = subject.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
                 const fileName = `email_${timestamp}_${sanitizedSubject}.png`;
                 const filePath = `${userId}/${fileName}`;
                 
+                console.log(`📤 Upload image vers Supabase Storage: ${filePath}`);
                 const { data: uploadData, error: uploadError } = await supabaseService.storage
                   .from('invoices')
                   .upload(filePath, imageBuffer, {
@@ -1461,21 +1466,28 @@ ${cleanHtml}
                 
                 if (uploadError) {
                   console.error(`❌ Erreur upload image email:`, uploadError);
+                  console.error(`❌ Détails upload error:`, JSON.stringify(uploadError, null, 2));
                 } else {
-                  console.log(`✅ Image email uploadée: ${filePath}`);
+                  console.log(`✅ Image email uploadée avec succès: ${filePath}`);
                   
                   const { data: publicUrlData } = supabaseService.storage
                     .from('invoices')
                     .getPublicUrl(filePath);
+                  
+                  console.log(`✅ URL publique générée: ${publicUrlData.publicUrl}`);
                   
                   extractedData.original_file_url = publicUrlData.publicUrl;
                   extractedData.original_file_name = fileName;
                   extractedData.original_mime_type = 'image/png';
                   htmlImageUrl = publicUrlData.publicUrl;
                   htmlMimeType = 'image/png';
+                  
+                  console.log(`✅ Variables assignées: htmlImageUrl=${htmlImageUrl}, original_file_url=${extractedData.original_file_url}`);
                 }
               } catch (screenshotError: any) {
-                console.warn(`⚠️ Capture image email ignorée (non bloquant):`, screenshotError?.message || screenshotError);
+                console.error(`❌ Erreur capture image email:`, screenshotError?.message || screenshotError);
+                console.error(`❌ Stack trace:`, screenshotError?.stack);
+                console.warn(`⚠️ Capture image email ignorée (non bloquant), extraction continue sans image`);
               }
             } else {
               console.log(`❌ Erreur: impossible d'analyser le contenu HTML (JSON invalide)`);
@@ -1615,6 +1627,14 @@ ${cleanHtml}
           account_email: emailAccount.email || null,
           extracted_data: fullExtractedData, // Toutes les données supplémentaires dans extracted_data (JSONB)
         };
+        
+        // 🔍 DEBUG: Log pour vérifier l'assignation de original_file_url avant sauvegarde
+        console.log(`🔍 [DEBUG] original_file_url avant sauvegarde:`, {
+          cleanedData_original_file_url: cleanedData.original_file_url,
+          fileUrl: fileUrl,
+          htmlImageUrl: htmlImageUrl,
+          final_original_file_url: invoiceData.original_file_url,
+        });
 
         // Vérifier si la facture existe déjà par email_id et faire update ou insert
         let dbError = null;
