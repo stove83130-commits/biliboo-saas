@@ -19,6 +19,20 @@ export async function updateSession(request: NextRequest) {
     process.env.SUPABASE_ANON_KEY ||
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrcGZ4cHVocmpnY3RwYWR4c2xoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1NTYzMTgsImV4cCI6MjA3NDEzMjMxOH0.Blc5wlKE6g00AqYFdGmsRDeD3ZTKDQfOx4jVpmqA5n4'
 
+  // Déterminer si on est en production
+  const isProduction = process.env.NODE_ENV === 'production' || 
+                       request.url.includes('bilibou.com') ||
+                       request.url.includes('vercel.app')
+  
+  // Extraire le domaine de l'URL pour configurer les cookies
+  const url = new URL(request.url)
+  const hostname = url.hostname
+  // Pour les domaines personnalisés, utiliser le domaine racine (sans www)
+  const cookieDomain = hostname.startsWith('www.') 
+    ? hostname.replace('www.', '') 
+    : hostname.includes('vercel.app') 
+      ? undefined // Laisser Vercel gérer le domaine pour les URLs vercel.app
+      : hostname
 
   const supabase = createServerClient(
     supabaseUrl,
@@ -29,10 +43,24 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
+          // Configurer les options de cookies pour la production
+          const cookieOptions: CookieOptions = {
+            ...options,
+            // En production, forcer secure et sameSite
+            ...(isProduction && {
+              secure: true,
+              sameSite: 'lax' as const,
+              // Ne pas définir domain pour les domaines vercel.app, laisser le navigateur gérer
+              ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
+                domain: cookieDomain
+              })
+            })
+          }
+          
           request.cookies.set({
             name,
             value,
-            ...options,
+            ...cookieOptions,
           })
           response = NextResponse.next({
             request: {
@@ -42,14 +70,28 @@ export async function updateSession(request: NextRequest) {
           response.cookies.set({
             name,
             value,
-            ...options,
+            ...cookieOptions,
           })
         },
         remove(name: string, options: CookieOptions) {
+          // Configurer les options de cookies pour la production
+          const cookieOptions: CookieOptions = {
+            ...options,
+            // En production, forcer secure et sameSite
+            ...(isProduction && {
+              secure: true,
+              sameSite: 'lax' as const,
+              // Ne pas définir domain pour les domaines vercel.app, laisser le navigateur gérer
+              ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
+                domain: cookieDomain
+              })
+            })
+          }
+          
           request.cookies.set({
             name,
             value: '',
-            ...options,
+            ...cookieOptions,
           })
           response = NextResponse.next({
             request: {
@@ -59,7 +101,7 @@ export async function updateSession(request: NextRequest) {
           response.cookies.set({
             name,
             value: '',
-            ...options,
+            ...cookieOptions,
           })
         },
       },

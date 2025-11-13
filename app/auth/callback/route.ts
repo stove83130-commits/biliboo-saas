@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
@@ -201,17 +201,58 @@ export async function GET(request: NextRequest) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 
+    // Déterminer si on est en production
+    const isProduction = process.env.NODE_ENV === 'production' || 
+                         request.url.includes('bilibou.com') ||
+                         request.url.includes('vercel.app')
+    
+    // Extraire le domaine de l'URL pour configurer les cookies
+    const url = new URL(request.url)
+    const hostname = url.hostname
+    // Pour les domaines personnalisés, utiliser le domaine racine (sans www)
+    const cookieDomain = hostname.startsWith('www.') 
+      ? hostname.replace('www.', '') 
+      : hostname.includes('vercel.app') 
+        ? undefined // Laisser Vercel gérer le domaine pour les URLs vercel.app
+        : hostname
+
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         get(name) {
           return request.cookies.get(name)?.value
         },
         set(name, value, options) {
+          // Configurer les options de cookies pour la production
+          const cookieOptions: CookieOptions = {
+            ...options,
+            // En production, forcer secure et sameSite
+            ...(isProduction && {
+              secure: true,
+              sameSite: 'lax' as const,
+              // Ne pas définir domain pour les domaines vercel.app, laisser le navigateur gérer
+              ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
+                domain: cookieDomain
+              })
+            })
+          }
           // Écrire sur la réponse locale
-          response.cookies.set({ name, value, ...options })
+          response.cookies.set({ name, value, ...cookieOptions })
         },
         remove(name, options) {
-          response.cookies.set({ name, value: '', ...options })
+          // Configurer les options de cookies pour la production
+          const cookieOptions: CookieOptions = {
+            ...options,
+            // En production, forcer secure et sameSite
+            ...(isProduction && {
+              secure: true,
+              sameSite: 'lax' as const,
+              // Ne pas définir domain pour les domaines vercel.app, laisser le navigateur gérer
+              ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
+                domain: cookieDomain
+              })
+            })
+          }
+          response.cookies.set({ name, value: '', ...cookieOptions })
         },
       },
     })
