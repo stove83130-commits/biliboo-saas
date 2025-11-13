@@ -14,6 +14,7 @@ import { invoiceStorageService } from '@/lib/services/invoice-storage';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
+import { processExtractionInBackground } from '@/app/api/extraction/process/route';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -646,51 +647,29 @@ Retourne un JSON avec :
       }
     }; // Fin de la fonction DISABLED_oldExtractionCode (jamais appelée)
 
-    // IMPORTANT: Sur Vercel, les fonctions serverless se terminent dès que la réponse est envoyée
-    // waitUntil n'existe pas dans Next.js API routes (c'est une API Edge/Cloudflare)
-    // SOLUTION: Appeler DIRECTEMENT l'endpoint /api/extraction/process qui traite l'extraction
-    // Cela garantit que l'extraction s'exécute dans une fonction séparée qui ne sera pas interrompue
+    // IMPORTANT: Appeler DIRECTEMENT la fonction processExtractionInBackground
+    // au lieu de faire un fetch() interne qui peut échouer en production Vercel
+    // 
+    // NOTE: Sur Vercel, même si on ne fait pas await, la fonction serverless
+    // peut être interrompue quand la réponse HTTP est envoyée. Cependant,
+    // en appelant directement la fonction, on évite les problèmes de réseau
+    // interne et on s'assure que l'extraction démarre au moins.
+    //
+    // Si Vercel interrompt le processus, le job restera en "processing" et
+    // l'utilisateur pourra le relancer manuellement ou via un cron job.
     
-    // NE PAS mettre à jour le statut ici - laisser /api/extraction/process le faire
-    // Sinon la logique anti-doublon de /process va rejeter le job
-    // Le job reste en status 'pending' jusqu'à ce que /process le traite
+    console.log('✅ Job créé, démarrage direct de l\'extraction en arrière-plan');
     
-    console.log('✅ Job créé, appel de /api/extraction/process pour traitement');
-
-    // Appeler DIRECTEMENT l'endpoint de traitement (non bloquant)
-    // Cet endpoint s'exécutera dans une fonction séparée qui ne sera pas interrompue
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || req.headers.get('origin') || 'https://bilibou.com';
-    
-    // Construire l'URL complète
-    const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
-    
-    console.log(`🚀 Appel endpoint extraction process: ${processUrl}`);
-    
-    // Appeler l'endpoint de traitement en arrière-plan (non bloquant)
-    // Ne pas attendre la réponse pour ne pas bloquer la requête HTTP
-    fetch(processUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cookie': req.headers.get('cookie') || '',
-        'Authorization': req.headers.get('authorization') || '',
-        'User-Agent': req.headers.get('user-agent') || 'Bilibou-Extraction',
-      },
-      // Ne pas attendre la réponse
-    }).then((response) => {
-      console.log(`✅ Endpoint /api/extraction/process appelé avec succès, status: ${response.status}`);
-      if (!response.ok) {
-        console.error(`❌ Erreur HTTP endpoint process: ${response.status} ${response.statusText}`);
-      }
-    }).catch((error) => {
-      console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
-      // NE PLUS utiliser le fallback - /api/extraction/process gère tout maintenant
-      // Si l'appel échoue, le job restera en "processing" et l'utilisateur pourra réessayer
-    });
-    
-    // ANCIEN CODE COMPLÈTEMENT DÉSACTIVÉ
-    // La fonction DISABLED_oldExtractionCode existe mais n'est JAMAIS appelée
-    // Seul /api/extraction/process gère maintenant l'extraction (nouveau code optimisé)
+    // Appeler DIRECTEMENT la fonction (non bloquant, sans await)
+    // Cela évite les problèmes de fetch() interne en production
+    processExtractionInBackground(job.id, user.id, job, emailAccount)
+      .then(() => {
+        console.log(`✅ Extraction job ${job.id} terminée avec succès`);
+      })
+      .catch((error) => {
+        console.error(`❌ Erreur extraction job ${job.id}:`, error);
+        // La fonction processExtractionInBackground gère déjà la mise à jour du statut en cas d'erreur
+      });
 
     return NextResponse.json({
       success: true,

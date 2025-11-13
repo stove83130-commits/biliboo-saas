@@ -213,7 +213,8 @@ export async function POST(req: NextRequest) {
 }
 
 // Fonction séparée pour traiter l'extraction en arrière-plan (peut prendre plusieurs minutes)
-async function processExtractionInBackground(
+// EXPORTÉE pour être utilisée directement depuis /api/extraction/start
+export async function processExtractionInBackground(
   jobId: string,
   userId: string,
   job: any,
