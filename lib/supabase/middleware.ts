@@ -122,6 +122,7 @@ export async function updateSession(request: NextRequest) {
       '/onboarding', // Permettre l'onboarding même sans session (sera géré par la page)
       '/api/auth',
       '/api/billing/checkout',
+      '/api/cron', // Routes cron (vérification Bearer token dans l'endpoint)
       '/', // Page d'accueil
     ]
     
