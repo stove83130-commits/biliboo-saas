@@ -387,6 +387,11 @@ export default function ExtractionPage() {
         workspaceId: activeWorkspaceId
       })
 
+      // IMPORTANT: Timeout de 6 minutes (360 secondes) pour permettre les extractions longues
+      // L'extraction s'exécute maintenant de manière synchrone et peut prendre jusqu'à 5 minutes
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6 * 60 * 1000); // 6 minutes
+      
       const response = await fetch('/api/extraction/start', {
         method: 'POST',
         headers: {
@@ -399,6 +404,9 @@ export default function ExtractionPage() {
           searchKeywords: ['facture', 'invoice', 'reçu', 'receipt', 'bill'],
           workspaceId: activeWorkspaceId, // 🏢 Passer le workspace actif
         }),
+        signal: controller.signal,
+      }).finally(() => {
+        clearTimeout(timeoutId);
       })
 
       console.log('📥 Réponse reçue, status:', response.status)

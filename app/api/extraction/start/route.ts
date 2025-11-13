@@ -14,6 +14,7 @@ import { invoiceStorageService } from '@/lib/services/invoice-storage';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
+import { processExtractionInBackground } from '@/app/api/extraction/process/route';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -676,53 +677,50 @@ Retourne un JSON avec :
     
     console.log(`🟢 Job ${job.id} marqué comme 'processing', démarrage extraction...`);
     
-    // IMPORTANT: Sur Vercel, les fonctions serverless se terminent après la réponse HTTP
-    // SOLUTION: Faire un fetch() vers /api/extraction/process pour créer une NOUVELLE invocation
-    // qui ne sera pas interrompue quand cette fonction se termine
+    // SOLUTION DÉFINITIVE: Exécuter l'extraction de manière SYNCHRONE avec await
+    // Cela garantit que l'extraction s'exécute complètement avant la réponse HTTP
+    // Avec maxDuration = 300 (5 minutes), cela permet des extractions longues
     //
-    // On utilise l'URL de l'origine de la requête pour s'assurer que l'appel fonctionne
-    // même en production avec des domaines personnalisés
+    // Pourquoi cette solution fonctionne:
+    // - En local: fonctionne comme avant
+    // - En production: Vercel attend que la fonction se termine avant de tuer le processus
+    // - Pas de problème de fetch() interne qui peut échouer
+    // - Pas de problème de promesses en arrière-plan qui sont interrompues
     
-    // Construire l'URL de l'endpoint process
-    const origin = req.headers.get('origin') || req.headers.get('host') || 'www.bilibou.com';
-    let baseUrl: string;
+    console.log(`🚀 Démarrage extraction synchrone pour job ${job.id}...`);
     
-    if (origin.startsWith('http://') || origin.startsWith('https://')) {
-      baseUrl = origin;
-    } else {
-      baseUrl = `https://${origin}`;
+    try {
+      // Appeler directement la fonction d'extraction avec await
+      // Cela garantit l'exécution complète avant la réponse HTTP
+      await processExtractionInBackground(job.id, user.id, job, emailAccount);
+      
+      console.log(`✅ Extraction job ${job.id} terminée avec succès`);
+      
+      return NextResponse.json({
+        success: true,
+        jobId: job.id,
+        message: 'Extraction terminée avec succès',
+        status: 'completed',
+      });
+    } catch (extractionError: any) {
+      console.error(`❌ Erreur extraction job ${job.id}:`, extractionError);
+      
+      // Mettre à jour le job en erreur
+      await supabaseService
+        .from('extraction_jobs')
+        .update({
+          status: 'failed',
+          error_message: extractionError.message || String(extractionError),
+        })
+        .eq('id', job.id);
+      
+      return NextResponse.json({
+        success: false,
+        jobId: job.id,
+        error: 'Erreur lors de l\'extraction',
+        details: extractionError.message,
+      }, { status: 500 });
     }
-    
-    const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
-    
-    console.log(`🚀 Appel fetch() vers ${processUrl} pour démarrer l'extraction...`);
-    
-    // Faire un fetch() SANS await pour ne pas bloquer la réponse HTTP
-    // Cette nouvelle invocation serverless continuera même après que cette fonction se termine
-    fetch(processUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Transmettre les cookies de session pour l'authentification
-        'Cookie': req.headers.get('cookie') || '',
-      },
-      // Ne pas attendre la réponse, laisser l'extraction se faire en arrière-plan
-    }).then((response) => {
-      if (response.ok) {
-        console.log(`✅ Extraction job ${job.id} démarrée avec succès via fetch()`);
-      } else {
-        console.error(`❌ Erreur démarrage extraction job ${job.id} via fetch():`, response.status, response.statusText);
-      }
-    }).catch((error) => {
-      console.error(`❌ Erreur fetch() pour job ${job.id}:`, error);
-      // Si le fetch() échoue, le cron job relancera le job plus tard
-    });
-
-    return NextResponse.json({
-      success: true,
-      jobId: job.id,
-      message: 'Extraction lancée avec succès',
-    });
   } catch (error: any) {
     console.error('❌ Erreur API extraction:', error);
     return NextResponse.json(
