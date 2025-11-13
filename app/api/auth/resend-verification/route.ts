@@ -24,19 +24,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Déterminer l'URL de redirection pour la confirmation d'email
-    // Normaliser : enlever www. pour éviter les problèmes de cookies/session
+    // IMPORTANT: Normaliser TOUJOURS pour bilibou.com (sans www) pour correspondre à Supabase
     let baseUrl: string;
     if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
-      baseUrl = process.env.NEXT_PUBLIC_APP_URL.replace(/^https?:\/\/(www\.)?/, 'https://');
-      // Si c'est bilibou.com, on garde sans www pour cohérence
-      if (baseUrl.includes('bilibou.com')) {
-        baseUrl = baseUrl.replace('www.', '');
-      }
+      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
     } else if (process.env.VERCEL_URL) {
       baseUrl = `https://${process.env.VERCEL_URL}`;
     } else {
       baseUrl = 'http://localhost:3001';
     }
+    
+    // Normaliser TOUJOURS pour bilibou.com (sans www) pour correspondre à Supabase
+    // Supabase est strict sur le format exact de l'URL
+    if (baseUrl.includes('bilibou.com')) {
+      baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com');
+    } else {
+      // Pour les autres domaines, normaliser en enlevant www
+      baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?/, (match) => {
+        return match.startsWith('http://') ? 'http://' : 'https://';
+      });
+    }
+    
     const redirectUrl = `${baseUrl}/auth/callback`;
     
     console.log('📧 URL de redirection email (resend):', redirectUrl);
