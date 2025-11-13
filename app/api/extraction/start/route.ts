@@ -655,34 +655,54 @@ Retourne un JSON avec :
     
     console.log('✅ Job créé, appel de /api/extraction/process pour traitement');
     
-    // Déterminer l'URL de base (priorité: origin de la requête > NEXT_PUBLIC_APP_URL)
-    const origin = req.headers.get('origin') || req.headers.get('host');
-    let baseUrl: string;
+    // IMPORTANT: Utiliser l'URL EXACTE de la requête pour éviter les redirections 307
+    // Vercel peut rediriger bilibou.com → www.bilibou.com, donc on doit utiliser
+    // l'URL exacte de la requête originale
+    let baseUrl: string | null = null;
     
-    if (origin) {
-      // Si origin contient le protocole, l'utiliser tel quel
-      if (origin.startsWith('http://') || origin.startsWith('https://')) {
-        baseUrl = origin;
-      } else {
-        // Sinon, ajouter https://
-        baseUrl = `https://${origin}`;
+    // Méthode 1: Utiliser l'URL de la requête si disponible
+    const requestUrl = req.url;
+    if (requestUrl) {
+      try {
+        const url = new URL(requestUrl);
+        baseUrl = `${url.protocol}//${url.host}`;
+        console.log(`🔍 URL construite depuis req.url: ${baseUrl}`);
+      } catch (e) {
+        console.log(`⚠️ Erreur parsing req.url: ${e}`);
       }
-    } else if (process.env.NEXT_PUBLIC_APP_URL) {
+    }
+    
+    // Méthode 2: Utiliser les headers de la requête
+    if (!baseUrl) {
+      const host = req.headers.get('host') || req.headers.get('x-forwarded-host');
+      const protocol = req.headers.get('x-forwarded-proto') || 'https';
+      
+      if (host) {
+        baseUrl = `${protocol}://${host}`;
+        console.log(`🔍 URL construite depuis headers: ${baseUrl}`);
+      }
+    }
+    
+    // Méthode 3: Fallback sur NEXT_PUBLIC_APP_URL
+    if (!baseUrl && process.env.NEXT_PUBLIC_APP_URL) {
       baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-    } else {
-      baseUrl = 'https://bilibou.com';
+      console.log(`🔍 URL depuis NEXT_PUBLIC_APP_URL: ${baseUrl}`);
     }
     
-    // Normaliser pour bilibou.com (sans www)
-    if (baseUrl.includes('bilibou.com')) {
-      baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com');
+    // Méthode 4: Fallback final
+    if (!baseUrl) {
+      baseUrl = 'https://www.bilibou.com'; // Utiliser www. par défaut pour éviter la redirection
+      console.log(`🔍 URL fallback: ${baseUrl}`);
     }
     
+    // NE PAS normaliser - utiliser l'URL exacte pour éviter les redirections 307
     const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
     
     console.log(`🚀 Appel endpoint extraction process: ${processUrl}`);
-    console.log(`🔍 Origin détecté: ${origin}`);
-    console.log(`🔍 Base URL utilisée: ${baseUrl}`);
+    console.log(`🔍 Host header: ${req.headers.get('host')}`);
+    console.log(`🔍 Origin header: ${req.headers.get('origin')}`);
+    console.log(`🔍 X-Forwarded-Host: ${req.headers.get('x-forwarded-host')}`);
+    console.log(`🔍 X-Forwarded-Proto: ${req.headers.get('x-forwarded-proto')}`);
     
     // Appeler l'endpoint de traitement en arrière-plan (non bloquant)
     // Cette invocation serverless séparée ne sera pas interrompue
