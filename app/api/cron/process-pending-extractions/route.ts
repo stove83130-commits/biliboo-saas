@@ -35,19 +35,47 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    console.log('🔄 Cron: Recherche des jobs en pending...');
+    console.log('🔄 Cron: Recherche des jobs en pending ou processing bloqués...');
 
-    // Récupérer tous les jobs en "pending" créés il y a plus de 30 secondes
-    // (pour éviter de relancer des jobs qui viennent d'être créés)
+    // Récupérer :
+    // 1. Les jobs en "pending" créés il y a plus de 30 secondes
+    // 2. Les jobs en "processing" qui sont bloqués depuis plus de 2 minutes (probablement interrompus par Vercel)
     const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString();
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     
-    const { data: pendingJobs, error: jobsError } = await supabaseService
+    // Jobs en pending
+    const { data: pendingJobs, error: pendingError } = await supabaseService
       .from('extraction_jobs')
       .select('*, email_connections(*)')
       .eq('status', 'pending')
       .lt('created_at', thirtySecondsAgo)
       .order('created_at', { ascending: true })
-      .limit(5); // Limiter à 5 jobs par exécution pour éviter la surcharge
+      .limit(3);
+    
+    // Jobs en processing bloqués (processing_started_at > 2 minutes)
+    // Note: On récupère tous les jobs en processing et on filtre côté code
+    // car Supabase ne supporte pas facilement les comparaisons sur des champs JSON
+    const { data: allProcessingJobs, error: stuckError } = await supabaseService
+      .from('extraction_jobs')
+      .select('*, email_connections(*)')
+      .eq('status', 'processing')
+      .limit(10);
+    
+    // Filtrer les jobs bloqués (processing_started_at > 2 minutes et pas de progrès)
+    const stuckJobs = (allProcessingJobs || []).filter((job: any) => {
+      const progress = job.progress || {};
+      const processingStartedAt = progress.processing_started_at;
+      if (!processingStartedAt) return false;
+      
+      const startedAt = new Date(processingStartedAt);
+      const twoMinutesAgoDate = new Date(twoMinutesAgo);
+      
+      // Job bloqué si : démarré il y a plus de 2 minutes ET aucun email analysé
+      return startedAt < twoMinutesAgoDate && (!progress.emailsAnalyzed || progress.emailsAnalyzed === 0);
+    }).slice(0, 2); // Limiter à 2 jobs
+    
+    const jobsError = pendingError || stuckError;
+    const allJobs = [...(pendingJobs || []), ...(stuckJobs || [])];
 
     if (jobsError) {
       console.error('❌ Erreur récupération jobs pending:', jobsError);
@@ -57,31 +85,39 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (!pendingJobs || pendingJobs.length === 0) {
-      console.log('✅ Aucun job en pending à traiter');
+    if (!allJobs || allJobs.length === 0) {
+      console.log('✅ Aucun job en pending ou processing bloqué à traiter');
       return NextResponse.json({
         success: true,
-        message: 'Aucun job en pending à traiter',
+        message: 'Aucun job à traiter',
         jobsProcessed: 0,
       });
     }
 
-    console.log(`📋 ${pendingJobs.length} job(s) en pending trouvé(s), démarrage traitement...`);
+    console.log(`📋 ${allJobs.length} job(s) trouvé(s) (${pendingJobs?.length || 0} pending, ${stuckJobs?.length || 0} processing bloqués), démarrage traitement...`);
 
     const results = [];
 
-    for (const job of pendingJobs) {
+    for (const job of allJobs) {
       try {
         // Vérifier que le job n'a pas été traité entre-temps
         const { data: currentJob } = await supabaseService
           .from('extraction_jobs')
-          .select('status')
+          .select('status, progress')
           .eq('id', job.id)
           .single();
 
-        if (currentJob?.status !== 'pending') {
-          console.log(`⏭️ Job ${job.id} déjà traité (status: ${currentJob?.status}), ignoré`);
+        // Si le job est déjà completed ou failed, l'ignorer
+        if (currentJob?.status === 'completed' || currentJob?.status === 'failed') {
+          console.log(`⏭️ Job ${job.id} déjà terminé (status: ${currentJob?.status}), ignoré`);
           results.push({ jobId: job.id, status: 'skipped', reason: 'already_processed' });
+          continue;
+        }
+        
+        // Si le job est en processing mais a progressé récemment (emailsAnalyzed > 0), ne pas le relancer
+        if (currentJob?.status === 'processing' && (currentJob?.progress as any)?.emailsAnalyzed > 0) {
+          console.log(`⏭️ Job ${job.id} en cours de traitement (${(currentJob?.progress as any)?.emailsAnalyzed} emails analysés), ignoré`);
+          results.push({ jobId: job.id, status: 'skipped', reason: 'in_progress' });
           continue;
         }
 
