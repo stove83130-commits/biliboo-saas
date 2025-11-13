@@ -1,4 +1,6 @@
 import puppeteer from 'puppeteer';
+import puppeteerCore from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 /**
  * Convertit le HTML d'un email en image PNG
@@ -13,16 +15,36 @@ export async function convertHtmlToImage(
   let browser;
   
   try {
-    // Lancer le navigateur headless
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
+    // Détecter si on est sur Vercel (serverless) ou en local
+    const isVercel = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+    
+    if (isVercel) {
+      // Sur Vercel, utiliser puppeteer-core avec @sparticuz/chromium
+      console.log('🔧 Utilisation de @sparticuz/chromium pour Vercel');
+      
+      // Configurer Chromium pour Vercel
+      chromium.setGraphicsMode(false);
+      
+      browser = await puppeteerCore.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      });
+    } else {
+      // En local, utiliser puppeteer normal
+      console.log('🔧 Utilisation de puppeteer pour développement local');
+      
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+        ],
+      });
+    }
 
     const page = await browser.newPage();
     
