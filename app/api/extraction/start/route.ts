@@ -14,7 +14,6 @@ import { invoiceStorageService } from '@/lib/services/invoice-storage';
 import OpenAI from 'openai';
 import { extractInvoiceData } from '@/lib/services/invoice-ocr-extractor';
 import { convertHtmlToImage, cleanHtmlForScreenshot } from '@/lib/utils/html-to-image';
-import { processExtractionInBackground } from '@/app/api/extraction/process/route';
 
 const supabaseService = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -647,29 +646,84 @@ Retourne un JSON avec :
       }
     }; // Fin de la fonction DISABLED_oldExtractionCode (jamais appelée)
 
-    // IMPORTANT: Appeler DIRECTEMENT la fonction processExtractionInBackground
-    // au lieu de faire un fetch() interne qui peut échouer en production Vercel
-    // 
-    // NOTE: Sur Vercel, même si on ne fait pas await, la fonction serverless
-    // peut être interrompue quand la réponse HTTP est envoyée. Cependant,
-    // en appelant directement la fonction, on évite les problèmes de réseau
-    // interne et on s'assure que l'extraction démarre au moins.
+    // IMPORTANT: Sur Vercel, les fonctions serverless se terminent dès que la réponse est envoyée
+    // SOLUTION: Utiliser fetch() avec une URL absolue pour créer une NOUVELLE invocation serverless
+    // qui ne sera pas interrompue quand cette fonction se termine
     //
-    // Si Vercel interrompt le processus, le job restera en "processing" et
-    // l'utilisateur pourra le relancer manuellement ou via un cron job.
+    // On utilise l'URL de l'origine de la requête pour s'assurer que l'appel fonctionne
+    // même en production avec des domaines personnalisés
     
-    console.log('✅ Job créé, démarrage direct de l\'extraction en arrière-plan');
+    console.log('✅ Job créé, appel de /api/extraction/process pour traitement');
     
-    // Appeler DIRECTEMENT la fonction (non bloquant, sans await)
-    // Cela évite les problèmes de fetch() interne en production
-    processExtractionInBackground(job.id, user.id, job, emailAccount)
-      .then(() => {
-        console.log(`✅ Extraction job ${job.id} terminée avec succès`);
-      })
-      .catch((error) => {
-        console.error(`❌ Erreur extraction job ${job.id}:`, error);
-        // La fonction processExtractionInBackground gère déjà la mise à jour du statut en cas d'erreur
-      });
+    // Déterminer l'URL de base (priorité: origin de la requête > NEXT_PUBLIC_APP_URL)
+    const origin = req.headers.get('origin') || req.headers.get('host');
+    let baseUrl: string;
+    
+    if (origin) {
+      // Si origin contient le protocole, l'utiliser tel quel
+      if (origin.startsWith('http://') || origin.startsWith('https://')) {
+        baseUrl = origin;
+      } else {
+        // Sinon, ajouter https://
+        baseUrl = `https://${origin}`;
+      }
+    } else if (process.env.NEXT_PUBLIC_APP_URL) {
+      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+    } else {
+      baseUrl = 'https://bilibou.com';
+    }
+    
+    // Normaliser pour bilibou.com (sans www)
+    if (baseUrl.includes('bilibou.com')) {
+      baseUrl = baseUrl.replace(/^https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com');
+    }
+    
+    const processUrl = `${baseUrl}/api/extraction/process?jobId=${job.id}`;
+    
+    console.log(`🚀 Appel endpoint extraction process: ${processUrl}`);
+    console.log(`🔍 Origin détecté: ${origin}`);
+    console.log(`🔍 Base URL utilisée: ${baseUrl}`);
+    
+    // Appeler l'endpoint de traitement en arrière-plan (non bloquant)
+    // Cette invocation serverless séparée ne sera pas interrompue
+    fetch(processUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Transmettre les cookies pour l'authentification
+        'Cookie': req.headers.get('cookie') || '',
+        // Transmettre l'authorization si présent
+        'Authorization': req.headers.get('authorization') || '',
+        // User-Agent pour identifier les appels internes
+        'User-Agent': 'Bilibou-Extraction-Internal/1.0',
+      },
+      // Ne pas attendre la réponse pour ne pas bloquer
+    }).then((response) => {
+      console.log(`✅ Endpoint /api/extraction/process appelé, status: ${response.status}`);
+      if (!response.ok) {
+        console.error(`❌ Erreur HTTP endpoint process: ${response.status} ${response.statusText}`);
+        // Si l'appel échoue, marquer le job comme failed
+        supabaseService
+          .from('extraction_jobs')
+          .update({
+            status: 'failed',
+            error_message: `Erreur lors de l'appel à /api/extraction/process: ${response.status} ${response.statusText}`,
+          })
+          .eq('id', job.id)
+          .catch((err) => console.error('Erreur mise à jour job failed:', err));
+      }
+    }).catch((error) => {
+      console.error('❌ Erreur lors de l\'appel à /api/extraction/process:', error);
+      // Si l'appel échoue, marquer le job comme failed
+      supabaseService
+        .from('extraction_jobs')
+        .update({
+          status: 'failed',
+          error_message: `Erreur réseau lors de l'appel à /api/extraction/process: ${error.message}`,
+        })
+        .eq('id', job.id)
+        .catch((err) => console.error('Erreur mise à jour job failed:', err));
+    });
 
     return NextResponse.json({
       success: true,
