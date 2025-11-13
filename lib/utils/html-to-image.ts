@@ -1,7 +1,3 @@
-import puppeteer from 'puppeteer';
-import puppeteerCore from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
-
 /**
  * Convertit le HTML d'un email en image PNG
  * @param html - Le contenu HTML de l'email
@@ -20,7 +16,11 @@ export async function convertHtmlToImage(
     
     if (isVercel) {
       // Sur Vercel, utiliser puppeteer-core avec @sparticuz/chromium
+      // IMPORTANT: Importation dynamique pour éviter le bundling par Next.js
       console.log('🔧 Utilisation de @sparticuz/chromium pour Vercel');
+      
+      const puppeteerCore = (await import('puppeteer-core')).default;
+      const chromium = (await import('@sparticuz/chromium')).default;
       
       // Configurer Chromium pour Vercel
       chromium.setGraphicsMode(false);
@@ -33,7 +33,10 @@ export async function convertHtmlToImage(
       });
     } else {
       // En local, utiliser puppeteer normal
+      // IMPORTANT: Importation dynamique pour éviter le bundling par Next.js
       console.log('🔧 Utilisation de puppeteer pour développement local');
+      
+      const puppeteer = (await import('puppeteer')).default;
       
       browser = await puppeteer.launch({
         headless: true,

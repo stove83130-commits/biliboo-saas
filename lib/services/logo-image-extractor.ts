@@ -7,9 +7,6 @@
  */
 
 import OpenAI from 'openai';
-import puppeteer from 'puppeteer';
-import puppeteerCore from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
@@ -56,7 +53,11 @@ export async function extractLogoImageFromPDF(
     
     if (isVercel) {
       // Sur Vercel, utiliser puppeteer-core avec @sparticuz/chromium
+      // IMPORTANT: Importation dynamique pour éviter le bundling par Next.js
       console.log('🔧 [LOGO] Utilisation de @sparticuz/chromium pour Vercel');
+      
+      const puppeteerCore = (await import('puppeteer-core')).default;
+      const chromium = (await import('@sparticuz/chromium')).default;
       
       // Configurer Chromium pour Vercel
       chromium.setGraphicsMode(false);
@@ -69,7 +70,10 @@ export async function extractLogoImageFromPDF(
       });
     } else {
       // En local, utiliser puppeteer normal
+      // IMPORTANT: Importation dynamique pour éviter le bundling par Next.js
       console.log('🔧 [LOGO] Utilisation de puppeteer pour développement local');
+      
+      const puppeteer = (await import('puppeteer')).default;
       
       browser = await puppeteer.launch({
         headless: true,

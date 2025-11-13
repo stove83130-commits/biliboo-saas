@@ -32,6 +32,19 @@ const nextConfig = {
   experimental: {
     isrMemoryCacheSize: 0,
   },
+  // Exclure puppeteer et chromium du bundling (uniquement serveur)
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Exclure ces modules du bundling client
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        'puppeteer': false,
+        'puppeteer-core': false,
+        '@sparticuz/chromium': false,
+      };
+    }
+    return config;
+  },
 }
 
 module.exports = nextConfig
