@@ -1433,15 +1433,18 @@ ${cleanHtml}
               console.log(`✅ Facture/reçu HTML extrait`);
               invoicesDetected++;
 
-              // 📸 Capturer une image du contenu HTML de l'email (OPTIONNEL)
+              // 📸 Capturer une image du contenu HTML de l'email (OPTIONNEL mais IMPORTANT)
+              console.log(`📸 [SCREENSHOT HTML] Démarrage capture d'image du contenu HTML...`);
+              console.log(`📸 [SCREENSHOT HTML] emailHtml existe: ${!!emailHtml}, longueur: ${emailHtml?.length || 0}`);
+              
               try {
-                console.log(`📸 Tentative de capture d'image du contenu de l'email...`);
-                
                 const htmlForScreenshot = cleanHtmlForScreenshot(emailHtml);
-                console.log(`📸 HTML nettoyé, longueur: ${htmlForScreenshot.length} caractères`);
+                console.log(`📸 [SCREENSHOT HTML] HTML nettoyé, longueur: ${htmlForScreenshot.length} caractères`);
                 
                 // Convertir en image avec timeout de 50 secondes max (augmenté pour Vercel + @sparticuz/chromium)
-                console.log(`📸 Démarrage conversion HTML → Image (timeout: 50s)...`);
+                console.log(`📸 [SCREENSHOT HTML] Démarrage conversion HTML → Image (timeout: 50s)...`);
+                const startTime = Date.now();
+                
                 const imageBuffer = await Promise.race([
                   convertHtmlToImage(htmlForScreenshot, 800),
                   new Promise<never>((_, reject) => 
@@ -1449,14 +1452,15 @@ ${cleanHtml}
                   )
                 ]);
                 
-                console.log(`✅ Image générée, taille: ${imageBuffer.length} bytes`);
+                const duration = Date.now() - startTime;
+                console.log(`✅ [SCREENSHOT HTML] Image générée en ${duration}ms, taille: ${imageBuffer.length} bytes`);
                 
                 const timestamp = Date.now();
                 const sanitizedSubject = subject.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
                 const fileName = `email_${timestamp}_${sanitizedSubject}.png`;
                 const filePath = `${userId}/${fileName}`;
                 
-                console.log(`📤 Upload image vers Supabase Storage: ${filePath}`);
+                console.log(`📤 [SCREENSHOT HTML] Upload image vers Supabase Storage: ${filePath}`);
                 const { data: uploadData, error: uploadError } = await supabaseService.storage
                   .from('invoices')
                   .upload(filePath, imageBuffer, {
@@ -1465,16 +1469,17 @@ ${cleanHtml}
                   });
                 
                 if (uploadError) {
-                  console.error(`❌ Erreur upload image email:`, uploadError);
-                  console.error(`❌ Détails upload error:`, JSON.stringify(uploadError, null, 2));
+                  console.error(`❌ [SCREENSHOT HTML] Erreur upload image email:`, uploadError);
+                  console.error(`❌ [SCREENSHOT HTML] Détails upload error:`, JSON.stringify(uploadError, null, 2));
+                  console.error(`❌ [SCREENSHOT HTML] Code erreur: ${uploadError.statusCode || 'N/A'}, Message: ${uploadError.message || 'N/A'}`);
                 } else {
-                  console.log(`✅ Image email uploadée avec succès: ${filePath}`);
+                  console.log(`✅ [SCREENSHOT HTML] Image email uploadée avec succès: ${filePath}`);
                   
                   const { data: publicUrlData } = supabaseService.storage
                     .from('invoices')
                     .getPublicUrl(filePath);
                   
-                  console.log(`✅ URL publique générée: ${publicUrlData.publicUrl}`);
+                  console.log(`✅ [SCREENSHOT HTML] URL publique générée: ${publicUrlData.publicUrl}`);
                   
                   extractedData.original_file_url = publicUrlData.publicUrl;
                   extractedData.original_file_name = fileName;
@@ -1482,12 +1487,25 @@ ${cleanHtml}
                   htmlImageUrl = publicUrlData.publicUrl;
                   htmlMimeType = 'image/png';
                   
-                  console.log(`✅ Variables assignées: htmlImageUrl=${htmlImageUrl}, original_file_url=${extractedData.original_file_url}`);
+                  console.log(`✅ [SCREENSHOT HTML] Variables assignées:`);
+                  console.log(`   - htmlImageUrl: ${htmlImageUrl}`);
+                  console.log(`   - extractedData.original_file_url: ${extractedData.original_file_url}`);
+                  console.log(`   - extractedData.original_file_name: ${extractedData.original_file_name}`);
+                  console.log(`   - extractedData.original_mime_type: ${extractedData.original_mime_type}`);
                 }
               } catch (screenshotError: any) {
-                console.error(`❌ Erreur capture image email:`, screenshotError?.message || screenshotError);
-                console.error(`❌ Stack trace:`, screenshotError?.stack);
-                console.warn(`⚠️ Capture image email ignorée (non bloquant), extraction continue sans image`);
+                console.error(`❌ [SCREENSHOT HTML] ERREUR CAPTURE IMAGE EMAIL:`);
+                console.error(`   - Message: ${screenshotError?.message || screenshotError}`);
+                console.error(`   - Type: ${screenshotError?.name || 'Unknown'}`);
+                console.error(`   - Stack: ${screenshotError?.stack || 'N/A'}`);
+                if (screenshotError?.message?.includes('timeout')) {
+                  console.error(`   - ⏱️ TIMEOUT détecté`);
+                }
+                if (screenshotError?.message?.includes('memory') || screenshotError?.message?.includes('Memory')) {
+                  console.error(`   - 💾 ERREUR MÉMOIRE détectée`);
+                }
+                console.warn(`⚠️ [SCREENSHOT HTML] Capture image email ignorée (non bloquant), extraction continue sans image`);
+                // 🔧 IMPORTANT: Ne pas définir htmlImageUrl = null ici, on veut garder null pour indiquer l'échec
               }
             } else {
               console.log(`❌ Erreur: impossible d'analyser le contenu HTML (JSON invalide)`);
@@ -1608,7 +1626,8 @@ ${cleanHtml}
           due_date: cleanedData.due_date ? new Date(cleanedData.due_date).toISOString() : null,
           original_file_name: cleanedData.original_file_name || (pdfAttachments[0]?.filename || imageAttachments[0]?.filename) || (htmlImageUrl ? extractedData.original_file_name : null),
           original_mime_type: cleanedData.original_mime_type || (pdfAttachments.length > 0 ? 'application/pdf' : (htmlMimeType || null)),
-          original_file_url: cleanedData.original_file_url || fileUrl || htmlImageUrl,
+          // 🔧 FIX: Utiliser htmlImageUrl en priorité si disponible (screenshot HTML), sinon fileUrl (PDF/image), sinon cleanedData
+          original_file_url: htmlImageUrl || fileUrl || (cleanedData.original_file_url || null),
           source: 'gmail',
           items: cleanedData.items || null, // Stocker les items dans la colonne items (JSONB)
           // 🔧 FIX : Ajouter les colonnes customer_* pour qu'elles soient sauvegardées dans les colonnes dédiées
@@ -1629,12 +1648,22 @@ ${cleanHtml}
         };
         
         // 🔍 DEBUG: Log pour vérifier l'assignation de original_file_url avant sauvegarde
-        console.log(`🔍 [DEBUG] original_file_url avant sauvegarde:`, {
-          cleanedData_original_file_url: cleanedData.original_file_url,
-          fileUrl: fileUrl,
-          htmlImageUrl: htmlImageUrl,
-          final_original_file_url: invoiceData.original_file_url,
-        });
+        console.log(`🔍 [DEBUG] original_file_url avant sauvegarde:`);
+        console.log(`   - cleanedData.original_file_url: ${cleanedData.original_file_url || 'null'}`);
+        console.log(`   - fileUrl (PDF/image): ${fileUrl || 'null'}`);
+        console.log(`   - htmlImageUrl (screenshot HTML): ${htmlImageUrl || 'null'}`);
+        console.log(`   - final invoiceData.original_file_url: ${invoiceData.original_file_url || 'null'}`);
+        console.log(`   - final invoiceData.original_file_name: ${invoiceData.original_file_name || 'null'}`);
+        console.log(`   - final invoiceData.original_mime_type: ${invoiceData.original_mime_type || 'null'}`);
+        
+        // 🔧 FIX: Si htmlImageUrl existe mais n'est pas utilisé, forcer son utilisation
+        if (htmlImageUrl && !invoiceData.original_file_url) {
+          console.warn(`⚠️ [DEBUG] htmlImageUrl existe mais n'a pas été utilisé, correction...`);
+          invoiceData.original_file_url = htmlImageUrl;
+          invoiceData.original_file_name = extractedData.original_file_name || `email_${Date.now()}.png`;
+          invoiceData.original_mime_type = htmlMimeType || 'image/png';
+          console.log(`✅ [DEBUG] Correction appliquée: original_file_url = ${invoiceData.original_file_url}`);
+        }
 
         // Vérifier si la facture existe déjà par email_id et faire update ou insert
         let dbError = null;
