@@ -59,8 +59,8 @@ export async function extractLogoImageFromPDF(
       const puppeteerCore = (await import('puppeteer-core')).default;
       const chromium = (await import('@sparticuz/chromium')).default;
       
-      // Configurer Chromium pour Vercel
-      chromium.setGraphicsMode(false);
+      // 🔧 FIX: setGraphicsMode n'existe pas dans les versions récentes de @sparticuz/chromium
+      // Cette méthode n'est plus nécessaire pour le bon fonctionnement
       
       browser = await puppeteerCore.launch({
         args: chromium.args,

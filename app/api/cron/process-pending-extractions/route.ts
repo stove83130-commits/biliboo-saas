@@ -59,8 +59,18 @@ export async function GET(req: NextRequest) {
         isDevelopment,
         url: req.url
       });
+      
+      // 🔧 Message d'erreur plus informatif pour aider à la configuration
+      const errorMessage = !process.env.CRON_SECRET 
+        ? 'CRON_SECRET non défini dans les variables d\'environnement Vercel. Ajoutez-le dans Vercel → Settings → Environment Variables.'
+        : 'Header x-vercel-cron manquant ou Bearer token incorrect.';
+      
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { 
+          error: 'Unauthorized',
+          message: errorMessage,
+          hint: 'Pour les appels manuels, utilisez: Authorization: Bearer <CRON_SECRET>'
+        },
         { status: 401 }
       );
     }
