@@ -138,11 +138,21 @@ export default function LoginPage() {
       const plan = localStorage.getItem('selected_plan');
       const shouldRedirect = localStorage.getItem('plan_redirect');
       
+      // 🔧 FIX PRODUCTION: Normaliser l'origin pour utiliser bilibou.com (sans www)
+      // Important: Supabase n'accepte que bilibou.com dans les Redirect URLs, pas www.bilibou.com
+      let origin = window.location.origin;
+      if (origin.includes('bilibou.com')) {
+        origin = origin.replace(/^https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com');
+      }
+      
+      const redirectUrl = `${origin}/auth/callback${plan && shouldRedirect === 'true' ? `?plan=${plan}` : ''}`;
+      console.log('🔗 URL de redirection OAuth:', redirectUrl);
+      
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback${plan && shouldRedirect === 'true' ? `?plan=${plan}` : ''}`,
+          redirectTo: redirectUrl,
           // Forcer la demande de consentement pour récupérer les nouvelles permissions
           queryParams: provider === 'azure' ? {
             prompt: 'consent'
