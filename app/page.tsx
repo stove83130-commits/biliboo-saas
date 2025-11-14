@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { HeroSection } from "@/components/sections/hero-section"
 import { DashboardPreview } from "@/components/sections/dashboard-preview"
@@ -16,11 +15,11 @@ import { FooterSection } from "@/components/sections/footer-section"
 import { AnimatedSection } from "@/components/sections/animated-section"
 
 export default function Home() {
-  const router = useRouter()
   const [isChecking, setIsChecking] = useState(true)
 
   useEffect(() => {
-    // Vérifier si l'utilisateur est authentifié et rediriger vers le dashboard si nécessaire
+    // Vérifier l'authentification pour le chargement (sans redirection)
+    // La page d'accueil est accessible à tous, même aux utilisateurs authentifiés
     let isMounted = true
     let timeoutId: NodeJS.Timeout | null = null
     
@@ -62,14 +61,9 @@ export default function Home() {
           console.warn('⚠️ Erreur auth (non bloquant):', error.message)
           // Ne pas bloquer si erreur, juste continuer sans redirection
           setIsChecking(false)
-        } else if (user) {
-          // Utilisateur authentifié, rediriger vers le dashboard
-          console.log('✅ Utilisateur authentifié détecté sur la page d\'accueil, redirection vers /dashboard')
-          setIsChecking(false)
-          router.push('/dashboard')
-          return
         } else {
-          // Pas d'utilisateur, continuer normalement
+          // Utilisateur authentifié ou non, permettre l'accès à la page d'accueil
+          // La page d'accueil est accessible à tous, même aux utilisateurs authentifiés
           setIsChecking(false)
         }
       } catch (error) {
@@ -96,7 +90,7 @@ export default function Home() {
         clearTimeout(timeoutId)
       }
     }
-  }, [router])
+  }, [])
 
   useEffect(() => {
     // Gérer le scroll vers la section quand il y a un hash dans l'URL
