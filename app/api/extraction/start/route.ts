@@ -103,7 +103,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 4. Vérifier que le workspace_id existe avant de créer le job
+    // 4. Vérifier que l'utilisateur a un plan actif
+    const planId = user.user_metadata?.selected_plan as string | null
+    const subscriptionStatus = user.user_metadata?.subscription_status || null
+    const isTrial = Boolean(user.user_metadata?.is_trial)
+    const trialEndsAt = user.user_metadata?.trial_ends_at ?? null
+    
+    // Vérifier si le plan existe ET si l'abonnement Stripe est actif
+    const { hasActivePlan } = await import('@/lib/billing/plans')
+    const planExists = planId ? hasActivePlan(planId) : false
+    const subscriptionIsActive = subscriptionStatus === 'active' || subscriptionStatus === 'trialing'
+    const trialIsActive = isTrial && trialEndsAt && new Date(trialEndsAt) > new Date()
+    
+    // L'utilisateur a un plan actif si : le plan existe ET (abonnement actif OU essai actif)
+    const hasActive = planExists && (subscriptionIsActive || trialIsActive)
+    
+    if (!hasActive) {
+      console.log('❌ Extraction bloquée: utilisateur sans plan actif', {
+        userId: user.id,
+        planId,
+        subscriptionStatus,
+        isTrial,
+        trialEndsAt,
+        planExists,
+        subscriptionIsActive,
+        trialIsActive
+      })
+      return NextResponse.json(
+        { 
+          error: 'Plan requis',
+          message: 'Vous devez avoir un plan actif pour lancer une extraction. Veuillez choisir un plan dans les paramètres.'
+        },
+        { status: 403 }
+      );
+    }
+
+    console.log('✅ Plan actif vérifié:', {
+      userId: user.id,
+      planId,
+      subscriptionStatus,
+      hasActive
+    })
+
+    // 5. Vérifier que le workspace_id existe avant de créer le job
     let workspaceIdToUse = null;
     if (workspaceId) {
       // Vérifier que le workspace existe ET appartient à l'utilisateur
@@ -123,7 +165,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Créer un job d'extraction (utiliser l'ancienne table extraction_jobs)
+    // 6. Créer un job d'extraction (utiliser l'ancienne table extraction_jobs)
     // NOTE: La table extraction_jobs n'a pas de colonne workspace_id
     // Le workspace_id sera utilisé directement lors de l'insertion des factures
     const { data: job, error: jobError } = await supabaseService
