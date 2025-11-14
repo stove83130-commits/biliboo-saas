@@ -301,18 +301,55 @@ export async function GET(request: NextRequest) {
 
     const { data: { user } } = await supabaseAfterAuth.auth.getUser()
 
-    // Restaurer la logique: nouvel utilisateur -> onboarding, sinon -> dashboard (plan prioritaire)
+    // 🔧 FIX PRODUCTION: Améliorer la détection des utilisateurs existants
+    // Pour les connexions OAuth, vérifier si l'utilisateur a déjà des données dans la base
+    // Si oui, c'est un utilisateur existant -> dashboard
+    // Si non, c'est un nouvel utilisateur -> onboarding
     let isNewUser = true
     if (user) {
-      isNewUser = !user.user_metadata?.onboarding_completed
-      if (isNewUser && !user.user_metadata?.onboarding_completed) {
-        await supabaseAfterAuth.auth.updateUser({
-          data: { ...user.user_metadata, onboarding_completed: false },
-        })
+      // Vérifier si l'utilisateur a déjà complété l'onboarding
+      const hasCompletedOnboarding = user.user_metadata?.onboarding_completed === true
+      
+      // Si onboarding_completed n'est pas défini, vérifier si l'utilisateur a des données existantes
+      if (!hasCompletedOnboarding) {
+        // Vérifier si l'utilisateur a déjà des comptes email ou des factures (signe qu'il a déjà utilisé l'app)
+        const { data: emailAccounts } = await supabaseAfterAuth
+          .from('email_accounts')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle()
+        
+        const { data: invoices } = await supabaseAfterAuth
+          .from('invoices')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle()
+        
+        // Si l'utilisateur a déjà des données, c'est un utilisateur existant
+        if (emailAccounts || invoices) {
+          isNewUser = false
+          // Marquer l'onboarding comme complété pour éviter ce check à l'avenir
+          await supabaseAfterAuth.auth.updateUser({
+            data: { ...user.user_metadata, onboarding_completed: true },
+          })
+        } else {
+          // Nouvel utilisateur, marquer onboarding_completed à false
+          isNewUser = true
+          if (!user.user_metadata?.onboarding_completed) {
+            await supabaseAfterAuth.auth.updateUser({
+              data: { ...user.user_metadata, onboarding_completed: false },
+            })
+          }
+        }
+      } else {
+        // Onboarding déjà complété
+        isNewUser = false
       }
     }
 
-    // Si l'utilisateur a complété l'onboarding, toujours aller au dashboard
+    // Si l'utilisateur a complété l'onboarding ou est un utilisateur existant, toujours aller au dashboard
     // Sinon, rediriger vers l'onboarding (sauf si un plan est sélectionné)
     const redirectPath = plan
       ? `/auth/plan-redirect?plan=${plan}`
