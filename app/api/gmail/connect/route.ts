@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
-import { getPlan, canAddEmailAccount } from '@/lib/billing/plans'
 
 
 export const dynamic = 'force-dynamic'
@@ -54,24 +53,9 @@ export async function GET(request: Request) {
   // Pour les redirections internes, utiliser l'origin de la requête
   const baseUrl = origin
 
-  // Vérifier les permissions du plan (mais ne pas bloquer si erreur)
-  const planId = user.user_metadata?.selected_plan
-  const { count } = await supabase
-    .from('email_accounts')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-
-  const canAdd = canAddEmailAccount(planId, count || 0)
-  
-  if (!canAdd) {
-    console.log('❌ Limite de plan atteinte')
-    return NextResponse.json({ 
-      error: 'plan_limit_reached',
-      feature: 'email',
-      message: 'Vous avez atteint la limite de comptes e-mail de votre plan actuel.'
-    }, { status: 403 })
-  }
+  // NOTE: La vérification de limite se fait maintenant dans le callback (/api/gmail/callback)
+  // car c'est là qu'on connaît l'email et qu'on peut vérifier si c'est une reconnexion
+  // Cela permet de reconnecter un email déjà connecté même si la limite est atteinte
 
   const { searchParams } = new URL(request.url)
   const workspaceId = searchParams.get('workspaceId') || ''

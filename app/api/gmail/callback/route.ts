@@ -128,19 +128,20 @@ export async function GET(request: Request) {
       ? new Date(tokens.expiry_date)
       : new Date(Date.now() + 3600 * 1000) // Default 1 hour
 
-    // Check if account already exists
+    // Check if account already exists (même si inactif)
     const { data: existingAccount } = await supabase
       .from('email_accounts')
-      .select('id')
+      .select('id, is_active')
       .eq('user_id', user.id)
       .eq('provider', 'gmail')
       .eq('email', userInfo.email || '')
-      .single()
+      .maybeSingle()
 
     let dbError = null
 
     if (existingAccount) {
-      // Update existing account
+      // Compte existant : permettre la reconnexion même si limite atteinte
+      console.log('✅ Compte email existant détecté, reconnexion autorisée (même si limite atteinte)')
       const { error } = await supabase
         .from('email_accounts')
         .update({
@@ -154,6 +155,22 @@ export async function GET(request: Request) {
       
       dbError = error
     } else {
+      // Nouveau compte : vérifier la limite AVANT d'insérer
+      const planId = user.user_metadata?.selected_plan
+      const { count } = await supabase
+        .from('email_accounts')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+
+      const { canAddEmailAccount } = await import('@/lib/billing/plans')
+      const canAdd = canAddEmailAccount(planId, count || 0)
+      
+      if (!canAdd) {
+        console.log('❌ Limite de plan atteinte pour nouveau compte email')
+        return NextResponse.redirect(`${origin}/dashboard/settings?error=plan_limit_reached&message=Vous avez atteint la limite de comptes e-mail de votre plan actuel.`)
+      }
+
       // Insert new account
       const { error } = await supabase
         .from('email_accounts')
