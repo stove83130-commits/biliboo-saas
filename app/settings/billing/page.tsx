@@ -72,6 +72,38 @@ interface Workspace {
   owner_id: string
 }
 
+interface UsageData {
+  invoices: {
+    used: number
+    limit: number | null
+    remaining: number | null
+    percentage: number
+    unlimited: boolean
+  }
+  emailAccounts: {
+    used: number
+    limit: number
+    remaining: number | null
+    unlimited: boolean
+  }
+  organizations: {
+    used: number
+    limit: number
+    remaining: number | null
+    unlimited: boolean
+  }
+  period: {
+    start: string
+    end: string
+    month: number
+    year: number
+  }
+  plan: {
+    id: string
+    name: string
+  } | null
+}
+
 function BillingPageContent() {
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -83,6 +115,8 @@ function BillingPageContent() {
   const [reactivating, setReactivating] = useState(false)
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false)
   const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false)
+  const [usage, setUsage] = useState<UsageData | null>(null)
+  const [loadingUsage, setLoadingUsage] = useState(false)
   const searchParams = useSearchParams()
   const supabase = createClient()
   
@@ -202,8 +236,28 @@ function BillingPageContent() {
     }
   }
 
+  const loadUsage = async () => {
+    try {
+      setLoadingUsage(true)
+      const response = await fetch('/api/billing/usage')
+      if (response.ok) {
+        const data = await response.json()
+        setUsage(data)
+      } else {
+        console.warn('⚠️ Erreur chargement usage')
+        setUsage(null)
+      }
+    } catch (error) {
+      console.error('❌ Erreur chargement usage:', error)
+      setUsage(null)
+    } finally {
+      setLoadingUsage(false)
+    }
+  }
+
   useEffect(() => {
     loadBillingData()
+    loadUsage()
   }, [])
 
   // Synchronisation automatique si on revient du paiement
@@ -729,6 +783,161 @@ function BillingPageContent() {
                 <ArrowUpRight className="h-4 w-4 mr-2" />
                 Voir tous les forfaits
               </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Section Usage */}
+        {usage && subscription?.plan && (
+          <Card className="p-6">
+            <div className="mb-6">
+              <h2 className="text-lg font-medium text-foreground mb-1">Utilisation du plan</h2>
+              <p className="text-sm text-muted-foreground">
+                Période du {new Date(usage.period.start).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} au {new Date(usage.period.end).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </p>
+            </div>
+
+            <div className="space-y-6">
+              {/* Factures extraites */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Receipt className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">Factures extraites</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {usage.invoices.unlimited ? (
+                      <span className="font-semibold text-green-600">{usage.invoices.used} factures</span>
+                    ) : (
+                      <span>
+                        <span className="font-semibold text-foreground">{usage.invoices.used}</span>
+                        {' / '}
+                        <span>{usage.invoices.limit}</span>
+                        {usage.invoices.remaining !== null && (
+                          <span className="text-muted-foreground ml-1">
+                            ({usage.invoices.remaining} restantes)
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {!usage.invoices.unlimited && (
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full transition-all ${
+                        usage.invoices.percentage >= 90
+                          ? 'bg-red-500'
+                          : usage.invoices.percentage >= 70
+                          ? 'bg-amber-500'
+                          : 'bg-green-500'
+                      }`}
+                      style={{ width: `${Math.min(100, usage.invoices.percentage)}%` }}
+                    />
+                  </div>
+                )}
+                {usage.invoices.unlimited && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Plan illimité - aucune limite
+                  </div>
+                )}
+              </div>
+
+              {/* Comptes email */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">Comptes email connectés</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {usage.emailAccounts.unlimited ? (
+                      <span className="font-semibold text-green-600">{usage.emailAccounts.used} comptes</span>
+                    ) : (
+                      <span>
+                        <span className="font-semibold text-foreground">{usage.emailAccounts.used}</span>
+                        {' / '}
+                        <span>{usage.emailAccounts.limit}</span>
+                        {usage.emailAccounts.remaining !== null && (
+                          <span className="text-muted-foreground ml-1">
+                            ({usage.emailAccounts.remaining} restants)
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {!usage.emailAccounts.unlimited && (
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full transition-all ${
+                        usage.emailAccounts.used >= usage.emailAccounts.limit
+                          ? 'bg-red-500'
+                          : usage.emailAccounts.used >= usage.emailAccounts.limit * 0.8
+                          ? 'bg-amber-500'
+                          : 'bg-green-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, (usage.emailAccounts.used / usage.emailAccounts.limit) * 100)}%`
+                      }}
+                    />
+                  </div>
+                )}
+                {usage.emailAccounts.unlimited && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Plan illimité - aucune limite
+                  </div>
+                )}
+              </div>
+
+              {/* Organisations (si applicable) */}
+              {usage.organizations.limit > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">Organisations</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {usage.organizations.unlimited ? (
+                        <span className="font-semibold text-green-600">{usage.organizations.used} organisations</span>
+                      ) : (
+                        <span>
+                          <span className="font-semibold text-foreground">{usage.organizations.used}</span>
+                          {' / '}
+                          <span>{usage.organizations.limit}</span>
+                          {usage.organizations.remaining !== null && (
+                            <span className="text-muted-foreground ml-1">
+                              ({usage.organizations.remaining} restantes)
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {!usage.organizations.unlimited && (
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div
+                        className={`h-2.5 rounded-full transition-all ${
+                          usage.organizations.used >= usage.organizations.limit
+                            ? 'bg-red-500'
+                            : usage.organizations.used >= usage.organizations.limit * 0.8
+                            ? 'bg-amber-500'
+                            : 'bg-green-500'
+                        }`}
+                        style={{
+                          width: `${Math.min(100, (usage.organizations.used / usage.organizations.limit) * 100)}%`
+                        }}
+                      />
+                    </div>
+                  )}
+                  {usage.organizations.unlimited && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Plan illimité - aucune limite
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </Card>
         )}
