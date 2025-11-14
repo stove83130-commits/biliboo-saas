@@ -335,18 +335,22 @@ function SettingsPageContent() {
   const handleConnectGmail = async () => {
     try {
       setEmailLimitError(null)
-      // Vérifier d'abord la limite avant de rediriger
+      
+      // Vérifier la limite pour afficher un avertissement, mais ne pas bloquer
+      // Le callback gérera la reconnexion si c'est un email déjà connecté
       const checkResponse = await fetch('/api/gmail/check-limit')
       
       if (!checkResponse.ok) {
         const errorData = await checkResponse.json()
         if (errorData.error === 'plan_limit_reached') {
-          setEmailLimitError('Vous avez atteint la limite de comptes e-mail de votre plan actuel. Upgradez votre plan pour connecter plus de comptes e-mail.')
-          return
+          // Afficher un avertissement mais permettre quand même la connexion
+          // Le callback vérifiera si c'est une reconnexion et l'autorisera
+          setEmailLimitError('Limite atteinte. Si vous reconnectez un email déjà connecté, cela fonctionnera. Sinon, upgradez votre plan.')
+          // Ne pas return, continuer pour permettre la reconnexion
         }
       }
 
-      // Si la limite n'est pas atteinte, rediriger vers l'API de connexion
+      // Toujours rediriger vers l'API de connexion (le callback gérera la limite)
       const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
       const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' && activeWorkspaceId.trim() !== '' 
         ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` 
@@ -465,18 +469,26 @@ function SettingsPageContent() {
             )}
           </div>
           {emailLimitError && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm font-medium text-red-600 mb-2">{emailLimitError}</p>
-              <Button
-                onClick={() => window.location.href = '/plans'}
-                size="sm"
-                className="text-white hover:opacity-90 transition-all"
-                style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'
-                }}
-              >
-                Voir les plans
-              </Button>
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm font-medium text-amber-800 mb-2">{emailLimitError}</p>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => window.location.href = '/plans'}
+                  size="sm"
+                  variant="outline"
+                  className="text-amber-800 border-amber-300 hover:bg-amber-100"
+                >
+                  Voir les plans
+                </Button>
+                <Button
+                  onClick={() => setEmailLimitError(null)}
+                  size="sm"
+                  variant="ghost"
+                  className="text-amber-800 hover:bg-amber-100"
+                >
+                  Fermer
+                </Button>
+              </div>
             </div>
           )}
           <div className="flex flex-col gap-3">
