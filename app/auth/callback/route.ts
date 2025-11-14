@@ -10,7 +10,15 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code')
   const type = requestUrl.searchParams.get('type') // recovery, signup, etc.
   const plan = requestUrl.searchParams.get('plan')
-  const origin = requestUrl.origin
+  
+  // 🔧 FIX PRODUCTION: Normaliser l'origin pour éviter les problèmes de cookies
+  // Si l'URL contient bilibou.com, utiliser toujours bilibou.com (sans www)
+  let origin = requestUrl.origin
+  if (origin.includes('bilibou.com')) {
+    origin = origin.replace(/^https?:\/\/(www\.)?bilibou\.com/, 'https://bilibou.com')
+  }
+  
+  console.log('🔍 Auth callback - origin:', origin, 'requestUrl.origin:', requestUrl.origin)
 
   // Log pour debug
   console.log('Auth callback - code:', code ? 'present' : 'missing', 'type:', type || 'none', 'plan:', plan || 'none')
@@ -349,26 +357,66 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 🔧 FIX PRODUCTION: Si l'utilisateur n'est pas trouvé, rediriger vers login
+    if (!user) {
+      console.error('❌ Utilisateur non trouvé après OAuth, redirection vers login')
+      return buildRedirectResponse(`${origin}/auth/login?error=user_not_found`)
+    }
+    
     // Si l'utilisateur a complété l'onboarding ou est un utilisateur existant, toujours aller au dashboard
     // Sinon, rediriger vers l'onboarding (sauf si un plan est sélectionné)
+    // 🔧 FIX PRODUCTION: Pour les connexions OAuth (pas signup), privilégier /dashboard par défaut
+    // car c'est une connexion, pas une inscription
     const redirectPath = plan
       ? `/auth/plan-redirect?plan=${plan}`
-      : (isNewUser ? '/onboarding' : '/dashboard')
+      : (isNewUser && type === 'signup' ? '/onboarding' : '/dashboard')
     
     console.log('🔀 Redirection après auth:', {
       userId: user?.id,
       isNewUser,
+      type,
       onboardingCompleted: user?.user_metadata?.onboarding_completed,
       plan,
       redirectPath
     })
     
-    const redirectResponse = buildRedirectResponse(`${origin}${redirectPath}`)
+    const redirectUrl = `${origin}${redirectPath}`
+    console.log('🔀 Redirection URL finale:', redirectUrl)
+    
+    const redirectResponse = buildRedirectResponse(redirectUrl)
 
-    // Copier les cookies accumulés sur la réponse finale
-    response.cookies.getAll().forEach((c) => {
-      redirectResponse.cookies.set(c)
+    // 🔧 FIX PRODUCTION: Copier les cookies avec toutes leurs options (domain, secure, sameSite)
+    // Important: Préserver toutes les options de cookies pour qu'elles fonctionnent en production
+    const allCookies = response.cookies.getAll()
+    console.log(`🍪 Copie de ${allCookies.length} cookies vers la redirection`)
+    
+    allCookies.forEach((cookie) => {
+      // Récupérer toutes les options du cookie original
+      const cookieOptions: any = {
+        name: cookie.name,
+        value: cookie.value,
+        path: cookie.path || '/',
+        // Préserver les options importantes
+        ...(cookie.httpOnly !== undefined && { httpOnly: cookie.httpOnly }),
+        ...(cookie.secure !== undefined && { secure: cookie.secure }),
+        ...(cookie.sameSite !== undefined && { sameSite: cookie.sameSite }),
+        ...(cookie.maxAge !== undefined && { maxAge: cookie.maxAge }),
+        ...(cookie.expires !== undefined && { expires: cookie.expires }),
+      }
+      
+      // En production, ajouter les options de domaine si nécessaire
+      const isProduction = process.env.NODE_ENV === 'production' || origin.includes('bilibou.com')
+      if (isProduction && origin.includes('bilibou.com')) {
+        // Pour bilibou.com, utiliser le domaine racine (sans www)
+        cookieOptions.domain = 'bilibou.com'
+        cookieOptions.secure = true
+        cookieOptions.sameSite = 'lax'
+      }
+      
+      redirectResponse.cookies.set(cookieOptions)
     })
+    
+    console.log('✅ Cookies copiés, redirection vers:', redirectUrl)
 
     return redirectResponse
   }
