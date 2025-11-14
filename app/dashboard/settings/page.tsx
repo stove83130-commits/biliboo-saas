@@ -336,21 +336,9 @@ function SettingsPageContent() {
     try {
       setEmailLimitError(null)
       
-      // Vérifier la limite pour afficher un avertissement, mais ne pas bloquer
-      // Le callback gérera la reconnexion si c'est un email déjà connecté
-      const checkResponse = await fetch('/api/gmail/check-limit')
-      
-      if (!checkResponse.ok) {
-        const errorData = await checkResponse.json()
-        if (errorData.error === 'plan_limit_reached') {
-          // Afficher un avertissement mais permettre quand même la connexion
-          // Le callback vérifiera si c'est une reconnexion et l'autorisera
-          setEmailLimitError('Limite atteinte. Si vous reconnectez un email déjà connecté, cela fonctionnera. Sinon, upgradez votre plan.')
-          // Ne pas return, continuer pour permettre la reconnexion
-        }
-      }
-
-      // Toujours rediriger vers l'API de connexion (le callback gérera la limite)
+      // Ne pas vérifier la limite avant - laisser le callback gérer
+      // Le callback vérifiera si c'est une reconnexion et l'autorisera même si limite atteinte
+      // Rediriger directement vers l'API de connexion
       const activeWorkspaceId = typeof window !== 'undefined' ? localStorage.getItem('active_workspace_id') : null
       const qs = activeWorkspaceId && activeWorkspaceId !== 'personal' && activeWorkspaceId.trim() !== '' 
         ? `?workspaceId=${encodeURIComponent(activeWorkspaceId)}` 
@@ -416,11 +404,10 @@ function SettingsPageContent() {
           <div className="flex gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-            <Button 
+            <Button
               variant="outline" 
               size="sm" 
               className="gap-2"
-              disabled={!hasActivePlan}
             >
                   <Plus className="h-4 w-4" /> Ajouter un compte
                   <ChevronDown className="h-4 w-4" />
@@ -428,16 +415,14 @@ function SettingsPageContent() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')}
-                  disabled={!hasActivePlan}
+                  onClick={handleConnectGmail}
                   className="gap-2"
                 >
                   <GoogleLogo className="h-4 w-4" /> Gmail
                 </DropdownMenuItem>
                 <DropdownMenuItem
-              onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour ajouter des comptes email.')} 
-                  disabled={!hasActivePlan}
-              className="gap-2"
+                  onClick={handleConnectOutlook}
+                  className="gap-2"
             >
                   <MicrosoftLogo className="h-4 w-4" /> Outlook
                 </DropdownMenuItem>
@@ -458,11 +443,10 @@ function SettingsPageContent() {
             <div className="text-sm font-medium text-foreground">Comptes Gmail connectés</div>
             {permissions.canManageEmailConnections && (
               <Button
-                onClick={hasActivePlan ? handleConnectGmail : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
+                onClick={handleConnectGmail}
                 variant="outline"
                 size="sm"
                 className="gap-2"
-                disabled={!hasActivePlan}
               >
                 <Plus className="h-4 w-4" /> Ajouter Gmail
               </Button>
@@ -526,11 +510,10 @@ function SettingsPageContent() {
             <div className="text-sm font-medium text-foreground">Comptes Outlook connectés</div>
             {permissions.canManageEmailConnections && emailAccounts.filter(a=>a.provider==='outlook').length === 0 && (
               <Button
-                onClick={hasActivePlan ? handleConnectOutlook : () => alert('Aucun plan actif. Choisissez un plan pour connecter des comptes email.')}
+                onClick={handleConnectOutlook}
                 variant="outline"
                 size="sm"
                 className="gap-2"
-                disabled={!hasActivePlan}
               >
                 <Plus className="h-4 w-4" /> Ajouter Outlook
               </Button>
