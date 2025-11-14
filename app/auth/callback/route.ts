@@ -61,25 +61,24 @@ export async function GET(request: NextRequest) {
   // 🔧 FIX PRODUCTION: Améliorer la détection OAuth vs signup
   // RÈGLE 1: Si type === 'signup', c'est TOUJOURS signup (confirmation email)
   // RÈGLE 2: Si type === 'recovery', c'est TOUJOURS recovery (reset password)
-  // RÈGLE 3: Si type est null/undefined ET hasCodeVerifier est true, c'est OAuth
-  // RÈGLE 4: Si type est null/undefined ET hasCodeVerifier est false, c'est probablement signup (confirmation email)
-  // RÈGLE 5: Si type existe mais n'est ni 'signup' ni 'recovery', c'est OAuth (Google, Azure, etc.)
+  // RÈGLE 3: Si type est null/undefined OU autre chose que 'signup'/'recovery', c'est OAuth
+  // IMPORTANT: Pour OAuth, Supabase envoie généralement type=null, mais on ne doit PAS assumer signup
+  // On assume signup UNIQUEMENT si type === 'signup' explicitement
   const isExplicitSignup = type === 'signup'
   const isExplicitRecovery = type === 'recovery'
-  const isOAuthFlow = hasCodeVerifier || (type && type !== 'signup' && type !== 'recovery')
-  // 🔧 FIX: Ne considérer comme signup QUE si type est explicitement 'signup'
-  // Si type est null/undefined et hasCodeVerifier est false, on assume signup (confirmation email)
-  // MAIS si on vient d'un bouton OAuth (pas d'email), alors c'est OAuth même sans code verifier
-  const isSignupFlow = isExplicitSignup || (!type && !hasCodeVerifier && code && !isOAuthFlow)
+  // 🔧 FIX CRITIQUE: Ne considérer comme signup QUE si type est explicitement 'signup'
+  // Si type est null/undefined, c'est probablement OAuth (pas signup)
+  // Les confirmations email ont TOUJOURS type='signup' dans Supabase
+  const isSignupFlow = isExplicitSignup
   
   console.log('🔍 Détection flux:', {
     type: type || 'none',
     hasCodeVerifier: !!hasCodeVerifier,
     isExplicitSignup,
     isExplicitRecovery,
-    isOAuthFlow,
     isSignupFlow,
-    code: code ? 'present' : 'missing'
+    code: code ? 'present' : 'missing',
+    note: isSignupFlow ? 'SIGNUP (confirmation email)' : 'OAUTH (Google, Azure, etc.)'
   })
   
   if (code && isSignupFlow) {
@@ -225,10 +224,9 @@ export async function GET(request: NextRequest) {
 
   // Gérer les codes d'authentification standard (OAuth, etc.) - mais PAS recovery/signup qui sont gérés plus haut
   // IMPORTANT: Ne traiter que si c'est un flux OAuth (pas signup, pas recovery)
-  // 🔧 FIX: Si ce n'est PAS un flux signup explicite (type !== 'signup'), alors c'est probablement OAuth
-  // Même si hasCodeVerifier est false (cookies non lus), on assume OAuth si type n'est pas 'signup'
-  // Si type est null/undefined, on assume OAuth (car signup aurait type='signup')
-  if (code && type !== 'recovery' && !isExplicitSignup) {
+  // 🔧 FIX: Si ce n'est PAS un flux signup explicite (type !== 'signup'), alors c'est OAuth
+  // Si type est null/undefined, on assume OAuth (car signup aurait type='signup' dans Supabase)
+  if (code && !isExplicitRecovery && !isSignupFlow) {
     console.log('🔐 OAuth flow detected (Google, Azure, etc.)')
     console.log('📧 Code présent:', code ? 'yes' : 'no', 'Type:', type || 'none (OAuth)')
     
