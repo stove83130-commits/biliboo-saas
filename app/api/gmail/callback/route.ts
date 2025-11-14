@@ -156,8 +156,74 @@ export async function GET(request: Request) {
     let dbError = null
 
     if (existingAccount) {
-      // Compte existant : permettre la reconnexion même si limite atteinte
-      console.log('✅ Compte email existant détecté, reconnexion autorisée (même si limite atteinte)')
+      // Compte existant : vérifier si c'est une vraie reconnexion (compte inactif) ou un contournement
+      console.log('✅ Compte email existant détecté:', {
+        email: userInfo.email,
+        accountId: existingAccount.id,
+        wasActive: existingAccount.is_active,
+        isReconnection: !existingAccount.is_active
+      })
+      
+      // Si le compte était déjà actif, c'est une mise à jour (normal)
+      // Si le compte était inactif, c'est une reconnexion - mais on doit vérifier la limite
+      if (!existingAccount.is_active) {
+        // Reconnexion d'un compte inactif : vérifier la limite AVANT de réactiver
+        console.log('🔄 Reconnexion d\'un compte inactif détectée, vérification limite...')
+        
+        const planId = user.user_metadata?.selected_plan
+        const { count, error: countError } = await supabase
+          .from('email_accounts')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+
+        if (countError) {
+          console.error('❌ Erreur lors du comptage des comptes email:', countError)
+          return NextResponse.redirect(`${origin}/dashboard/settings?error=database_error`)
+        }
+
+        const activeCount = count || 0
+        
+        // Vérification stricte : si pas de plan, bloquer
+        if (!planId) {
+          console.log('❌ Pas de plan défini, blocage reconnexion compte email:', {
+            email: userInfo.email,
+            activeCount
+          })
+          return NextResponse.redirect(`${origin}/dashboard/settings?error=plan_limit_reached&message=Vous devez choisir un plan pour reconnecter des comptes e-mail.`)
+        }
+
+        console.log('🔍 Vérification limite reconnexion:', {
+          email: userInfo.email,
+          planId,
+          activeCount,
+          isReconnection: true
+        })
+
+        const { canAddEmailAccount } = await import('@/lib/billing/plans')
+        const canAdd = canAddEmailAccount(planId, activeCount)
+        
+        console.log('🔍 Résultat vérification limite reconnexion:', {
+          canAdd,
+          planId,
+          activeCount,
+          willBlock: !canAdd
+        })
+        
+        if (!canAdd) {
+          console.log('❌ Limite de plan atteinte pour reconnexion compte email:', {
+            email: userInfo.email,
+            planId,
+            activeCount
+          })
+          return NextResponse.redirect(`${origin}/dashboard/settings?error=plan_limit_reached&message=Vous avez atteint la limite de comptes e-mail de votre plan actuel.`)
+        }
+        
+        console.log('✅ Limite OK, reconnexion autorisée')
+      } else {
+        console.log('✅ Compte déjà actif, mise à jour des tokens (pas de vérification limite)')
+      }
+      
       const { error } = await supabase
         .from('email_accounts')
         .update({
