@@ -6,6 +6,14 @@ import type { NextRequest } from 'next/server'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  // 🔧 LOG IMMÉDIAT pour vérifier que le callback est appelé
+  console.log('🔔 CALLBACK OAUTH APPELÉ - URL:', request.url)
+  console.log('🔔 CALLBACK OAUTH - Headers:', {
+    host: request.headers.get('host'),
+    referer: request.headers.get('referer'),
+    'user-agent': request.headers.get('user-agent')?.substring(0, 50),
+  })
+  
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const type = requestUrl.searchParams.get('type') // recovery, signup, etc.

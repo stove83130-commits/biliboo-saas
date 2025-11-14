@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import { HeroSection } from "@/components/sections/hero-section"
 import { DashboardPreview } from "@/components/sections/dashboard-preview"
 import { SocialProof } from "@/components/sections/social-proof"
@@ -14,6 +16,32 @@ import { FooterSection } from "@/components/sections/footer-section"
 import { AnimatedSection } from "@/components/sections/animated-section"
 
 export default function Home() {
+  const router = useRouter()
+  const [isChecking, setIsChecking] = useState(true)
+
+  useEffect(() => {
+    // Vérifier si l'utilisateur est authentifié et rediriger vers le dashboard si nécessaire
+    const checkAuth = async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (user) {
+          // Utilisateur authentifié, rediriger vers le dashboard
+          console.log('✅ Utilisateur authentifié détecté sur la page d\'accueil, redirection vers /dashboard')
+          router.push('/dashboard')
+          return
+        }
+      } catch (error) {
+        console.error('Erreur lors de la vérification de l\'authentification:', error)
+      } finally {
+        setIsChecking(false)
+      }
+    }
+    
+    checkAuth()
+  }, [router])
+
   useEffect(() => {
     // Gérer le scroll vers la section quand il y a un hash dans l'URL
     const scrollToHash = () => {
@@ -38,6 +66,18 @@ export default function Home() {
       window.removeEventListener('hashchange', scrollToHash)
     }
   }, [])
+
+  // Afficher un loader pendant la vérification de l'authentification
+  if (isChecking) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Chargement...</p>
+        </div>
+      </div>
+    )
+  }
   return (
     <main className="min-h-screen">
       <HeroSection />
