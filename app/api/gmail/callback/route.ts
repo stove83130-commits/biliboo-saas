@@ -129,13 +129,29 @@ export async function GET(request: Request) {
       : new Date(Date.now() + 3600 * 1000) // Default 1 hour
 
     // Check if account already exists (même si inactif)
-    const { data: existingAccount } = await supabase
+    console.log('🔍 [GMAIL CALLBACK] Vérification compte existant pour:', {
+      email: userInfo.email,
+      userId: user.id,
+      provider: 'gmail'
+    })
+    
+    const { data: existingAccount, error: existingAccountError } = await supabase
       .from('email_accounts')
       .select('id, is_active')
       .eq('user_id', user.id)
       .eq('provider', 'gmail')
       .eq('email', userInfo.email || '')
       .maybeSingle()
+
+    if (existingAccountError) {
+      console.error('❌ [GMAIL CALLBACK] Erreur vérification compte existant:', existingAccountError)
+    }
+
+    console.log('🔍 [GMAIL CALLBACK] Résultat vérification compte existant:', {
+      email: userInfo.email,
+      existingAccount: existingAccount ? { id: existingAccount.id, is_active: existingAccount.is_active } : null,
+      isReconnection: !!existingAccount
+    })
 
     let dbError = null
 
@@ -228,6 +244,12 @@ export async function GET(request: Request) {
     }
 
     console.log('✅ Gmail account saved successfully for user:', user.id, 'email:', userInfo.email, 'workspace_id:', workspaceId)
+    console.log('📊 [GMAIL CALLBACK] Résumé final:', {
+      email: userInfo.email,
+      wasReconnection: !!existingAccount,
+      wasNewAccount: !existingAccount,
+      planId: user.user_metadata?.selected_plan
+    })
 
     return NextResponse.redirect(`${origin}/dashboard/settings?success=gmail_connected`)
   } catch (err) {
