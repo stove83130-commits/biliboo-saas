@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
     // Jobs en pending
     const { data: pendingJobs, error: pendingError } = await supabaseService
       .from('extraction_jobs')
-      .select('*, email_connections(*)')
+      .select('*, email_accounts(*)')
       .eq('status', 'pending')
       .lt('created_at', thirtySecondsAgo)
       .order('created_at', { ascending: true })
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
     // car Supabase ne supporte pas facilement les comparaisons sur des champs JSON
     const { data: allProcessingJobs, error: stuckError } = await supabaseService
       .from('extraction_jobs')
-      .select('*, email_connections(*)')
+      .select('*, email_accounts(*)')
       .eq('status', 'processing')
       .limit(10);
     
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
 
         // Récupérer l'utilisateur et le compte email
         const { data: emailAccount } = await supabaseService
-          .from('email_connections')
+          .from('email_accounts')
           .select('*')
           .eq('id', job.connection_id)
           .single();
