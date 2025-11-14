@@ -51,6 +51,18 @@ export async function convertHtmlToImage(
 
     const page = await browser.newPage();
     
+    // 🔧 FIX PRODUCTION : Désactiver le chargement des ressources externes pour éviter les timeouts
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const resourceType = req.resourceType();
+      // Bloquer les images, fonts, et autres ressources externes qui peuvent causer des timeouts
+      if (resourceType === 'image' || resourceType === 'font' || resourceType === 'media') {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+    
     // Définir la taille de la page
     await page.setViewport({
       width: width,
@@ -58,14 +70,15 @@ export async function convertHtmlToImage(
       deviceScaleFactor: 2, // Pour une meilleure qualité
     });
 
-    // Charger le HTML
+    // 🔧 FIX PRODUCTION : Utiliser 'load' au lieu de 'networkidle0' pour éviter les timeouts
+    // 'load' attend juste que le DOM soit chargé, sans attendre que toutes les ressources soient chargées
     await page.setContent(html, {
-      waitUntil: 'networkidle0',
-      timeout: 30000,
+      waitUntil: 'load', // Changé de 'networkidle0' à 'load' pour Vercel
+      timeout: 45000, // Augmenté à 45s pour laisser plus de temps à Chromium sur Vercel
     });
 
-    // Attendre que tout soit chargé (nouvelle méthode compatible)
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Attendre un peu pour que le rendu se stabilise (mais moins longtemps qu'avant)
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // Prendre un screenshot de toute la page
     const screenshot = await page.screenshot({
@@ -75,12 +88,25 @@ export async function convertHtmlToImage(
     });
 
     return screenshot as Buffer;
-  } catch (error) {
-    console.error('❌ Erreur lors de la conversion HTML → Image:', error);
+  } catch (error: any) {
+    // 🔧 FIX PRODUCTION : Logs détaillés pour diagnostiquer les erreurs en production
+    console.error('❌ Erreur lors de la conversion HTML → Image:', error?.message || error);
+    console.error('❌ Type d\'erreur:', error?.name || 'Unknown');
+    console.error('❌ Stack trace:', error?.stack);
+    if (error?.message?.includes('timeout')) {
+      console.error('⏱️ TIMEOUT détecté - Chromium a pris trop de temps à répondre');
+    }
+    if (error?.message?.includes('memory') || error?.message?.includes('Memory')) {
+      console.error('💾 ERREUR MÉMOIRE - Chromium a manqué de mémoire');
+    }
     throw error;
   } finally {
     if (browser) {
-      await browser.close();
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.warn('⚠️ Erreur lors de la fermeture du navigateur:', closeError);
+      }
     }
   }
 }
@@ -93,6 +119,11 @@ export function cleanHtmlForScreenshot(html: string): string {
   return html
     // Supprimer les scripts
     .replace(/<script[^>]*>.*?<\/script>/gis, '')
+    // 🔧 FIX PRODUCTION : Supprimer les liens vers des ressources externes qui peuvent causer des timeouts
+    .replace(/<link[^>]*href=["']https?:\/\/[^"']+["'][^>]*>/gi, '') // Supprimer les <link> vers des URLs externes
+    .replace(/<img[^>]*src=["']https?:\/\/[^"']+["'][^>]*>/gi, '<img>') // Remplacer les images externes par un placeholder
+    // 🔧 FIX PRODUCTION : Supprimer les @import dans les styles qui pointent vers des URLs externes
+    .replace(/@import\s+url\(["']?https?:\/\/[^"')]+["']?\)/gi, '')
     // Ajouter un style de base pour un meilleur rendu
     .replace('<head>', `<head>
       <style>

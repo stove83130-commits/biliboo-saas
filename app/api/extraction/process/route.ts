@@ -1440,12 +1440,12 @@ ${cleanHtml}
                 const htmlForScreenshot = cleanHtmlForScreenshot(emailHtml);
                 console.log(`📸 HTML nettoyé, longueur: ${htmlForScreenshot.length} caractères`);
                 
-                // Convertir en image avec timeout de 30 secondes max (augmenté pour Vercel + @sparticuz/chromium)
-                console.log(`📸 Démarrage conversion HTML → Image (timeout: 30s)...`);
+                // Convertir en image avec timeout de 50 secondes max (augmenté pour Vercel + @sparticuz/chromium)
+                console.log(`📸 Démarrage conversion HTML → Image (timeout: 50s)...`);
                 const imageBuffer = await Promise.race([
                   convertHtmlToImage(htmlForScreenshot, 800),
                   new Promise<never>((_, reject) => 
-                    setTimeout(() => reject(new Error('Timeout: capture image trop longue (>30s)')), 30000)
+                    setTimeout(() => reject(new Error('Timeout: capture image trop longue (>50s)')), 50000)
                   )
                 ]);
                 
