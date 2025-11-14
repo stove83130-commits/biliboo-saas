@@ -157,17 +157,51 @@ export async function GET(request: Request) {
     } else {
       // Nouveau compte : vérifier la limite AVANT d'insérer
       const planId = user.user_metadata?.selected_plan
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from('email_accounts')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_active', true)
 
+      if (countError) {
+        console.error('❌ Erreur lors du comptage des comptes email:', countError)
+        return NextResponse.redirect(`${origin}/dashboard/settings?error=database_error`)
+      }
+
+      const activeCount = count || 0
+      
+      // Vérification stricte : si pas de plan, bloquer
+      if (!planId) {
+        console.log('❌ Pas de plan défini, blocage nouveau compte email:', {
+          email: userInfo.email,
+          activeCount
+        })
+        return NextResponse.redirect(`${origin}/dashboard/settings?error=plan_limit_reached&message=Vous devez choisir un plan pour connecter des comptes e-mail.`)
+      }
+
+      console.log('🔍 Vérification limite nouveau compte:', {
+        email: userInfo.email,
+        planId,
+        activeCount,
+        isNewAccount: !existingAccount
+      })
+
       const { canAddEmailAccount } = await import('@/lib/billing/plans')
-      const canAdd = canAddEmailAccount(planId, count || 0)
+      const canAdd = canAddEmailAccount(planId, activeCount)
+      
+      console.log('🔍 Résultat vérification limite:', {
+        canAdd,
+        planId,
+        activeCount,
+        willBlock: !canAdd
+      })
       
       if (!canAdd) {
-        console.log('❌ Limite de plan atteinte pour nouveau compte email')
+        console.log('❌ Limite de plan atteinte pour nouveau compte email:', {
+          email: userInfo.email,
+          planId,
+          activeCount
+        })
         return NextResponse.redirect(`${origin}/dashboard/settings?error=plan_limit_reached&message=Vous avez atteint la limite de comptes e-mail de votre plan actuel.`)
       }
 
