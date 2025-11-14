@@ -21,25 +21,81 @@ export default function Home() {
 
   useEffect(() => {
     // Vérifier si l'utilisateur est authentifié et rediriger vers le dashboard si nécessaire
+    let isMounted = true
+    let timeoutId: NodeJS.Timeout | null = null
+    
     const checkAuth = async () => {
+      // Timeout de sécurité : si la vérification prend plus de 3 secondes, arrêter le chargement
+      timeoutId = setTimeout(() => {
+        if (isMounted) {
+          console.warn('⏱️ Timeout vérification auth (3s), arrêt du chargement')
+          setIsChecking(false)
+        }
+      }, 3000)
+
       try {
         const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
         
-        if (user) {
+        // Créer une promesse avec timeout intégré
+        const authCheck = Promise.race([
+          supabase.auth.getUser(),
+          new Promise<{ data: { user: null }, error: Error }>((resolve) => 
+            setTimeout(() => resolve({ 
+              data: { user: null }, 
+              error: new Error('Timeout vérification auth') 
+            }), 2500)
+          )
+        ])
+        
+        const result = await authCheck
+        
+        if (!isMounted) return // Composant démonté, ne pas mettre à jour l'état
+        
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        
+        const { data: { user }, error } = result as any
+        
+        if (error) {
+          console.warn('⚠️ Erreur auth (non bloquant):', error.message)
+          // Ne pas bloquer si erreur, juste continuer sans redirection
+          setIsChecking(false)
+        } else if (user) {
           // Utilisateur authentifié, rediriger vers le dashboard
           console.log('✅ Utilisateur authentifié détecté sur la page d\'accueil, redirection vers /dashboard')
+          setIsChecking(false)
           router.push('/dashboard')
           return
+        } else {
+          // Pas d'utilisateur, continuer normalement
+          setIsChecking(false)
         }
       } catch (error) {
         console.error('Erreur lors de la vérification de l\'authentification:', error)
+        if (isMounted) {
+          setIsChecking(false)
+        }
       } finally {
-        setIsChecking(false)
+        if (timeoutId && isMounted) {
+          clearTimeout(timeoutId)
+        }
+        if (isMounted) {
+          setIsChecking(false)
+        }
       }
     }
     
     checkAuth()
+    
+    // Cleanup si le composant est démonté
+    return () => {
+      isMounted = false
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
   }, [router])
 
   useEffect(() => {
