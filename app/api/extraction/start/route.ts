@@ -108,15 +108,30 @@ export async function POST(req: NextRequest) {
     const subscriptionStatus = user.user_metadata?.subscription_status || null
     const isTrial = Boolean(user.user_metadata?.is_trial)
     const trialEndsAt = user.user_metadata?.trial_ends_at ?? null
+    const currentPeriodEnd = user.user_metadata?.current_period_end || null
     
     // Vérifier si le plan existe ET si l'abonnement Stripe est actif
     const { hasActivePlan } = await import('@/lib/billing/plans')
     const planExists = planId ? hasActivePlan(planId) : false
     const subscriptionIsActive = subscriptionStatus === 'active' || subscriptionStatus === 'trialing'
+    
+    // Vérifier si la période d'essai est toujours active (pas expirée)
     const trialIsActive = isTrial && trialEndsAt && new Date(trialEndsAt) > new Date()
     
-    // L'utilisateur a un plan actif si : le plan existe ET (abonnement actif OU essai actif)
-    const hasActive = planExists && (subscriptionIsActive || trialIsActive)
+    // Vérifier si la période d'abonnement est toujours active (pas expirée)
+    const periodIsActive = currentPeriodEnd ? new Date(currentPeriodEnd) > new Date() : false
+    
+    // Vérifier si la période est terminée
+    const periodEndDate = currentPeriodEnd || trialEndsAt
+    const isPeriodEnded = periodEndDate && new Date(periodEndDate) < new Date()
+    
+    // L'utilisateur a un plan actif si : 
+    // - le plan existe ET 
+    // - (abonnement actif ET période non expirée) OU (essai actif ET période non expirée)
+    const hasActive = planExists && (
+      (subscriptionIsActive && !isPeriodEnded && periodIsActive) || 
+      (trialIsActive && !isPeriodEnded)
+    )
     
     if (!hasActive) {
       console.log('❌ Extraction bloquée: utilisateur sans plan actif', {
@@ -125,9 +140,12 @@ export async function POST(req: NextRequest) {
         subscriptionStatus,
         isTrial,
         trialEndsAt,
+        currentPeriodEnd,
         planExists,
         subscriptionIsActive,
-        trialIsActive
+        trialIsActive,
+        periodIsActive,
+        isPeriodEnded
       })
       return NextResponse.json(
         { 
