@@ -271,17 +271,19 @@ function SettingsPageContent() {
     return () => {
       window.removeEventListener('workspace:changed', handleWorkspaceChange as any)
     }
-  }, [fetchEmailAccounts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     // Ne charger les comptes que si le workspace est initialisé ET que workspaceType est chargé
     if (isInitialized && workspaceType !== null) {
-    fetchEmailAccounts()
+      fetchEmailAccounts()
     }
     const handler = () => fetchEmailAccounts()
     if (typeof window !== 'undefined') window.addEventListener('workspace:changed', handler as any)
     return () => { if (typeof window !== 'undefined') window.removeEventListener('workspace:changed', handler as any) }
-  }, [isInitialized, workspaceType, fetchEmailAccounts])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitialized, workspaceType])
 
   useEffect(() => {
     // Check for success/error messages

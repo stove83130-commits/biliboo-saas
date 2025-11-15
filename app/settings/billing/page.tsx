@@ -306,7 +306,7 @@ function BillingPageContent() {
     syncAfterPayment()
   }, [searchParams])
 
-  // Vérification périodique automatique en arrière-plan
+  // Vérification périodique automatique en arrière-plan (réduite à 2 minutes pour moins de charge)
   useEffect(() => {
     const intervalId = setInterval(async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -326,9 +326,10 @@ function BillingPageContent() {
           console.error('Erreur synchronisation périodique:', error)
         }
       }
-    }, 30000) // Vérifier toutes les 30 secondes
+    }, 120000) // Vérifier toutes les 2 minutes (au lieu de 30 secondes)
     
     return () => clearInterval(intervalId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadPaymentMethods = async () => {

@@ -135,11 +135,12 @@ export default function OrgDetailsPage() {
     // Rafraîchir immédiatement
     refresh()
     
-    // Puis rafraîchir toutes les 2 secondes
-    const interval = setInterval(refresh, 2000)
+    // Puis rafraîchir toutes les 5 secondes (réduit de 2s à 5s pour moins de charge)
+    const interval = setInterval(refresh, 5000)
     
     return () => clearInterval(interval)
-  }, [orgId, loading, permissions.isLoading, supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, loading, permissions.isLoading])
 
   const invite = async () => {
     const email = inviteEmail.trim()
