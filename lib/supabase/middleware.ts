@@ -28,11 +28,14 @@ export async function updateSession(request: NextRequest) {
   const url = new URL(request.url)
   const hostname = url.hostname
   // Pour les domaines personnalisés, utiliser le domaine racine (sans www)
+  // IMPORTANT: Pour bilibou.com, ne pas définir de domain pour éviter les problèmes de cookies
   const cookieDomain = hostname.startsWith('www.') 
     ? hostname.replace('www.', '') 
     : hostname.includes('vercel.app') 
       ? undefined // Laisser Vercel gérer le domaine pour les URLs vercel.app
-      : hostname
+      : hostname.includes('bilibou.com')
+        ? undefined // Ne pas définir domain pour bilibou.com, laisser le navigateur gérer
+        : hostname
 
   const supabase = createServerClient(
     supabaseUrl,
@@ -146,9 +149,20 @@ export async function updateSession(request: NextRequest) {
         cookieLength: authCookie?.value?.length || 0
       })
       
-      const authResult = await supabase.auth.getUser()
-      user = authResult.data.user
-      authError = authResult.error
+      // Ajouter un timeout pour éviter les blocages sur le domaine personnalisé
+      try {
+        const authResult = await Promise.race([
+          supabase.auth.getUser(),
+          new Promise<{ data: { user: null }, error: { message: 'Timeout' } }>((resolve) => 
+            setTimeout(() => resolve({ data: { user: null }, error: { message: 'Timeout' } }), 2000)
+          )
+        ]) as any
+        user = authResult.data.user
+        authError = authResult.error
+      } catch (error: any) {
+        user = null
+        authError = error
+      }
       
       if (authError) {
         console.error('❌ Erreur auth middleware:', authError.message)
@@ -157,9 +171,19 @@ export async function updateSession(request: NextRequest) {
     } else {
       // Pour les routes publiques, on peut quand même essayer de récupérer l'utilisateur
       // mais sans logger d'erreur si ça échoue (c'est normal)
-      const authResult = await supabase.auth.getUser()
-      user = authResult.data.user
-      // Ne pas logger l'erreur pour les routes publiques - c'est normal qu'il n'y ait pas de session
+      // Ajouter un timeout pour éviter les blocages sur le domaine personnalisé
+      try {
+        const authResult = await Promise.race([
+          supabase.auth.getUser(),
+          new Promise<{ data: { user: null }, error: null }>((resolve) => 
+            setTimeout(() => resolve({ data: { user: null }, error: null }), 1000)
+          )
+        ]) as any
+        user = authResult.data.user
+      } catch (error) {
+        // Ignorer les erreurs pour les routes publiques - c'est normal qu'il n'y ait pas de session
+        user = null
+      }
     }
     
     // IMPORTANT: Les routes API ne doivent PAS être redirigées vers login
