@@ -19,55 +19,38 @@ export function Header() {
 
   useEffect(() => {
     let mounted = true
-    const init = async () => {
+    
+    const checkAuth = async () => {
+      if (!mounted) return
+      
       try {
-        // Vérifier à la fois l'utilisateur ET la session pour être sûr
-        const getUserPromise = supabase.auth.getUser()
-        const getSessionPromise = supabase.auth.getSession()
-        const timeoutPromise = new Promise<{ data: { user: null, session: null }, error: null }>((resolve) => 
-          setTimeout(() => resolve({ data: { user: null, session: null }, error: null }), 1000)
-        )
+        // Vérifier la session de manière simple et directe
+        const { data: { session }, error } = await supabase.auth.getSession()
         
-        const [userResult, sessionResult] = await Promise.all([
-          Promise.race([getUserPromise, timeoutPromise]) as any,
-          Promise.race([getSessionPromise, timeoutPromise]) as any
-        ])
+        if (!mounted) return
         
-        if (mounted) {
-          // L'utilisateur n'est considéré comme connecté que si:
-          // 1. Il y a un utilisateur avec un email valide
-          // 2. ET il y a une session valide ET non expirée
-          const user = userResult.data?.user
-          const session = sessionResult.data?.session
-          
-          const hasValidUser = user && user.email
-          const hasValidSession = session && session.expires_at
-          
-          // Vérifier que la session n'est pas expirée
-          let isSessionExpired = false
-          if (hasValidSession) {
-            const expiresAt = session.expires_at * 1000 // Convertir en millisecondes
-            const now = Date.now()
-            isSessionExpired = expiresAt < now
-          }
-          
-          if (hasValidUser && hasValidSession && !isSessionExpired) {
-            setUser(user)
-            userRef.current = user
-          } else {
-            // Si la session est expirée ou invalide, nettoyer
-            if (isSessionExpired || (session && !hasValidUser)) {
-              try {
-                await supabase.auth.signOut()
-              } catch (e) {
-                // Ignorer les erreurs de déconnexion
-              }
-            }
-            setUser(null)
-            userRef.current = null
-          }
+        if (error || !session || !session.user || !session.user.email) {
+          setUser(null)
+          userRef.current = null
           setIsChecking(false)
+          return
         }
+        
+        // Vérifier que la session n'est pas expirée
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : null
+        const now = Date.now()
+        
+        if (expiresAt && expiresAt > now) {
+          setUser(session.user)
+          userRef.current = session.user
+        } else {
+          // Session expirée, nettoyer
+          setUser(null)
+          userRef.current = null
+          supabase.auth.signOut().catch(() => {})
+        }
+        
+        setIsChecking(false)
       } catch (error) {
         if (mounted) {
           setUser(null)
@@ -76,66 +59,39 @@ export function Header() {
         }
       }
     }
-    init()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    
+    // Vérification initiale
+    checkAuth()
+    
+    // Écouter les changements d'état d'authentification
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return
       
-      // Ignorer les événements TOKEN_REFRESHED si on n'a pas d'utilisateur actuellement
-      // Cela évite que le bouton apparaisse après un refresh de token sur une page publique
-      if (event === 'TOKEN_REFRESHED' && !userRef.current) {
-        // Re-vérifier la session pour être sûr
-        const { data: { session: currentSession } } = await supabase.auth.getSession()
-        if (!currentSession || !currentSession.user || !currentSession.user.email) {
-          setUser(null)
-          userRef.current = null
-          setIsChecking(false)
-          return
-        }
-      }
-      
-      // Si l'événement est SIGNED_OUT, forcer user à null
-      if (event === 'SIGNED_OUT' || !session) {
+      // Si déconnexion ou pas de session, forcer user à null
+      if (event === 'SIGNED_OUT' || !session || !session.user || !session.user.email) {
         setUser(null)
         userRef.current = null
         setIsChecking(false)
         return
       }
       
-      // Pour tous les autres événements, vérifier strictement la session
-      if (session && session.user && session.user.email) {
-        const expiresAt = session.expires_at ? session.expires_at * 1000 : null
-        const now = Date.now()
-        
-        // Vérifier que la session n'est pas expirée
-        if (expiresAt && expiresAt > now) {
-          // Double vérification : re-vérifier avec getSession() pour être sûr
-          const { data: { session: verifiedSession } } = await supabase.auth.getSession()
-          if (verifiedSession && verifiedSession.user && verifiedSession.user.email) {
-            const verifiedExpiresAt = verifiedSession.expires_at ? verifiedSession.expires_at * 1000 : null
-            if (verifiedExpiresAt && verifiedExpiresAt > now) {
-              setUser(verifiedSession.user)
-              userRef.current = verifiedSession.user
-            } else {
-              setUser(null)
-              userRef.current = null
-              supabase.auth.signOut().catch(() => {})
-            }
-          } else {
-            setUser(null)
-            userRef.current = null
-          }
-        } else {
-          // Session expirée
-          setUser(null)
-          userRef.current = null
-          supabase.auth.signOut().catch(() => {})
-        }
+      // Vérifier que la session n'est pas expirée
+      const expiresAt = session.expires_at ? session.expires_at * 1000 : null
+      const now = Date.now()
+      
+      if (expiresAt && expiresAt > now) {
+        setUser(session.user)
+        userRef.current = session.user
       } else {
+        // Session expirée
         setUser(null)
         userRef.current = null
+        supabase.auth.signOut().catch(() => {})
       }
+      
       setIsChecking(false)
     })
+    
     return () => {
       mounted = false
       subscription.unsubscribe()
