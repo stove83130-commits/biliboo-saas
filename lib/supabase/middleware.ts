@@ -133,6 +133,73 @@ export async function updateSession(request: NextRequest) {
       
       if (normalizedPath !== decodedPathname && normalizedPath !== pathname) {
         console.log('🔧 Normalisation URL (avant vérification):', pathname, '→', normalizedPath)
+        
+        // IMPORTANT: Si on détecte une tentative d'accès à /tableau de bord,
+        // vérifier d'abord si l'utilisateur est vraiment authentifié
+        // Si non, rediriger directement vers /auth/login au lieu de /dashboard
+        // Cela évite les boucles de redirection avec des cookies invalides
+        
+        // Vérifier rapidement si l'utilisateur est authentifié
+        let shouldRedirectToLogin = false
+        try {
+          const quickAuthCheck = await Promise.race([
+            supabase.auth.getUser(),
+            new Promise<{ data: { user: null }, error: { message: 'Timeout' } }>((resolve) => 
+              setTimeout(() => resolve({ data: { user: null }, error: { message: 'Timeout' } }), 500)
+            )
+          ]) as any
+          
+          if (!quickAuthCheck.data.user || quickAuthCheck.error) {
+            // Pas d'utilisateur ou erreur, rediriger vers login
+            shouldRedirectToLogin = true
+            console.log('⚠️ URL /tableau de bord détectée mais utilisateur non authentifié, redirection vers /auth/login')
+          }
+        } catch (e) {
+          // Erreur lors de la vérification, rediriger vers login par sécurité
+          shouldRedirectToLogin = true
+          console.log('⚠️ Erreur lors de la vérification auth, redirection vers /auth/login')
+        }
+        
+        if (shouldRedirectToLogin) {
+          // Nettoyer les cookies invalides avant redirection
+          const cookiePrefix = 'sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1]
+          const cookiesToRemove = [
+            `${cookiePrefix}-auth-token`,
+            `${cookiePrefix}-auth-token-code-verifier`,
+            `${cookiePrefix}-auth-token.0`,
+            `${cookiePrefix}-auth-token.1`,
+          ]
+          
+          request.cookies.getAll().forEach(cookie => {
+            if (cookie.name.startsWith('sb-') || cookie.name.includes('supabase')) {
+              cookiesToRemove.push(cookie.name)
+            }
+          })
+          
+          const uniqueCookiesToRemove = [...new Set(cookiesToRemove)]
+          const redirectResponse = NextResponse.redirect(new URL('/auth/login', request.url))
+          
+          uniqueCookiesToRemove.forEach(cookieName => {
+            const cookieOptions: CookieOptions = {
+              secure: isProduction,
+              sameSite: 'lax' as const,
+              maxAge: 0,
+              ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
+                domain: cookieDomain
+              })
+            }
+            
+            redirectResponse.cookies.set({
+              name: cookieName,
+              value: '',
+              ...cookieOptions,
+            })
+          })
+          
+          return redirectResponse
+        }
+        
+        // Utilisateur authentifié, rediriger vers dashboard normalisé
         const redirectUrl = new URL(normalizedPath, request.url)
         // Préserver les query params
         request.nextUrl.searchParams.forEach((value, key) => {

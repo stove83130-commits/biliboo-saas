@@ -24,12 +24,36 @@ export function Header() {
       if (!mounted) return
       
       try {
-        // Vérifier la session de manière simple et directe
-        const { data: { session }, error } = await supabase.auth.getSession()
+        // Double vérification : session ET utilisateur pour être sûr
+        const [sessionResult, userResult] = await Promise.all([
+          supabase.auth.getSession(),
+          supabase.auth.getUser()
+        ])
         
         if (!mounted) return
         
-        if (error || !session || !session.user || !session.user.email) {
+        const { data: { session }, error: sessionError } = sessionResult
+        const { data: { user }, error: userError } = userResult
+        
+        // Vérifier si l'erreur est user_not_found (utilisateur supprimé)
+        const isUserNotFound = userError && (
+          (userError as any).code === 'user_not_found' ||
+          (userError as any).status === 403 ||
+          (userError as any).__isAuthError === true
+        )
+        
+        // Si erreur user_not_found, nettoyer immédiatement
+        if (isUserNotFound) {
+          console.log('🧹 Header: Erreur user_not_found détectée, nettoyage des cookies')
+          setUser(null)
+          userRef.current = null
+          await supabase.auth.signOut().catch(() => {})
+          setIsChecking(false)
+          return
+        }
+        
+        // Vérifier que session ET user existent et sont valides
+        if (sessionError || userError || !session || !user || !user.email) {
           setUser(null)
           userRef.current = null
           setIsChecking(false)
@@ -40,11 +64,12 @@ export function Header() {
         const expiresAt = session.expires_at ? session.expires_at * 1000 : null
         const now = Date.now()
         
-        if (expiresAt && expiresAt > now) {
-          setUser(session.user)
-          userRef.current = session.user
+        if (expiresAt && expiresAt > now && user.id === session.user.id) {
+          // Session valide ET utilisateur correspond
+          setUser(user)
+          userRef.current = user
         } else {
-          // Session expirée, nettoyer
+          // Session expirée ou utilisateur ne correspond pas
           setUser(null)
           userRef.current = null
           supabase.auth.signOut().catch(() => {})
@@ -64,7 +89,7 @@ export function Header() {
     checkAuth()
     
     // Écouter les changements d'état d'authentification
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return
       
       // Si déconnexion ou pas de session, forcer user à null
@@ -75,18 +100,42 @@ export function Header() {
         return
       }
       
-      // Vérifier que la session n'est pas expirée
-      const expiresAt = session.expires_at ? session.expires_at * 1000 : null
-      const now = Date.now()
-      
-      if (expiresAt && expiresAt > now) {
-        setUser(session.user)
-        userRef.current = session.user
-      } else {
-        // Session expirée
+      // Double vérification : vérifier aussi getUser() pour être sûr
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        
+        // Vérifier si l'erreur est user_not_found (utilisateur supprimé)
+        const isUserNotFound = userError && (
+          (userError as any).code === 'user_not_found' ||
+          (userError as any).status === 403 ||
+          (userError as any).__isAuthError === true
+        )
+        
+        if (isUserNotFound || userError || !user || !user.email) {
+          setUser(null)
+          userRef.current = null
+          await supabase.auth.signOut().catch(() => {})
+          setIsChecking(false)
+          return
+        }
+        
+        // Vérifier que la session n'est pas expirée ET que l'utilisateur correspond
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : null
+        const now = Date.now()
+        
+        if (expiresAt && expiresAt > now && user.id === session.user.id) {
+          setUser(user)
+          userRef.current = user
+        } else {
+          // Session expirée ou utilisateur ne correspond pas
+          setUser(null)
+          userRef.current = null
+          await supabase.auth.signOut().catch(() => {})
+        }
+      } catch (error) {
         setUser(null)
         userRef.current = null
-        supabase.auth.signOut().catch(() => {})
+        setIsChecking(false)
       }
       
       setIsChecking(false)
