@@ -1,19 +1,27 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { usePathname } from "next/navigation"
 
 export function WorkspaceLoadingOverlay() {
   const [isLoading, setIsLoading] = useState(false)
+  const pathname = usePathname()
 
   useEffect(() => {
-    // Simuler un chargement initial
+    // Ne pas afficher le loader sur la page d'accueil ou les pages publiques
+    const publicPages = ['/', '/auth/login', '/auth/signup', '/auth/connexion', '/plans', '/contact']
+    if (publicPages.includes(pathname || '')) {
+      return
+    }
+
+    // Simuler un chargement initial uniquement sur les pages du dashboard
     setIsLoading(true)
     const timer = setTimeout(() => {
       setIsLoading(false)
-    }, 1000)
+    }, 500) // Réduit à 500ms pour un chargement plus rapide
 
     return () => clearTimeout(timer)
-  }, [])
+  }, [pathname])
 
   if (!isLoading) {
     return null

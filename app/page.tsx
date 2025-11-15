@@ -18,56 +18,46 @@ export default function Home() {
   const [isChecking, setIsChecking] = useState(true)
 
   useEffect(() => {
-    // Vérifier l'authentification pour le chargement (sans redirection)
+    // Vérifier l'authentification rapidement (sans bloquer la page)
     // La page d'accueil est accessible à tous, même aux utilisateurs authentifiés
     let isMounted = true
     let timeoutId: NodeJS.Timeout | null = null
     
     const checkAuth = async () => {
-      // Timeout de sécurité : si la vérification prend plus de 3 secondes, arrêter le chargement
+      // Timeout de sécurité : si la vérification prend plus de 1 seconde, arrêter le chargement
       timeoutId = setTimeout(() => {
         if (isMounted) {
-          console.warn('⏱️ Timeout vérification auth (3s), arrêt du chargement')
           setIsChecking(false)
         }
-      }, 3000)
+      }, 1000) // Réduit à 1 seconde pour un chargement plus rapide
 
       try {
         const supabase = createClient()
         
-        // Créer une promesse avec timeout intégré
+        // Créer une promesse avec timeout intégré (500ms max)
         const authCheck = Promise.race([
           supabase.auth.getUser(),
           new Promise<{ data: { user: null }, error: Error }>((resolve) => 
             setTimeout(() => resolve({ 
               data: { user: null }, 
               error: new Error('Timeout vérification auth') 
-            }), 2500)
+            }), 500) // Réduit à 500ms
           )
         ])
         
         const result = await authCheck
         
-        if (!isMounted) return // Composant démonté, ne pas mettre à jour l'état
+        if (!isMounted) return
         
         if (timeoutId) {
           clearTimeout(timeoutId)
           timeoutId = null
         }
         
-        const { data: { user }, error } = result as any
-        
-        if (error) {
-          console.warn('⚠️ Erreur auth (non bloquant):', error.message)
-          // Ne pas bloquer si erreur, juste continuer sans redirection
-          setIsChecking(false)
-        } else {
-          // Utilisateur authentifié ou non, permettre l'accès à la page d'accueil
-          // La page d'accueil est accessible à tous, même aux utilisateurs authentifiés
-          setIsChecking(false)
-        }
+        // Utilisateur authentifié ou non, permettre l'accès à la page d'accueil
+        setIsChecking(false)
       } catch (error) {
-        console.error('Erreur lors de la vérification de l\'authentification:', error)
+        // En cas d'erreur, ne pas bloquer - juste continuer
         if (isMounted) {
           setIsChecking(false)
         }
