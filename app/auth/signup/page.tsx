@@ -143,10 +143,10 @@ export default function SignupPage() {
         provider: provider,
         options: {
           redirectTo: redirectUrl,
-          // Forcer la demande de consentement pour récupérer les nouvelles permissions
-          queryParams: provider === 'azure' ? {
+          // Forcer la demande de consentement pour afficher l'écran de consentement Google/Azure
+          queryParams: {
             prompt: 'consent'
-          } : undefined,
+          },
         },
       });
 
