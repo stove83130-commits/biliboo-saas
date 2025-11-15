@@ -20,15 +20,30 @@ export function Header() {
     let mounted = true
     const init = async () => {
       try {
-        // Ajouter un timeout pour éviter les blocages
+        // Vérifier à la fois l'utilisateur ET la session pour être sûr
         const getUserPromise = supabase.auth.getUser()
-        const timeoutPromise = new Promise<{ data: { user: null }, error: null }>((resolve) => 
-          setTimeout(() => resolve({ data: { user: null }, error: null }), 1000)
+        const getSessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise<{ data: { user: null, session: null }, error: null }>((resolve) => 
+          setTimeout(() => resolve({ data: { user: null, session: null }, error: null }), 1000)
         )
         
-        const result = await Promise.race([getUserPromise, timeoutPromise]) as any
+        const [userResult, sessionResult] = await Promise.all([
+          Promise.race([getUserPromise, timeoutPromise]) as any,
+          Promise.race([getSessionPromise, timeoutPromise]) as any
+        ])
+        
         if (mounted) {
-          setUser(result.data?.user || null)
+          // L'utilisateur n'est considéré comme connecté que si:
+          // 1. Il y a un utilisateur
+          // 2. ET il y a une session valide
+          const hasUser = userResult.data?.user !== null && userResult.data?.user !== undefined
+          const hasSession = sessionResult.data?.session !== null && sessionResult.data?.session !== undefined
+          
+          if (hasUser && hasSession) {
+            setUser(userResult.data.user)
+          } else {
+            setUser(null)
+          }
           setIsChecking(false)
         }
       } catch (error) {
@@ -41,7 +56,12 @@ export function Header() {
     init()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (mounted) {
-        setUser(session?.user ?? null)
+        // Vérifier que la session existe ET qu'elle contient un utilisateur
+        if (session && session.user) {
+          setUser(session.user)
+        } else {
+          setUser(null)
+        }
         setIsChecking(false)
       }
     })
