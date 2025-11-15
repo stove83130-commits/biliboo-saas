@@ -115,9 +115,23 @@ export async function updateSession(request: NextRequest) {
     let pathname = request.nextUrl.pathname
     
     // Normaliser les URLs incorrectes AVANT toute vérification (comme /tableau de bord)
-    if (pathname.includes('tableau') && pathname.includes('bord')) {
-      const normalizedPath = pathname.replace(/tableau.*de.*bord/gi, 'dashboard')
-      if (normalizedPath !== pathname) {
+    // Décoder l'URL d'abord pour gérer les espaces encodés (%20)
+    let decodedPathname = pathname
+    try {
+      decodedPathname = decodeURIComponent(pathname)
+    } catch (e) {
+      // Si le décodage échoue, utiliser le pathname original
+      decodedPathname = pathname
+    }
+    
+    if (decodedPathname.includes('tableau') && decodedPathname.includes('bord')) {
+      // Normaliser : remplacer "tableau de bord" (avec ou sans espaces, encodé ou non) par "dashboard"
+      const normalizedPath = decodedPathname
+        .replace(/tableau\s*de\s*bord/gi, 'dashboard')
+        .replace(/tableau.*bord/gi, 'dashboard')
+        .replace(/%20/g, '') // Supprimer les espaces encodés restants
+      
+      if (normalizedPath !== decodedPathname && normalizedPath !== pathname) {
         console.log('🔧 Normalisation URL (avant vérification):', pathname, '→', normalizedPath)
         const redirectUrl = new URL(normalizedPath, request.url)
         // Préserver les query params
@@ -127,6 +141,11 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(redirectUrl)
       }
     }
+    
+    // Mettre à jour pathname avec la version normalisée pour la suite
+    pathname = decodedPathname.includes('tableau') && decodedPathname.includes('bord')
+      ? decodedPathname.replace(/tableau\s*de\s*bord/gi, 'dashboard').replace(/tableau.*bord/gi, 'dashboard')
+      : pathname
     
     // Routes publiques (accessibles sans authentification)
     const publicRoutes = [
