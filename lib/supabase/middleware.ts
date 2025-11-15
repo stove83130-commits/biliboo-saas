@@ -214,9 +214,65 @@ export async function updateSession(request: NextRequest) {
           )
         ]) as any
         user = authResult.data.user
+        authError = authResult.error
+        
+        // IMPORTANT: Nettoyer les cookies invalides même pour les routes publiques
+        // si on détecte une erreur user_not_found (utilisateur supprimé)
+        const isUserNotFoundError = authError && (
+          (authError as any).code === 'user_not_found' ||
+          (authError as any).status === 403 ||
+          (authError as any).__isAuthError === true
+        )
+        
+        if (isUserNotFoundError && hasAuthCookie) {
+          console.log('🧹 Erreur user_not_found détectée sur route publique, nettoyage des cookies invalides')
+          // Nettoyer TOUS les cookies Supabase possibles
+          const cookiePrefix = 'sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1]
+          const cookiesToRemove = [
+            `${cookiePrefix}-auth-token`,
+            `${cookiePrefix}-auth-token-code-verifier`,
+            `${cookiePrefix}-auth-token.0`,
+            `${cookiePrefix}-auth-token.1`,
+          ]
+          
+          // Nettoyer tous les cookies de la requête
+          request.cookies.getAll().forEach(cookie => {
+            if (cookie.name.startsWith('sb-') || cookie.name.includes('supabase')) {
+              cookiesToRemove.push(cookie.name)
+            }
+          })
+          
+          // Supprimer les doublons
+          const uniqueCookiesToRemove = [...new Set(cookiesToRemove)]
+          
+          uniqueCookiesToRemove.forEach(cookieName => {
+            const cookieOptions: CookieOptions = {
+              secure: isProduction,
+              sameSite: 'lax' as const,
+              maxAge: 0, // Expirer immédiatement
+              ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
+                domain: cookieDomain
+              })
+            }
+            
+            request.cookies.set({
+              name: cookieName,
+              value: '',
+              ...cookieOptions,
+            })
+            response.cookies.set({
+              name: cookieName,
+              value: '',
+              ...cookieOptions,
+            })
+          })
+          
+          console.log('✅ Cookies invalides nettoyés sur route publique')
+        }
       } catch (error) {
         // Ignorer les erreurs pour les routes publiques - c'est normal qu'il n'y ait pas de session
         user = null
+        authError = null
       }
     }
     
