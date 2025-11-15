@@ -112,12 +112,27 @@ export async function updateSession(request: NextRequest) {
   )
 
   try {
-    const pathname = request.nextUrl.pathname
+    let pathname = request.nextUrl.pathname
+    
+    // Normaliser les URLs incorrectes AVANT toute vérification (comme /tableau de bord)
+    if (pathname.includes('tableau') && pathname.includes('bord')) {
+      const normalizedPath = pathname.replace(/tableau.*de.*bord/gi, 'dashboard')
+      if (normalizedPath !== pathname) {
+        console.log('🔧 Normalisation URL (avant vérification):', pathname, '→', normalizedPath)
+        const redirectUrl = new URL(normalizedPath, request.url)
+        // Préserver les query params
+        request.nextUrl.searchParams.forEach((value, key) => {
+          redirectUrl.searchParams.set(key, value)
+        })
+        return NextResponse.redirect(redirectUrl)
+      }
+    }
     
     // Routes publiques (accessibles sans authentification)
     const publicRoutes = [
       '/auth/login',
       '/auth/signup',
+      '/auth/connexion', // Alias pour /auth/login
       '/auth/forgot-password',
       '/auth/reset-password',
       '/auth/callback',
@@ -206,19 +221,47 @@ export async function updateSession(request: NextRequest) {
         (authError as any).__isAuthError === true
       )
       
+      // Protection contre les boucles de redirection
+      // Si on vient déjà de /auth/login ou /auth/connexion, ne pas rediriger à nouveau
+      const referer = request.headers.get('referer')
+      const isComingFromAuth = referer && (
+        referer.includes('/auth/login') || 
+        referer.includes('/auth/connexion') ||
+        referer.includes('/auth/signup')
+      )
+      
+      if (isComingFromAuth) {
+        console.log('⚠️ Boucle de redirection détectée (vient de', referer, '), laisser passer pour éviter la boucle')
+        return response
+      }
+      
+      // Nettoyer les cookies invalides si erreur user_not_found
       if (isUserNotFoundError && hasAuthCookie) {
-        console.log('🧹 Erreur user_not_found détectée, nettoyage des cookies invalides')
-        // Nettoyer tous les cookies Supabase
+        console.log('🧹 Erreur user_not_found détectée, nettoyage agressif des cookies invalides')
+        // Nettoyer TOUS les cookies Supabase possibles
         const cookiePrefix = 'sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1]
         const cookiesToRemove = [
           `${cookiePrefix}-auth-token`,
           `${cookiePrefix}-auth-token-code-verifier`,
+          `${cookiePrefix}-auth-token.0`,
+          `${cookiePrefix}-auth-token.1`,
         ]
         
-        cookiesToRemove.forEach(cookieName => {
+        // Nettoyer tous les cookies de la requête
+        request.cookies.getAll().forEach(cookie => {
+          if (cookie.name.startsWith('sb-') || cookie.name.includes('supabase')) {
+            cookiesToRemove.push(cookie.name)
+          }
+        })
+        
+        // Supprimer les doublons
+        const uniqueCookiesToRemove = [...new Set(cookiesToRemove)]
+        
+        uniqueCookiesToRemove.forEach(cookieName => {
           const cookieOptions: CookieOptions = {
             secure: isProduction,
             sameSite: 'lax' as const,
+            maxAge: 0, // Expirer immédiatement
             ...(cookieDomain && !cookieDomain.includes('vercel.app') && {
               domain: cookieDomain
             })
@@ -242,26 +285,12 @@ export async function updateSession(request: NextRequest) {
         } catch (e) {
           // Ignorer les erreurs de signOut
         }
-      }
-      
-      // Protection contre les boucles de redirection
-      // Si on vient déjà de /auth/login, ne pas rediriger à nouveau
-      const referer = request.headers.get('referer')
-      const isComingFromLogin = referer && referer.includes('/auth/login')
-      
-      if (isComingFromLogin) {
-        console.log('⚠️ Boucle de redirection détectée, laisser passer pour éviter la boucle')
-        return response
-      }
-      
-      // Normaliser les URLs incorrectes (comme /tableau de bord)
-      if (pathname.includes('tableau') || pathname.includes('dashboard')) {
-        const normalizedPath = pathname.replace(/tableau.*de.*bord/i, 'dashboard')
-        if (normalizedPath !== pathname) {
-          console.log('🔧 Normalisation URL:', pathname, '→', normalizedPath)
-          const redirectUrl = new URL(normalizedPath, request.url)
-          return NextResponse.redirect(redirectUrl)
-        }
+        
+        // Rediriger immédiatement vers login après nettoyage pour éviter les tentatives répétées
+        console.log('🔒 Redirection immédiate vers /auth/login après nettoyage cookies')
+        const redirectUrl = new URL('/auth/login', request.url)
+        redirectUrl.searchParams.set('cleared', 'true')
+        return NextResponse.redirect(redirectUrl)
       }
       
       // Pour les routes pages, rediriger vers login
