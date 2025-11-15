@@ -4,6 +4,7 @@ import { WorkspaceLoadingOverlay } from '@/components/dashboard/workspace-loadin
 import { PlanProvider } from '@/contexts/plan-context'
 import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from 'sonner'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -28,6 +29,7 @@ export default function RootLayout({
           <WorkspaceLoadingOverlay />
           {children}
         </PlanProvider>
+        <Toaster position="top-right" richColors />
         <Analytics />
       </body>
     </html>

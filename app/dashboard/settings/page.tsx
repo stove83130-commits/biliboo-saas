@@ -8,10 +8,12 @@ import { useState, useEffect, useCallback, Suspense } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter, useSearchParams } from "next/navigation"
 import { UpgradeModal } from "@/components/dashboard/upgrade-modal"
+import { PlanLimitModal } from "@/components/dashboard/plan-limit-modal"
 import { GoogleLogo, MicrosoftLogo } from "@/components/ui/brand-logos"
 import { usePlan } from '@/contexts/plan-context'
 import { cleanEmailDisplay } from "@/utils/email-cleaner"
 import { useWorkspacePermissions } from "@/hooks/use-workspace-permissions"
+import { toast } from "sonner"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +40,7 @@ function SettingsPageContent() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const [workspaceType, setWorkspaceType] = useState<'personal' | 'organization' | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [showPlanLimitModal, setShowPlanLimitModal] = useState(false)
   
   // Charger le type du workspace depuis l'API
   useEffect(() => {
@@ -287,7 +290,10 @@ function SettingsPageContent() {
     const upgrade = searchParams.get('upgrade')
     
     if (success === 'gmail_connected') {
-      alert('✅ Gmail connecté avec succès !')
+      toast.success('Gmail connecté avec succès !', {
+        description: 'Votre compte Gmail a été connecté et est prêt à être utilisé.',
+        duration: 5000,
+      })
       // Remove query params
       router.replace('/dashboard/settings')
       // Force refresh accounts immediately and after a delay
@@ -300,7 +306,10 @@ function SettingsPageContent() {
         fetchEmailAccounts()
       }, 2000)
     } else if (success === 'outlook_connected') {
-      alert('✅ Outlook connecté avec succès !')
+      toast.success('Outlook connecté avec succès !', {
+        description: 'Votre compte Outlook a été connecté et est prêt à être utilisé.',
+        duration: 5000,
+      })
       router.replace('/dashboard/settings')
       // Force refresh accounts immediately and after a delay
       fetchEmailAccounts()
@@ -312,25 +321,41 @@ function SettingsPageContent() {
         fetchEmailAccounts()
       }, 2000)
     } else if (error) {
-      let errorMessage = 'Une erreur est survenue'
-      if (error === 'database_error') {
-        errorMessage = '❌ Erreur de base de données. Vérifiez que les colonnes token_expires_at et workspace_id existent dans la table email_accounts. Consultez les logs du serveur pour plus de détails.'
-      } else if (error === 'outlook_connection_failed') {
-        errorMessage = '❌ Échec de la connexion Outlook. Vérifiez vos identifiants Microsoft.'
-      } else if (error === 'no_code') {
-        errorMessage = '❌ Code d\'autorisation manquant. Réessayez la connexion.'
-      } else if (error === 'connection_failed') {
-        errorMessage = '❌ Échec de la connexion. Vérifiez votre connexion internet et réessayez.'
+      if (error === 'plan_limit_reached') {
+        // Afficher le modal de limite de plan
+        setShowPlanLimitModal(true)
+        router.replace('/dashboard/settings')
       } else {
-        errorMessage = `❌ Erreur: ${error}`
+        let errorMessage = 'Une erreur est survenue'
+        let errorDescription = ''
+        
+        if (error === 'database_error') {
+          errorMessage = 'Erreur de base de données'
+          errorDescription = 'Vérifiez que les colonnes token_expires_at et workspace_id existent dans la table email_accounts. Consultez les logs du serveur pour plus de détails.'
+        } else if (error === 'outlook_connection_failed') {
+          errorMessage = 'Échec de la connexion Outlook'
+          errorDescription = 'Vérifiez vos identifiants Microsoft et réessayez.'
+        } else if (error === 'no_code') {
+          errorMessage = 'Code d\'autorisation manquant'
+          errorDescription = 'Réessayez la connexion depuis le début.'
+        } else if (error === 'connection_failed') {
+          errorMessage = 'Échec de la connexion'
+          errorDescription = 'Vérifiez votre connexion internet et réessayez.'
+        } else {
+          errorMessage = `Erreur: ${error}`
+        }
+        
+        toast.error(errorMessage, {
+          description: errorDescription,
+          duration: 6000,
+        })
+        router.replace('/dashboard/settings')
       }
-      alert(errorMessage)
-      router.replace('/dashboard/settings')
     } else if (upgrade === 'true') {
       setShowUpgradeModal(true)
       router.replace('/dashboard/settings')
     }
-  }, [searchParams, fetchEmailAccounts])
+  }, [searchParams, fetchEmailAccounts, router])
 
   const handleConnectGmail = async () => {
     try {
@@ -555,6 +580,12 @@ function SettingsPageContent() {
         currentPlan="starter"
         currentUsage={0}
         currentLimit={100}
+      />
+
+      <PlanLimitModal
+        open={showPlanLimitModal}
+        onOpenChange={setShowPlanLimitModal}
+        feature="email"
       />
     </DashboardLayout>
   )
