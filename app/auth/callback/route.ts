@@ -310,11 +310,13 @@ export async function GET(request: NextRequest) {
       console.error('❌ Code verifier présent:', !!codeVerifier)
       
       // Si l'erreur est liée au code verifier, rediriger vers login avec un message spécifique
-      if (error.message?.includes('code verifier') || error.message?.includes('code_verifier')) {
-        console.error('❌ Erreur code verifier - redirection vers login')
+      if (error.message?.includes('code verifier') || error.message?.includes('code_verifier') || error.message?.includes('Vérificateur')) {
+        console.error('❌ Vérificateur de code d\'erreur - redirection vers connexion')
         return buildRedirectResponse(`${origin}/auth/login?error=code_verifier_missing`)
       }
       
+      // Autre erreur d'authentification
+      console.error('❌ Erreur authentification OAuth - redirection vers connexion')
       return buildRedirectResponse(`${origin}/auth/login?error=auth_failed`)
     }
     
