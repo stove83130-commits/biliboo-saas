@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/dashboard/dashboard-layout"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { TrendingUp, TrendingDown, Euro, Receipt, PieChart as PieChartIcon } from "lucide-react"
+import { TrendingUp, TrendingDown, Euro, Receipt, PieChart as PieChartIcon, BarChart2 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { AuthGuard } from "@/components/auth-guard"
@@ -136,7 +136,8 @@ export default function AnalyticsPage() {
     }
     
     checkPlan()
-  }, [supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     fetchInvoices()
