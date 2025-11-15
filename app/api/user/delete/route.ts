@@ -280,15 +280,33 @@ export async function DELETE(request: NextRequest) {
     }
 
     // 6. Supprimer le profil utilisateur (si la table existe)
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', userId)
-    
-    if (profileError) {
-      console.error('⚠️ Erreur suppression profil (table peut ne pas exister):', profileError)
-    } else {
-      console.log('✅ Profil supprimé')
+    // Note: La table profiles peut ne pas exister, c'est normal
+    try {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', userId)
+      
+      if (profileError) {
+        // PGRST205 = table n'existe pas, c'est normal et non-bloquant
+        const isTableNotFound = profileError.code === 'PGRST205' || 
+                                profileError.message?.includes('does not exist') ||
+                                profileError.message?.includes('relation') ||
+                                profileError.message?.includes('schema')
+        
+        if (isTableNotFound) {
+          // Table n'existe pas, c'est normal - ne pas logger comme erreur
+          console.log('ℹ️ Table profiles n\'existe pas, ignoré (normal)')
+        } else {
+          // Autre type d'erreur, logger comme warning
+          console.warn('⚠️ Erreur suppression profil (non-bloquant):', profileError.code || profileError.message)
+        }
+      } else {
+        console.log('✅ Profil supprimé')
+      }
+    } catch (profileException: any) {
+      // Erreur lors de la tentative de suppression, ignorer silencieusement
+      console.log('ℹ️ Impossible de supprimer le profil (table peut ne pas exister), ignoré')
     }
 
     // 7. Supprimer l'utilisateur auth.users de Supabase
