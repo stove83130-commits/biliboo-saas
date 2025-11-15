@@ -24,7 +24,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     try {
       // Vérifier d'abord si l'utilisateur est connecté pour éviter les appels inutiles
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      
+      // Ajouter un timeout pour éviter les blocages après déconnexion
+      const getUserPromise = supabase.auth.getUser()
+      const timeoutPromise = new Promise<{ data: { user: null }, error: null }>((resolve) => 
+        setTimeout(() => resolve({ data: { user: null }, error: null }), 500)
+      )
+      
+      const { data: { user } } = await Promise.race([getUserPromise, timeoutPromise]) as any
       
       // Si l'utilisateur n'est pas connecté, ne pas appeler l'API
       if (!user) {
@@ -76,16 +83,43 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    const supabase = createClient()
+    let isMounted = true
+    
     checkPlanStatus()
+    
+    // Écouter les changements d'authentification pour détecter la déconnexion
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return
+      
+      // Si l'utilisateur se déconnecte, arrêter immédiatement les vérifications
+      if (event === 'SIGNED_OUT' || !session) {
+        setHasActivePlan(false)
+        setCurrentPlan(null)
+        setIsLoading(false)
+        return
+      }
+      
+      // Si l'utilisateur se connecte, vérifier le plan
+      if (event === 'SIGNED_IN' && session?.user) {
+        checkPlanStatus()
+      }
+    })
     
     // Rafraîchir automatiquement toutes les 5 minutes pour détecter les changements
     // (réduit de 30s à 5min pour éviter trop de requêtes inutiles)
-    const interval = setInterval(checkPlanStatus, 300000) // 5 minutes = 300000 ms
+    const interval = setInterval(() => {
+      if (isMounted) {
+        checkPlanStatus()
+      }
+    }, 300000) // 5 minutes = 300000 ms
     
     // Écouter les événements de changement de plan
     const handlePlanChange = () => {
-      console.log('🔄 Événement de changement de plan détecté, rafraîchissement...')
-      checkPlanStatus()
+      if (isMounted) {
+        console.log('🔄 Événement de changement de plan détecté, rafraîchissement...')
+        checkPlanStatus()
+      }
     }
     
     if (typeof window !== 'undefined') {
@@ -94,6 +128,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     }
     
     return () => {
+      isMounted = false
+      subscription.unsubscribe()
       clearInterval(interval)
       if (typeof window !== 'undefined') {
         window.removeEventListener('plan:changed', handlePlanChange)

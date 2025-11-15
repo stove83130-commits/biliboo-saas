@@ -61,8 +61,16 @@ export function DashboardSidebar() {
   }, [supabase.auth, router])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/auth/login')
+    try {
+      await supabase.auth.signOut()
+      // Utiliser window.location.replace pour forcer une navigation complète
+      // Cela évite que les composants continuent de vérifier l'auth après déconnexion
+      window.location.replace('/auth/login')
+    } catch (error) {
+      console.error('Erreur lors de la déconnexion:', error)
+      // En cas d'erreur, rediriger quand même
+      window.location.replace('/auth/login')
+    }
   }
 
   const getUserInitials = () => {
