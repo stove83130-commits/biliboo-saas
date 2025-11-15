@@ -13,17 +13,37 @@ import type { User } from "@supabase/supabase-js"
 export function Header() {
   const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
+  const [isChecking, setIsChecking] = useState(true)
   const pathname = usePathname()
 
   useEffect(() => {
     let mounted = true
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (mounted) setUser(user)
+      try {
+        // Ajouter un timeout pour éviter les blocages
+        const getUserPromise = supabase.auth.getUser()
+        const timeoutPromise = new Promise<{ data: { user: null }, error: null }>((resolve) => 
+          setTimeout(() => resolve({ data: { user: null }, error: null }), 1000)
+        )
+        
+        const result = await Promise.race([getUserPromise, timeoutPromise]) as any
+        if (mounted) {
+          setUser(result.data?.user || null)
+          setIsChecking(false)
+        }
+      } catch (error) {
+        if (mounted) {
+          setUser(null)
+          setIsChecking(false)
+        }
+      }
     }
     init()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) setUser(session?.user ?? null)
+      if (mounted) {
+        setUser(session?.user ?? null)
+        setIsChecking(false)
+      }
     })
     return () => {
       mounted = false
@@ -83,13 +103,13 @@ export function Header() {
 
         {/* Actions - Droite */}
         <div className="flex items-center">
-          {user ? (
+          {!isChecking && user ? (
             <Link href="/dashboard">
               <Button className="bg-white text-foreground hover:bg-white/90 px-8 py-1 rounded-full font-medium text-base shadow-lg">
                 Tableau de bord
               </Button>
             </Link>
-          ) : (
+          ) : !isChecking ? (
             <div className="hidden md:flex items-center gap-3">
               <Link href="/auth/login">
                 <Button className="bg-white text-foreground hover:bg-white/90 px-5 py-1 rounded-full font-medium text-sm shadow-lg">
@@ -102,7 +122,7 @@ export function Header() {
                 </Button>
               </Link>
             </div>
-          )}
+          ) : null}
 
           {/* Menu Mobile */}
           <Sheet>
@@ -132,13 +152,13 @@ export function Header() {
                   FAQ
                 </button>
                 <div className="border-t pt-4 space-y-2">
-                  {user ? (
+                  {!isChecking && user ? (
                     <Link href="/dashboard" className="block">
                       <Button className="w-full justify-start bg-white text-foreground hover:bg-white/90 px-8 py-1 rounded-full font-medium text-base shadow-lg">
                         Tableau de bord
                       </Button>
                     </Link>
-                  ) : (
+                  ) : !isChecking ? (
                     <div className="flex flex-col gap-2">
                     <Link href="/auth/login" className="block">
                       <Button className="w-full justify-start bg-white text-foreground hover:bg-white/90 px-7 py-1 rounded-full font-medium text-sm shadow-lg">
@@ -151,7 +171,7 @@ export function Header() {
                         </Button>
                       </Link>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </SheetContent>
