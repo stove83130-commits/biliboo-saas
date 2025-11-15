@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ export function Header() {
   const [user, setUser] = useState<User | null>(null)
   const [isChecking, setIsChecking] = useState(true)
   const pathname = usePathname()
+  const userRef = useRef<User | null>(null) // Ref pour suivre l'état actuel de l'utilisateur
 
   useEffect(() => {
     let mounted = true
@@ -52,6 +53,7 @@ export function Header() {
           
           if (hasValidUser && hasValidSession && !isSessionExpired) {
             setUser(user)
+            userRef.current = user
           } else {
             // Si la session est expirée ou invalide, nettoyer
             if (isSessionExpired || (session && !hasValidUser)) {
@@ -62,44 +64,84 @@ export function Header() {
               }
             }
             setUser(null)
+            userRef.current = null
           }
           setIsChecking(false)
         }
       } catch (error) {
         if (mounted) {
           setUser(null)
+          userRef.current = null
           setIsChecking(false)
         }
       }
     }
     init()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
-        // Vérifier que la session existe, qu'elle contient un utilisateur avec email
-        // ET que la session n'est pas expirée
-        if (session && session.user && session.user.email) {
-          const expiresAt = session.expires_at ? session.expires_at * 1000 : null
-          const now = Date.now()
-          
-          if (expiresAt && expiresAt > now) {
-            setUser(session.user)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return
+      
+      // Ignorer les événements TOKEN_REFRESHED si on n'a pas d'utilisateur actuellement
+      // Cela évite que le bouton apparaisse après un refresh de token sur une page publique
+      if (event === 'TOKEN_REFRESHED' && !userRef.current) {
+        // Re-vérifier la session pour être sûr
+        const { data: { session: currentSession } } = await supabase.auth.getSession()
+        if (!currentSession || !currentSession.user || !currentSession.user.email) {
+          setUser(null)
+          userRef.current = null
+          setIsChecking(false)
+          return
+        }
+      }
+      
+      // Si l'événement est SIGNED_OUT, forcer user à null
+      if (event === 'SIGNED_OUT' || !session) {
+        setUser(null)
+        userRef.current = null
+        setIsChecking(false)
+        return
+      }
+      
+      // Pour tous les autres événements, vérifier strictement la session
+      if (session && session.user && session.user.email) {
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : null
+        const now = Date.now()
+        
+        // Vérifier que la session n'est pas expirée
+        if (expiresAt && expiresAt > now) {
+          // Double vérification : re-vérifier avec getSession() pour être sûr
+          const { data: { session: verifiedSession } } = await supabase.auth.getSession()
+          if (verifiedSession && verifiedSession.user && verifiedSession.user.email) {
+            const verifiedExpiresAt = verifiedSession.expires_at ? verifiedSession.expires_at * 1000 : null
+            if (verifiedExpiresAt && verifiedExpiresAt > now) {
+              setUser(verifiedSession.user)
+              userRef.current = verifiedSession.user
+            } else {
+              setUser(null)
+              userRef.current = null
+              supabase.auth.signOut().catch(() => {})
+            }
           } else {
-            // Session expirée
             setUser(null)
-            // Nettoyer la session expirée
-            supabase.auth.signOut().catch(() => {})
+            userRef.current = null
           }
         } else {
+          // Session expirée
           setUser(null)
+          userRef.current = null
+          supabase.auth.signOut().catch(() => {})
         }
-        setIsChecking(false)
+      } else {
+        setUser(null)
+        userRef.current = null
       }
+      setIsChecking(false)
     })
     return () => {
       mounted = false
       subscription.unsubscribe()
     }
-  }, [supabase.auth])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   
   const scrollToSection = (sectionId: string) => {
     // Si on est sur la page d'accueil, on scroll directement
