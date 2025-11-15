@@ -118,6 +118,7 @@ export async function POST() {
         selected_plan: planId,
         subscription_status: activeSubscription.status,
         stripe_subscription_id: activeSubscription.id,
+        current_period_start: new Date(activeSubscription.current_period_start * 1000).toISOString(),
         current_period_end: new Date(activeSubscription.current_period_end * 1000).toISOString(),
         // Gestion des essais
         is_trial: isTrial,

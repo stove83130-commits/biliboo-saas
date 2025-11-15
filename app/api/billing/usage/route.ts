@@ -21,18 +21,50 @@ export async function GET(req: NextRequest) {
     // Récupérer le plan de l'utilisateur
     const planId = user.user_metadata?.selected_plan as string | null
     
-    // Calculer la période actuelle (mois en cours)
+    // Déterminer la période d'abonnement réelle (pas juste le mois calendaire)
     const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    const currentPeriodStart = user.user_metadata?.current_period_start || null
+    const currentPeriodEnd = user.user_metadata?.current_period_end || null
+    const trialStartAt = user.user_metadata?.trial_started_at || null
+    const trialEndsAt = user.user_metadata?.trial_ends_at || null
+    
+    // Utiliser la période d'abonnement si disponible, sinon le mois en cours
+    let periodStart: Date
+    let periodEnd: Date
+    
+    if (currentPeriodStart && currentPeriodEnd) {
+      // Période d'abonnement Stripe (utiliser les dates exactes)
+      periodStart = new Date(currentPeriodStart)
+      periodEnd = new Date(currentPeriodEnd)
+    } else if (trialStartAt && trialEndsAt) {
+      // Période d'essai (utiliser les dates exactes)
+      periodStart = new Date(trialStartAt)
+      periodEnd = new Date(trialEndsAt)
+    } else if (currentPeriodEnd) {
+      // Seulement la fin de période disponible, estimer le début (1 mois avant)
+      periodEnd = new Date(currentPeriodEnd)
+      periodStart = new Date(periodEnd)
+      periodStart.setMonth(periodStart.getMonth() - 1)
+      periodStart.setHours(0, 0, 0, 0)
+    } else if (trialEndsAt) {
+      // Seulement la fin d'essai disponible, estimer le début (14 jours avant)
+      periodEnd = new Date(trialEndsAt)
+      periodStart = new Date(periodEnd)
+      periodStart.setDate(periodStart.getDate() - 14)
+      periodStart.setHours(0, 0, 0, 0)
+    } else {
+      // Fallback: mois calendaire en cours
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    }
 
-    // Compter les factures extraites ce mois (basé sur created_at)
+    // Compter les factures extraites dans la période d'abonnement (basé sur created_at)
     const { count: invoicesCount, error: invoicesError } = await supabaseService
       .from('invoices')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', user.id)
-      .gte('created_at', startOfMonth.toISOString())
-      .lte('created_at', endOfMonth.toISOString())
+      .gte('created_at', periodStart.toISOString())
+      .lte('created_at', periodEnd.toISOString())
 
     if (invoicesError) {
       console.error('❌ Erreur comptage factures:', invoicesError)
@@ -66,13 +98,12 @@ export async function GET(req: NextRequest) {
       ? Math.max(0, invoicesLimit - invoicesUsed)
       : null
 
-    // Compter les organisations (si applicable)
-    // Note: On compte seulement les workspaces qui ne sont pas personnels
-    // Si la table workspaces n'a pas de colonne 'type', on compte tous les workspaces
+    // Compter les organisations (seulement les workspaces de type 'organization', pas 'personal')
     const { count: organizationsCount, error: organizationsError } = await supabaseService
       .from('workspaces')
       .select('*', { count: 'exact', head: true })
       .eq('owner_id', user.id)
+      .eq('type', 'organization')
 
     if (organizationsError) {
       console.error('❌ Erreur comptage organisations:', organizationsError)
@@ -103,10 +134,10 @@ export async function GET(req: NextRequest) {
         unlimited: plan?.maxOrganizations === -1
       },
       period: {
-        start: startOfMonth.toISOString(),
-        end: endOfMonth.toISOString(),
-        month: now.getMonth() + 1,
-        year: now.getFullYear()
+        start: periodStart.toISOString(),
+        end: periodEnd.toISOString(),
+        month: periodStart.getMonth() + 1,
+        year: periodStart.getFullYear()
       },
       plan: plan ? {
         id: plan.id,
