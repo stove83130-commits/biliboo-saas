@@ -342,50 +342,65 @@ export async function GET(request: NextRequest) {
     const { data: { user } } = await supabaseAfterAuth.auth.getUser()
 
     // 🔧 FIX PRODUCTION: Améliorer la détection des utilisateurs existants
-    // Pour les connexions OAuth, vérifier si l'utilisateur a déjà des données dans la base
-    // Si oui, c'est un utilisateur existant -> dashboard
-    // Si non, c'est un nouvel utilisateur -> onboarding
+    // Pour les connexions OAuth, vérifier si l'utilisateur a déjà complété l'onboarding
+    // Si onboarding_completed est true, c'est un utilisateur existant -> dashboard
+    // Sinon, vérifier la date de création et les données existantes
     let isNewUser = true
     if (user) {
       // Vérifier si l'utilisateur a déjà complété l'onboarding
       const hasCompletedOnboarding = user.user_metadata?.onboarding_completed === true
       
-      // Si onboarding_completed n'est pas défini, vérifier si l'utilisateur a des données existantes
-      if (!hasCompletedOnboarding) {
-        // Vérifier si l'utilisateur a déjà des comptes email ou des factures (signe qu'il a déjà utilisé l'app)
-        const { data: emailAccounts } = await supabaseAfterAuth
-          .from('email_accounts')
-          .select('id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
+      if (hasCompletedOnboarding) {
+        // Onboarding déjà complété = utilisateur existant
+        isNewUser = false
+      } else {
+        // Vérifier si le compte a été créé récemment (moins de 5 minutes = nouvel utilisateur)
+        const accountCreatedAt = user.created_at ? new Date(user.created_at) : null
+        const now = new Date()
+        const accountAge = accountCreatedAt ? (now.getTime() - accountCreatedAt.getTime()) / 1000 / 60 : null // en minutes
         
-        const { data: invoices } = await supabaseAfterAuth
-          .from('invoices')
-          .select('id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
+        // Si le compte a été créé il y a moins de 5 minutes, c'est probablement un nouvel utilisateur
+        const isRecentlyCreated = accountAge !== null && accountAge < 5
         
-        // Si l'utilisateur a déjà des données, c'est un utilisateur existant
-        if (emailAccounts || invoices) {
-          isNewUser = false
-          // Marquer l'onboarding comme complété pour éviter ce check à l'avenir
-          await supabaseAfterAuth.auth.updateUser({
-            data: { ...user.user_metadata, onboarding_completed: true },
-          })
-        } else {
-          // Nouvel utilisateur, marquer onboarding_completed à false
+        if (isRecentlyCreated) {
+          // Compte récemment créé = nouvel utilisateur
           isNewUser = true
-          if (!user.user_metadata?.onboarding_completed) {
+          console.log('🆕 Nouvel utilisateur détecté (compte créé il y a', accountAge?.toFixed(2), 'minutes)')
+        } else {
+          // Compte plus ancien, vérifier s'il a des données existantes
+          const { data: emailAccounts } = await supabaseAfterAuth
+            .from('email_accounts')
+            .select('id')
+            .eq('user_id', user.id)
+            .limit(1)
+            .maybeSingle()
+          
+          const { data: invoices } = await supabaseAfterAuth
+            .from('invoices')
+            .select('id')
+            .eq('user_id', user.id)
+            .limit(1)
+            .maybeSingle()
+          
+          // Si l'utilisateur a déjà des données, c'est un utilisateur existant
+          if (emailAccounts || invoices) {
+            isNewUser = false
+            // Marquer l'onboarding comme complété pour éviter ce check à l'avenir
             await supabaseAfterAuth.auth.updateUser({
-              data: { ...user.user_metadata, onboarding_completed: false },
+              data: { ...user.user_metadata, onboarding_completed: true },
             })
+          } else {
+            // Pas de données existantes = nouvel utilisateur
+            isNewUser = true
           }
         }
-      } else {
-        // Onboarding déjà complété
-        isNewUser = false
+        
+        // Marquer onboarding_completed à false si c'est un nouvel utilisateur
+        if (isNewUser && !user.user_metadata?.onboarding_completed) {
+          await supabaseAfterAuth.auth.updateUser({
+            data: { ...user.user_metadata, onboarding_completed: false },
+          })
+        }
       }
     }
 
