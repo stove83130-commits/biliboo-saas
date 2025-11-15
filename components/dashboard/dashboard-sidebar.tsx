@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { LayoutGrid, Receipt, ArrowDownToLine, BarChart2, Settings, RefreshCw, LogOut, ChevronDown, HelpCircle, CreditCard, User2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { User } from "@supabase/supabase-js"
 import { WorkspaceSwitcher } from "./workspace-switcher"
 import Image from "next/image"
@@ -26,16 +26,23 @@ export function DashboardSidebar() {
   const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
   const [openMenu, setOpenMenu] = useState(false)
+  const isLoggingOutRef = useRef(false)
 
   useEffect(() => {
+    let isMounted = true
+    
     const getUser = async () => {
+      if (!isMounted) return
       const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!isMounted) return
       
       // Vérifier si l'utilisateur a un email valide
       if (user && !user.email) {
         console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
+        isLoggingOutRef.current = true
         await supabase.auth.signOut()
-        router.push('/auth/signup?error=no_email')
+        window.location.replace('/auth/signup?error=no_email')
         return
       }
       
@@ -43,33 +50,53 @@ export function DashboardSidebar() {
     }
     getUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted || isLoggingOutRef.current) return
+      
+      // Si l'utilisateur se déconnecte, ne pas faire d'actions (handleLogout gère déjà la redirection)
+      if (event === 'SIGNED_OUT' || !session) {
+        setUser(null)
+        return
+      }
+      
       const currentUser = session?.user
       
       // Vérifier si l'utilisateur a un email valide
       if (currentUser && !currentUser.email) {
         console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
+        isLoggingOutRef.current = true
         await supabase.auth.signOut()
-        router.push('/auth/signup?error=no_email')
+        window.location.replace('/auth/signup?error=no_email')
         return
       }
       
       setUser(currentUser ?? null)
     })
 
-    return () => subscription.unsubscribe()
-  }, [supabase.auth, router])
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut()
-      // Utiliser window.location.replace pour forcer une navigation complète
-      // Cela évite que les composants continuent de vérifier l'auth après déconnexion
-      window.location.replace('/auth/login')
+      // Marquer qu'on est en train de se déconnecter pour éviter les conflits avec onAuthStateChange
+      isLoggingOutRef.current = true
+      
+      // Ne pas attendre signOut() pour rediriger immédiatement
+      supabase.auth.signOut().catch(() => {
+        // Ignorer les erreurs, on redirige quand même
+      })
+      
+      // Rediriger immédiatement sans attendre
+      window.location.href = '/auth/login'
     } catch (error) {
       console.error('Erreur lors de la déconnexion:', error)
+      isLoggingOutRef.current = true
       // En cas d'erreur, rediriger quand même
-      window.location.replace('/auth/login')
+      window.location.href = '/auth/login'
     }
   }
 
