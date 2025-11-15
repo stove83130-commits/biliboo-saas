@@ -153,10 +153,13 @@ export default function LoginPage() {
         provider: provider,
         options: {
           redirectTo: redirectUrl,
-          // Forcer la demande de consentement pour récupérer les nouvelles permissions
-          queryParams: provider === 'azure' ? {
+          // Forcer la demande de consentement ET la sélection de compte pour afficher l'écran de consentement complet
+          // prompt: 'consent select_account' force Google à afficher l'écran de consentement même si l'utilisateur a déjà autorisé
+          queryParams: provider === 'google' ? {
+            prompt: 'consent select_account'
+          } : {
             prompt: 'consent'
-          } : undefined,
+          },
         },
       });
 
