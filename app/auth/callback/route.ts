@@ -397,11 +397,12 @@ export async function GET(request: NextRequest) {
     
     // Si l'utilisateur a complété l'onboarding ou est un utilisateur existant, toujours aller au dashboard
     // Sinon, rediriger vers l'onboarding (sauf si un plan est sélectionné)
-    // 🔧 FIX PRODUCTION: Pour les connexions OAuth (pas signup), privilégier /dashboard par défaut
-    // car c'est une connexion, pas une inscription
+    // 🔧 FIX: Pour OAuth (Google), type est généralement null, donc on doit vérifier isNewUser directement
+    // Si c'est un nouvel utilisateur (pas de données existantes), rediriger vers onboarding
+    const hasCompletedOnboarding = user?.user_metadata?.onboarding_completed === true
     const redirectPath = plan
       ? `/auth/plan-redirect?plan=${plan}`
-      : (isNewUser && type === 'signup' ? '/onboarding' : '/dashboard')
+      : (isNewUser && !hasCompletedOnboarding ? '/onboarding' : '/dashboard')
     
     console.log('🔀 Redirection après auth:', {
       userId: user?.id,
