@@ -34,14 +34,33 @@ export function Header() {
         
         if (mounted) {
           // L'utilisateur n'est considéré comme connecté que si:
-          // 1. Il y a un utilisateur
-          // 2. ET il y a une session valide
-          const hasUser = userResult.data?.user !== null && userResult.data?.user !== undefined
-          const hasSession = sessionResult.data?.session !== null && sessionResult.data?.session !== undefined
+          // 1. Il y a un utilisateur avec un email valide
+          // 2. ET il y a une session valide ET non expirée
+          const user = userResult.data?.user
+          const session = sessionResult.data?.session
           
-          if (hasUser && hasSession) {
-            setUser(userResult.data.user)
+          const hasValidUser = user && user.email
+          const hasValidSession = session && session.expires_at
+          
+          // Vérifier que la session n'est pas expirée
+          let isSessionExpired = false
+          if (hasValidSession) {
+            const expiresAt = session.expires_at * 1000 // Convertir en millisecondes
+            const now = Date.now()
+            isSessionExpired = expiresAt < now
+          }
+          
+          if (hasValidUser && hasValidSession && !isSessionExpired) {
+            setUser(user)
           } else {
+            // Si la session est expirée ou invalide, nettoyer
+            if (isSessionExpired || (session && !hasValidUser)) {
+              try {
+                await supabase.auth.signOut()
+              } catch (e) {
+                // Ignorer les erreurs de déconnexion
+              }
+            }
             setUser(null)
           }
           setIsChecking(false)
@@ -56,9 +75,20 @@ export function Header() {
     init()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (mounted) {
-        // Vérifier que la session existe ET qu'elle contient un utilisateur
-        if (session && session.user) {
-          setUser(session.user)
+        // Vérifier que la session existe, qu'elle contient un utilisateur avec email
+        // ET que la session n'est pas expirée
+        if (session && session.user && session.user.email) {
+          const expiresAt = session.expires_at ? session.expires_at * 1000 : null
+          const now = Date.now()
+          
+          if (expiresAt && expiresAt > now) {
+            setUser(session.user)
+          } else {
+            // Session expirée
+            setUser(null)
+            // Nettoyer la session expirée
+            supabase.auth.signOut().catch(() => {})
+          }
         } else {
           setUser(null)
         }
