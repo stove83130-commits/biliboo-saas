@@ -69,54 +69,6 @@ export async function updateSession(request: NextRequest) {
   try {
     const pathname = request.nextUrl.pathname
     
-    // Log des cookies présents pour debug
-    const authCookie = request.cookies.get('sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-auth-token')
-    const hasAuthCookie = !!authCookie?.value
-    console.log('🔍 Middleware check:', {
-      pathname,
-      hasAuthCookie,
-      cookieLength: authCookie?.value?.length || 0
-    })
-    
-    // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
-    // getSession() ne déclenche pas de refresh automatique, ce qui évite les erreurs en production
-    let user = null
-    let session = null
-    
-    try {
-      const { data: sessionData, error: authError } = await supabase.auth.getSession()
-      session = sessionData?.session || null
-      user = session?.user || null
-      
-      // Ignorer complètement les erreurs normales (session manquante, refresh_token_not_found, etc.)
-      // Ce sont des cas normaux pour les utilisateurs non connectés
-      if (authError) {
-        const isNormalError = 
-          authError.message?.includes('AuthSessionMissingError') ||
-          authError.message?.includes('session') ||
-          authError.message?.includes('refresh_token_not_found') ||
-          authError.code === 'refresh_token_not_found' ||
-          authError.status === 400
-        
-        if (!isNormalError) {
-          console.error('❌ Erreur auth middleware:', authError.message)
-        }
-      }
-    } catch (error: any) {
-      // Ignorer complètement les erreurs normales
-      const isNormalError = 
-        error?.message?.includes('session') ||
-        error?.message?.includes('AuthSessionMissing') ||
-        error?.message?.includes('refresh_token_not_found') ||
-        error?.code === 'refresh_token_not_found' ||
-        error?.status === 400
-      
-      if (!isNormalError) {
-        console.error('❌ Erreur lors de la récupération de la session:', error?.message || error)
-      }
-      // Continuer avec user = null pour permettre l'accès aux routes publiques
-    }
-    
     // Routes publiques (accessibles sans authentification)
     const publicRoutes = [
       '/auth/login',
@@ -134,6 +86,61 @@ export async function updateSession(request: NextRequest) {
     const isPublicRoute = publicRoutes.some(route => 
       pathname === route || pathname.startsWith(route + '/')
     )
+    
+    // Vérifier la présence d'un cookie d'auth avant d'appeler getSession()
+    // Cela évite les appels inutiles à Supabase et les erreurs refresh_token_not_found
+    const authCookieName = 'sb-' + supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] + '-auth-token'
+    const authCookie = request.cookies.get(authCookieName)
+    const hasAuthCookie = !!authCookie?.value
+    
+    // OPTIMISATION: Ne pas appeler getSession() sur les routes publiques si aucun cookie d'auth
+    // Cela évite les erreurs refresh_token_not_found dans les logs Vercel
+    let user = null
+    let session = null
+    
+    // Si c'est une route publique ET qu'il n'y a pas de cookie d'auth, skip getSession()
+    if (isPublicRoute && !hasAuthCookie) {
+      // Pas besoin d'appeler getSession() - l'utilisateur n'est clairement pas connecté
+      user = null
+      session = null
+    } else {
+      // Appeler getSession() seulement si :
+      // 1. Ce n'est PAS une route publique (besoin de vérifier l'auth)
+      // 2. OU c'est une route publique MAIS il y a un cookie d'auth (vérifier si valide)
+      try {
+        const { data: sessionData, error: authError } = await supabase.auth.getSession()
+        session = sessionData?.session || null
+        user = session?.user || null
+        
+        // Ignorer complètement les erreurs normales (session manquante, refresh_token_not_found, etc.)
+        // Ce sont des cas normaux pour les utilisateurs non connectés
+        if (authError) {
+          const isNormalError = 
+            authError.message?.includes('AuthSessionMissingError') ||
+            authError.message?.includes('session') ||
+            authError.message?.includes('refresh_token_not_found') ||
+            authError.code === 'refresh_token_not_found' ||
+            authError.status === 400
+          
+          if (!isNormalError) {
+            console.error('❌ Erreur auth middleware:', authError.message)
+          }
+        }
+      } catch (error: any) {
+        // Ignorer complètement les erreurs normales
+        const isNormalError = 
+          error?.message?.includes('session') ||
+          error?.message?.includes('AuthSessionMissing') ||
+          error?.message?.includes('refresh_token_not_found') ||
+          error?.code === 'refresh_token_not_found' ||
+          error?.status === 400
+        
+        if (!isNormalError) {
+          console.error('❌ Erreur lors de la récupération de la session:', error?.message || error)
+        }
+        // Continuer avec user = null pour permettre l'accès aux routes publiques
+      }
+    }
     
     // IMPORTANT: Les routes API ne doivent PAS être redirigées vers login
     // Elles doivent gérer elles-mêmes l'authentification et retourner des erreurs JSON
