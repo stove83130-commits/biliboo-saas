@@ -1,8 +1,24 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-export function createClient() {
-  const cookieStore = cookies()
+export async function createClient() {
+  // cookies() peut être undefined dans certains contextes Next.js
+  // Il faut vérifier qu'il est disponible avant de l'utiliser
+  let cookieStore
+  try {
+    cookieStore = cookies()
+    // Vérifier que cookieStore existe et a les méthodes nécessaires
+    if (!cookieStore || typeof cookieStore.get !== 'function') {
+      throw new Error('CookieStore not available')
+    }
+  } catch (error) {
+    // Si cookies() n'est pas disponible, créer un fallback
+    cookieStore = {
+      get: () => undefined,
+      set: () => {},
+      delete: () => {},
+    } as any
+  }
 
   // Récupérer les variables d'environnement avec valeurs par défaut
   const supabaseUrl = 
@@ -18,11 +34,17 @@ export function createClient() {
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       get(name: string) {
-        return cookieStore.get(name)?.value
+        try {
+          return cookieStore?.get(name)?.value
+        } catch {
+          return undefined
+        }
       },
       set(name: string, value: string, options: CookieOptions) {
         try {
-          cookieStore.set({ name, value, ...options })
+          if (cookieStore && typeof cookieStore.set === 'function') {
+            cookieStore.set({ name, value, ...options })
+          }
         } catch (error) {
           // Peut être ignoré si appelé depuis un Server Component
           // Le middleware gère la session
@@ -30,7 +52,9 @@ export function createClient() {
       },
       remove(name: string, options: CookieOptions) {
         try {
-          cookieStore.set({ name, value: '', ...options })
+          if (cookieStore && typeof cookieStore.set === 'function') {
+            cookieStore.set({ name, value: '', ...options })
+          }
         } catch (error) {
           // Peut être ignoré si appelé depuis un Server Component
         }
