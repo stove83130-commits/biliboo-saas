@@ -1,9 +1,29 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getPlan, getMonthlyInvoiceLimit, getPricePerExtraInvoice, hasActivePlan, canAccessDashboard } from '@/lib/billing/plans'
+import { cookies } from 'next/headers'
 
 
 export const dynamic = 'force-dynamic'
+
+// Helper pour vérifier si un cookie d'auth existe
+function hasAuthCookie(): boolean {
+  try {
+    const cookieStore = cookies()
+    const supabaseUrl = 
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.SUPABASE_URL ||
+      'https://qkpfxpuhrjgctpadxslh.supabase.co'
+    
+    const projectId = supabaseUrl.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || 'qkpfxpuhrjgctpadxslh'
+    const authCookieName = `sb-${projectId}-auth-token`
+    
+    const authCookie = cookieStore?.get(authCookieName)
+    return !!authCookie?.value
+  } catch {
+    return false
+  }
+}
 
 // Helper pour timeout - éviter les blocages infinis
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
@@ -15,8 +35,46 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
   ])
 }
 
+// Helper pour retourner les valeurs par défaut
+function getDefaultPlanResponse() {
+  return NextResponse.json({
+    planKey: null,
+    plan: null,
+    subscription_status: null,
+    subscription_ends_at: null,
+    hasActivePlan: false,
+    hasEverHadPlan: false,
+    canAccessDashboard: false,
+    limits: {
+      monthlyInvoicesIncluded: 0,
+      pricePerExtraInvoiceEur: 0,
+      emailAccounts: 0,
+      unlimited: false,
+    },
+    usage: {},
+    allowOverage: false,
+    trial: {
+      startedAt: null,
+      endsAt: null,
+      isTrial: false,
+      consumed: false,
+      daysLeft: 0,
+    },
+  })
+}
+
 export async function GET() {
   try {
+    // OPTIMISATION CRITIQUE: Vérifier le cookie AVANT d'appeler getSession()
+    // Cela évite les erreurs refresh_token_not_found dans les logs Vercel
+    const hasCookie = hasAuthCookie()
+    
+    if (!hasCookie) {
+      // Pas de cookie d'auth = utilisateur non connecté, retourner directement les valeurs par défaut
+      // Sans appeler Supabase, donc pas d'erreur refresh_token_not_found
+      return getDefaultPlanResponse()
+    }
+    
     const supabase = await createClient()
     
     // Utiliser getSession() avec timeout de 3 secondes pour éviter les blocages
@@ -35,45 +93,37 @@ export async function GET() {
       session = sessionResult?.data?.session || null
       user = session?.user || null
       
-      // Ignorer les erreurs de session manquante (normales pour utilisateurs non connectés)
-      if (sessionResult?.error && 
-          !sessionResult.error.message?.includes('session') && 
-          !sessionResult.error.message?.includes('AuthSessionMissing')) {
-        console.error('❌ Erreur session plan API:', sessionResult.error.message)
+      // Ignorer complètement les erreurs refresh_token_not_found (normales pour utilisateurs non connectés)
+      if (sessionResult?.error) {
+        const isNormalError = 
+          sessionResult.error.code === 'refresh_token_not_found' ||
+          sessionResult.error.message?.includes('refresh_token_not_found') ||
+          sessionResult.error.message?.includes('session') ||
+          sessionResult.error.message?.includes('AuthSessionMissing') ||
+          sessionResult.error.status === 400
+        
+        if (!isNormalError) {
+          console.error('❌ Erreur session plan API:', sessionResult.error.message)
+        }
       }
     } catch (error: any) {
-      // En cas d'erreur, traiter comme utilisateur non connecté
-      console.warn('⚠️ Timeout ou erreur récupération session plan API:', error.message || 'Timeout')
+      // Ignorer complètement les erreurs refresh_token_not_found
+      const isNormalError = 
+        error?.code === 'refresh_token_not_found' ||
+        error?.message?.includes('refresh_token_not_found') ||
+        error?.message?.includes('session') ||
+        error?.status === 400
+      
+      if (!isNormalError) {
+        console.warn('⚠️ Timeout ou erreur récupération session plan API:', error.message || 'Timeout')
+      }
       user = null
     }
   
     // Si pas d'utilisateur, retourner des valeurs par défaut au lieu d'une erreur 401
     // (cette API peut être appelée même pour les utilisateurs non connectés)
     if (!user) {
-      return NextResponse.json({
-        planKey: null,
-        plan: null,
-        subscription_status: null,
-        subscription_ends_at: null,
-        hasActivePlan: false,
-        hasEverHadPlan: false,
-        canAccessDashboard: false,
-        limits: {
-          monthlyInvoicesIncluded: 0,
-          pricePerExtraInvoiceEur: 0,
-          emailAccounts: 0,
-          unlimited: false,
-        },
-        usage: {},
-        allowOverage: false,
-        trial: {
-          startedAt: null,
-          endsAt: null,
-          isTrial: false,
-          consumed: false,
-          daysLeft: 0,
-        },
-      })
+      return getDefaultPlanResponse()
     }
 
     // Log uniquement en mode développement pour éviter trop de logs en production
@@ -162,30 +212,16 @@ export async function GET() {
     })
   } catch (error: any) {
     // En cas d'erreur globale, retourner des valeurs par défaut
-    console.error('❌ Erreur globale plan API:', error.message || error)
-    return NextResponse.json({
-      planKey: null,
-      plan: null,
-      subscription_status: null,
-      subscription_ends_at: null,
-      hasActivePlan: false,
-      hasEverHadPlan: false,
-      canAccessDashboard: false,
-      limits: {
-        monthlyInvoicesIncluded: 0,
-        pricePerExtraInvoiceEur: 0,
-        emailAccounts: 0,
-        unlimited: false,
-      },
-      usage: {},
-      allowOverage: false,
-      trial: {
-        startedAt: null,
-        endsAt: null,
-        isTrial: false,
-        consumed: false,
-        daysLeft: 0,
-      },
-    }, { status: 200 }) // Toujours retourner 200 pour éviter les erreurs côté client
+    // Ignorer les erreurs refresh_token_not_found même dans le catch global
+    const isNormalError = 
+      error?.code === 'refresh_token_not_found' ||
+      error?.message?.includes('refresh_token_not_found') ||
+      error?.status === 400
+    
+    if (!isNormalError) {
+      console.error('❌ Erreur globale plan API:', error.message || error)
+    }
+    
+    return getDefaultPlanResponse()
   }
 }
