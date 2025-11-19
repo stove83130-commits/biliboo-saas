@@ -158,8 +158,7 @@ export async function updateSession(request: NextRequest) {
       // Pour les routes pages, rediriger vers login
       console.log('🔒 Utilisateur non authentifié, redirection vers /auth/login', {
         pathname,
-        hasAuthCookie,
-        authError: authError?.message || 'none'
+        hasAuthCookie
       })
       const redirectUrl = new URL('/auth/login', request.url)
       return NextResponse.redirect(redirectUrl)
