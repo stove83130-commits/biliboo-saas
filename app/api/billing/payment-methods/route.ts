@@ -12,7 +12,9 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     const supabase = createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user || null
     
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -62,7 +64,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const supabase = createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user || null
     
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -93,7 +97,9 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user || null
     
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -120,7 +126,9 @@ export async function DELETE(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const supabase = createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user || null
     
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

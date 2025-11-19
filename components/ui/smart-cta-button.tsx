@@ -43,6 +43,12 @@ export function SmartCTAButton({
       try {
         // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
         const { data: { session }, error } = await supabase.auth.getSession()
+        
+        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+          console.error('Erreur vérification utilisateur smart-cta:', error)
+        }
+        
         const user = session?.user || null
         setUser(user)
         

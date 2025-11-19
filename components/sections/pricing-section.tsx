@@ -17,6 +17,12 @@ export function PricingSection() {
       try {
         // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
         const { data: { session }, error } = await supabase.auth.getSession()
+        
+        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+          console.error('Erreur vérification utilisateur:', error)
+        }
+        
         if (!error && session?.user) {
           setUser(session.user)
         } else {

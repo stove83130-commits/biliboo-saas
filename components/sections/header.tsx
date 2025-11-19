@@ -20,6 +20,12 @@ export function Header() {
     const init = async () => {
       // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token en production
       const { data: { session }, error } = await supabase.auth.getSession()
+      
+      // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+      if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+        console.error('Erreur session header:', error)
+      }
+      
       if (mounted) setUser(session?.user ?? null)
     }
     init()

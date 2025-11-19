@@ -88,17 +88,30 @@ export async function updateSession(request: NextRequest) {
       session = sessionData?.session || null
       user = session?.user || null
       
+      // Ignorer complètement les erreurs normales (session manquante, refresh_token_not_found, etc.)
+      // Ce sont des cas normaux pour les utilisateurs non connectés
       if (authError) {
-        // Ne pas logger les erreurs "AuthSessionMissingError" qui sont normales pour les utilisateurs non connectés
-        if (!authError.message?.includes('AuthSessionMissingError') && !authError.message?.includes('session')) {
+        const isNormalError = 
+          authError.message?.includes('AuthSessionMissingError') ||
+          authError.message?.includes('session') ||
+          authError.message?.includes('refresh_token_not_found') ||
+          authError.code === 'refresh_token_not_found' ||
+          authError.status === 400
+        
+        if (!isNormalError) {
           console.error('❌ Erreur auth middleware:', authError.message)
-          console.error('❌ Détails:', JSON.stringify(authError, null, 2))
         }
       }
     } catch (error: any) {
-      // Gérer les erreurs de manière silencieuse pour éviter les logs excessifs
-      // Les erreurs de session sont normales pour les utilisateurs non connectés
-      if (!error?.message?.includes('session') && !error?.message?.includes('AuthSessionMissing')) {
+      // Ignorer complètement les erreurs normales
+      const isNormalError = 
+        error?.message?.includes('session') ||
+        error?.message?.includes('AuthSessionMissing') ||
+        error?.message?.includes('refresh_token_not_found') ||
+        error?.code === 'refresh_token_not_found' ||
+        error?.status === 400
+      
+      if (!isNormalError) {
         console.error('❌ Erreur lors de la récupération de la session:', error?.message || error)
       }
       // Continuer avec user = null pour permettre l'accès aux routes publiques
