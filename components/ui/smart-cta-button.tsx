@@ -39,15 +39,28 @@ export function SmartCTAButton({
 
   useEffect(() => {
     setIsLoading(true)
+    let isMounted = true // Flag pour éviter les mises à jour après démontage
+    
     const checkUserStatus = async () => {
       try {
         // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
-        const { data: { session }, error } = await supabase.auth.getSession()
+        // Ajouter un timeout pour éviter les blocages
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), 5000)
+        )
+        
+        const { data: { session }, error } = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]) as any
         
         // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
         if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
           console.error('Erreur vérification utilisateur smart-cta:', error)
         }
+        
+        if (!isMounted) return
         
         const user = session?.user || null
         setUser(user)
@@ -58,12 +71,24 @@ export function SmartCTAButton({
           setOnboardingCompleted(onboardingCompleted)
           
           // Utiliser la même API que l'onglet facturation pour la cohérence
+          // Ajouter un timeout pour éviter les blocages
           try {
-            const response = await fetch('/api/billing/plan', { credentials: 'include' })
+            const controller = new AbortController()
+            const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 secondes max
+            
+            const response = await fetch('/api/billing/plan', { 
+              credentials: 'include',
+              signal: controller.signal
+            })
+            
+            clearTimeout(timeoutId)
+            
             if (response.ok) {
               const planData = await response.json()
-              setCurrentPlan(planData.planKey)
-              setHasActivePlan(planData.hasActivePlan)
+              if (isMounted) {
+                setCurrentPlan(planData.planKey)
+                setHasActivePlan(planData.hasActivePlan)
+              }
             } else {
               // Fallback sur les métadonnées utilisateur si l'API échoue
               const selectedPlan = user.user_metadata?.selected_plan
@@ -71,32 +96,73 @@ export function SmartCTAButton({
               const isTrial = user.user_metadata?.is_trial
               const trialEndsAt = user.user_metadata?.trial_ends_at
               
+              if (isMounted) {
+                setCurrentPlan(selectedPlan)
+                
+                // Déterminer si l'utilisateur a un plan actif
+                const hasActiveSubscription = subscriptionStatus === 'active' || 
+                                             subscriptionStatus === 'trialing' ||
+                                             (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
+                
+                setHasActivePlan(hasActiveSubscription)
+              }
+            }
+          } catch (apiError: any) {
+            // Ignorer les erreurs d'API (peut être appelé même sans utilisateur)
+            // Si c'est un timeout ou une erreur réseau, utiliser les métadonnées utilisateur
+            if (apiError.name !== 'AbortError') {
+              console.warn('Erreur API plan (ignoré):', apiError)
+            }
+            
+            if (isMounted && user) {
+              // Fallback sur les métadonnées utilisateur
+              const selectedPlan = user.user_metadata?.selected_plan
+              const subscriptionStatus = user.user_metadata?.subscription_status
+              const isTrial = user.user_metadata?.is_trial
+              const trialEndsAt = user.user_metadata?.trial_ends_at
+              
               setCurrentPlan(selectedPlan)
               
-              // Déterminer si l'utilisateur a un plan actif
               const hasActiveSubscription = subscriptionStatus === 'active' || 
                                            subscriptionStatus === 'trialing' ||
                                            (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
               
               setHasActivePlan(hasActiveSubscription)
             }
-          } catch (apiError) {
-            // Ignorer les erreurs d'API (peut être appelé même sans utilisateur)
-            console.warn('Erreur API plan (ignoré):', apiError)
           }
         } else {
           // Pas d'utilisateur, valeurs par défaut
+          if (isMounted) {
+            setCurrentPlan(null)
+            setHasActivePlan(false)
+          }
+        }
+      } catch (error: any) {
+        // Gérer les timeouts et autres erreurs
+        if (error.message !== 'Timeout') {
+          console.error('Erreur lors de la vérification de l\'utilisateur:', error)
+        }
+        
+        // En cas d'erreur, définir des valeurs par défaut
+        if (isMounted) {
+          setUser(null)
           setCurrentPlan(null)
           setHasActivePlan(false)
         }
-      } catch (error) {
-        console.error('Erreur lors de la vérification de l\'utilisateur:', error)
       } finally {
-        setIsLoading(false)
+        // TOUJOURS appeler setIsLoading(false), même en cas d'erreur
+        if (isMounted) {
+          setIsLoading(false)
+        }
       }
     }
 
     checkUserStatus()
+    
+    // Cleanup: marquer le composant comme démonté
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   const handleClick = async (e: React.MouseEvent) => {
