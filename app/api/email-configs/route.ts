@@ -18,7 +18,7 @@ const supabaseService = createServiceClient(
 export async function GET(req: NextRequest) {
   try {
     // 1. Authentification utilisateur
-    const supabase = createClient();
+    const supabase = await createClient();
     const {
       data: { user },
       error: authError,
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     // 1. Authentification utilisateur
-    const supabase = createClient();
+    const supabase = await createClient();
     const {
       data: { user },
       error: authError,

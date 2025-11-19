@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const profile = await gmail.users.getProfile({ userId: 'me' });
 
-    const supabase = createClient();
+    const supabase = await createClient();
     
           const { error } = await supabase
             .from('email_accounts')

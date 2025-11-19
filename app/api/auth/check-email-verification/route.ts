@@ -12,8 +12,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   try {
     // Méthode 1: Vérifier via la session si disponible
-    const supabase = createClient()
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    const supabase = await createClient()
+    const { data: { session }, error: userError } = await supabase.auth.getSession()$n    const user = session?.user || null
 
     // Si on a une session, vérifier directement
     if (user && !userError) {

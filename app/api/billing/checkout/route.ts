@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Plan ID requis' }, { status: 400 })
     }
 
-    const supabase = createClient()
+    const supabase = await createClient()
     // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     const user = session?.user || null

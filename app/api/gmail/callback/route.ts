@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/dashboard?error=no_code`)
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   
   const {
     data: { user },

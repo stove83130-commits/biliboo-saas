@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     console.log('🚀 API: Démarrage extraction complète (3 règles)');
 
-    const supabase = createClient();
+    const supabase = await createClient();
     const {
       data: { user },
       error: authError,

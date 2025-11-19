@@ -9,7 +9,7 @@ export async function POST(
 ) {
   try {
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const workspaceId = params.id

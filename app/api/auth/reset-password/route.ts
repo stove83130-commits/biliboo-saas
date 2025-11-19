@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Échanger le code contre une session
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)

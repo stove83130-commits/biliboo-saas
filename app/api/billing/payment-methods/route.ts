@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 // GET : Récupérer les méthodes de paiement
 export async function GET() {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     const user = session?.user || null
@@ -63,7 +63,7 @@ export async function GET() {
 // POST : Créer un setup intent pour ajouter une nouvelle méthode
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     const user = session?.user || null
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
 // DELETE : Supprimer une méthode de paiement
 export async function DELETE(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     const user = session?.user || null
@@ -125,7 +125,7 @@ export async function DELETE(request: NextRequest) {
 // PATCH : Définir une méthode comme défaut
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     const user = session?.user || null

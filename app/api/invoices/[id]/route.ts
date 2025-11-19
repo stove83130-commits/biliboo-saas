@@ -11,7 +11,7 @@ export async function GET(
     const supabase = createClient();
 
     // 1. Vérifier l'authentification
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
 
     if (authError || !user) {
       return NextResponse.json(
@@ -114,7 +114,7 @@ export async function PATCH(
     const supabase = createClient();
 
     // 1. Vérifier l'authentification
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
 
     if (authError || !user) {
       return NextResponse.json(
@@ -213,7 +213,7 @@ export async function DELETE(
     const supabase = createClient();
 
     // 1. Vérifier l'authentification
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
 
     if (authError || !user) {
       return NextResponse.json(

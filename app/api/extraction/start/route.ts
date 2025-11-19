@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     console.log('📅 Timestamp:', new Date().toISOString());
 
     // 1. Authentification utilisateur
-    const supabase = createClient();
+    const supabase = await createClient();
     const {
       data: { user },
       error: authError,

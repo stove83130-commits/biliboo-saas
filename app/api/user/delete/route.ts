@@ -31,7 +31,7 @@ export async function DELETE(request: NextRequest) {
       },
     })
     
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null
     
     console.log('🔍 Auth result:', {
       hasUser: !!user,

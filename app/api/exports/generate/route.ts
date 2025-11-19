@@ -5,8 +5,8 @@ import { createClient } from '@/lib/supabase/server'
 export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const supabase = await createClient()
+    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
 
     if (!user) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })

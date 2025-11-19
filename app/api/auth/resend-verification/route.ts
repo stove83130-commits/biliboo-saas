@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    const supabase = await createClient()
+    const { data: { session }, error: userError } = await supabase.auth.getSession()$n    const user = session?.user || null
 
     if (userError || !user) {
       return NextResponse.json(

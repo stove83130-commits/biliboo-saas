@@ -11,7 +11,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Action non supportée' }, { status: 400 })
     }
 
-    const supabase = createClient()
+    const supabase = await createClient()
     
     // En développement, utiliser l'userId fourni ou récupérer le premier utilisateur
     let targetUserId = userId

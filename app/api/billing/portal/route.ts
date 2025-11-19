@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
     const { data: { session }, error: authError } = await supabase.auth.getSession()
     const user = session?.user || null

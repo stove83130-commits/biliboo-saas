@@ -11,8 +11,8 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 export async function GET(req: NextRequest) {
-  const supabase = createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const supabase = await createClient();
+  const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
   
   if (authError || !user) {
     return NextResponse.redirect('/login');
