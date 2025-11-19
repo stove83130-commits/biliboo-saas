@@ -43,36 +43,17 @@ export function SmartCTAButton({
     
     const checkUserStatus = async () => {
       try {
-        // Vérifier d'abord s'il y a un cookie d'auth avant d'appeler getSession()
-        const authCookieName = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || 'qkpfxpuhrjgctpadxslh'}-auth-token`
-        const hasAuthCookie = typeof document !== 'undefined' && document.cookie.includes(authCookieName)
-        
-        // Si pas de cookie d'auth, ne pas appeler getSession() (évite les erreurs)
-        if (!hasAuthCookie) {
-          if (isMounted) {
-            setUser(null)
-            setCurrentPlan(null)
-            setHasActivePlan(false)
-          }
-          return
-        }
-        
-        // Utiliser getSession() seulement s'il y a un cookie d'auth
+        // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
         // Ajouter un timeout pour éviter les blocages
         const sessionPromise = supabase.auth.getSession()
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Timeout')), 5000)
         )
         
-        const { data: { session }, error } = await Promise.race([
+        const { data: { session } } = await Promise.race([
           sessionPromise,
           timeoutPromise
         ]) as any
-        
-        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
-        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
-          console.error('Erreur vérification utilisateur smart-cta:', error)
-        }
         
         if (!isMounted) return
         

@@ -14,34 +14,9 @@ export function PricingSection() {
 
   useEffect(() => {
     const checkUser = async () => {
-      // Vérifier d'abord s'il y a un cookie d'auth avant d'appeler getSession()
-      const authCookieName = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || 'qkpfxpuhrjgctpadxslh'}-auth-token`
-      const hasAuthCookie = typeof document !== 'undefined' && document.cookie.includes(authCookieName)
-      
-      // Si pas de cookie d'auth, ne pas appeler getSession() (évite les erreurs)
-      if (!hasAuthCookie) {
-        setUser(null)
-        return
-      }
-      
-      try {
-        // Utiliser getSession() seulement s'il y a un cookie d'auth
-        const { data: { session }, error } = await supabase.auth.getSession()
-        
-        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
-        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
-          console.error('Erreur vérification utilisateur:', error)
-        }
-        
-        if (!error && session?.user) {
-          setUser(session.user)
-        } else {
-          setUser(null)
-        }
-      } catch (error) {
-        // Ignorer les erreurs
-        setUser(null)
-      }
+      // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+      const { data: { session } } = await supabase.auth.getSession()
+      setUser(session?.user ?? null)
     }
 
     checkUser()
