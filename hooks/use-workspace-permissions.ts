@@ -45,7 +45,15 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
 
     const loadPermissions = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
+        // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+        const { data: { session }, error: authError } = await supabase.auth.getSession()
+        const user = session?.user || null
+        
+        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+        if (authError && authError.code !== 'refresh_token_not_found' && authError.status !== 400) {
+          console.error('Erreur récupération session workspace permissions:', authError)
+        }
+        
         if (!user) {
           setIsLoading(false)
           return
@@ -56,7 +64,7 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
           .from('workspaces')
           .select('owner_id')
           .eq('id', workspaceId)
-          .single()
+          .single() as { data: { owner_id: string } | null }
 
         if (workspace?.owner_id === user.id) {
           setRole('owner')
@@ -72,7 +80,7 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
           .eq('workspace_id', workspaceId)
           .eq('user_id', user.id)
           .eq('status', 'active')
-          .single()
+          .single() as { data: { role: string } | null }
 
         setRole((member?.role as WorkspaceRole) || null)
         setIsOwner(false)
@@ -113,7 +121,7 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
         .from('workspaces')
         .select('owner_id')
         .eq('id', workspaceId!)
-        .single()
+        .single() as { data: { owner_id: string } | null }
 
       if (workspace?.owner_id === targetUserId) return false
 
@@ -122,7 +130,7 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
         .select('role')
         .eq('workspace_id', workspaceId!)
         .eq('user_id', targetUserId)
-        .single()
+        .single() as { data: { role: string } | null }
 
       if (targetMember?.role === 'admin') return false
 
@@ -145,7 +153,7 @@ export function useWorkspacePermissions(workspaceId: string | null): WorkspacePe
         .from('workspaces')
         .select('owner_id')
         .eq('id', workspaceId!)
-        .single()
+        .single() as { data: { owner_id: string } | null }
 
       if (workspace?.owner_id === targetUserId) return false
 

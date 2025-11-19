@@ -57,18 +57,43 @@ export function usePlanPermissions() {
         const planId = user.user_metadata?.selected_plan;
         const plan = getPlan(planId);
 
-        // Compter le nombre d'emails et d'organisations
-        const { data: emailAccounts } = await supabase
-          .from('email_accounts')
-          .select('id', { count: 'exact', head: true });
-
-        const { data: organizations } = await supabase
-          .from('workspaces')
-          .select('id', { count: 'exact', head: true })
-          .eq('type', 'organization');
-
-        const emailCount = emailAccounts?.length || 0;
-        const orgCount = organizations?.length || 0;
+        // Compter le nombre d'emails et d'organisations avec timeout pour éviter les blocages
+        let emailCount = 0;
+        let orgCount = 0;
+        
+        try {
+          // Timeout de 3 secondes pour chaque requête
+          const emailPromise = supabase
+            .from('email_accounts')
+            .select('id', { count: 'exact', head: true });
+          
+          const emailTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 3000)
+          );
+          
+          const emailResult = await Promise.race([emailPromise, emailTimeout]).catch(() => null);
+          emailCount = emailResult?.data?.length || 0;
+        } catch (err) {
+          console.warn('Erreur récupération email accounts (ignoré):', err);
+          emailCount = 0;
+        }
+        
+        try {
+          const orgPromise = supabase
+            .from('workspaces')
+            .select('id', { count: 'exact', head: true })
+            .eq('type', 'organization');
+          
+          const orgTimeout = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 3000)
+          );
+          
+          const orgResult = await Promise.race([orgPromise, orgTimeout]).catch(() => null);
+          orgCount = orgResult?.data?.length || 0;
+        } catch (err) {
+          console.warn('Erreur récupération organizations (ignoré):', err);
+          orgCount = 0;
+        }
 
         setPermissions({
           plan,
