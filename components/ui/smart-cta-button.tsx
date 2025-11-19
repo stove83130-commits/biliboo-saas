@@ -52,33 +52,36 @@ export function SmartCTAButton({
           setOnboardingCompleted(onboardingCompleted)
           
           // Utiliser la même API que l'onglet facturation pour la cohérence
-          const response = await fetch('/api/billing/plan', { credentials: 'include' })
-          if (response.ok) {
-            const planData = await response.json()
-            console.log('🔍 SmartCTAButton - Plan data:', {
-              planKey: planData.planKey,
-              hasActivePlan: planData.hasActivePlan,
-              planName: planName,
-              isCurrentPlan: planData.planKey === planName?.toLowerCase()
-            })
-            setCurrentPlan(planData.planKey)
-            setHasActivePlan(planData.hasActivePlan)
-          } else {
-            // Fallback sur les métadonnées utilisateur si l'API échoue
-            const selectedPlan = user.user_metadata?.selected_plan
-            const subscriptionStatus = user.user_metadata?.subscription_status
-            const isTrial = user.user_metadata?.is_trial
-            const trialEndsAt = user.user_metadata?.trial_ends_at
-            
-            setCurrentPlan(selectedPlan)
-            
-            // Déterminer si l'utilisateur a un plan actif
-            const hasActiveSubscription = subscriptionStatus === 'active' || 
-                                         subscriptionStatus === 'trialing' ||
-                                         (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
-            
-            setHasActivePlan(hasActiveSubscription)
+          try {
+            const response = await fetch('/api/billing/plan', { credentials: 'include' })
+            if (response.ok) {
+              const planData = await response.json()
+              setCurrentPlan(planData.planKey)
+              setHasActivePlan(planData.hasActivePlan)
+            } else {
+              // Fallback sur les métadonnées utilisateur si l'API échoue
+              const selectedPlan = user.user_metadata?.selected_plan
+              const subscriptionStatus = user.user_metadata?.subscription_status
+              const isTrial = user.user_metadata?.is_trial
+              const trialEndsAt = user.user_metadata?.trial_ends_at
+              
+              setCurrentPlan(selectedPlan)
+              
+              // Déterminer si l'utilisateur a un plan actif
+              const hasActiveSubscription = subscriptionStatus === 'active' || 
+                                           subscriptionStatus === 'trialing' ||
+                                           (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
+              
+              setHasActivePlan(hasActiveSubscription)
+            }
+          } catch (apiError) {
+            // Ignorer les erreurs d'API (peut être appelé même sans utilisateur)
+            console.warn('Erreur API plan (ignoré):', apiError)
           }
+        } else {
+          // Pas d'utilisateur, valeurs par défaut
+          setCurrentPlan(null)
+          setHasActivePlan(false)
         }
       } catch (error) {
         console.error('Erreur lors de la vérification de l\'utilisateur:', error)

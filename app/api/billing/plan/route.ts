@@ -9,7 +9,35 @@ export async function GET() {
   // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token en production
   const { data: { session }, error: sessionError } = await supabase.auth.getSession()
   const user = session?.user || null
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  
+  // Si pas d'utilisateur, retourner des valeurs par défaut au lieu d'une erreur 401
+  // (cette API peut être appelée même pour les utilisateurs non connectés)
+  if (!user) {
+    return NextResponse.json({
+      planKey: null,
+      plan: null,
+      subscription_status: null,
+      subscription_ends_at: null,
+      hasActivePlan: false,
+      hasEverHadPlan: false,
+      canAccessDashboard: false,
+      limits: {
+        monthlyInvoicesIncluded: 0,
+        pricePerExtraInvoiceEur: 0,
+        emailAccounts: 0,
+        unlimited: false,
+      },
+      usage: {},
+      allowOverage: false,
+      trial: {
+        startedAt: null,
+        endsAt: null,
+        isTrial: false,
+        consumed: false,
+        daysLeft: 0,
+      },
+    })
+  }
 
   // Log uniquement en mode développement pour éviter trop de logs en production
   if (process.env.NODE_ENV === 'development') {

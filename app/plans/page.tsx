@@ -20,10 +20,21 @@ export default function PlansPage() {
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        setUser(user)
-      } catch (error) {
-        console.error('Erreur vérification utilisateur:', error)
+        // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+          console.error('Erreur vérification utilisateur:', error)
+        }
+        
+        setUser(session?.user ?? null)
+      } catch (error: any) {
+        // Ignorer les erreurs de refresh token
+        if (error?.code !== 'refresh_token_not_found' && error?.status !== 400) {
+          console.error('Erreur vérification utilisateur:', error)
+        }
+        setUser(null)
       } finally {
         setIsLoading(false)
       }

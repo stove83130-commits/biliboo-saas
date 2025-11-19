@@ -36,13 +36,20 @@ export function usePlanPermissions() {
     const fetchPermissions = async () => {
       try {
         const supabase = createClient();
-        const { data: { user }, error } = await supabase.auth.getUser();
+        // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+        const { data: { session }, error } = await supabase.auth.getSession();
+        const user = session?.user || null;
 
-        if (error || !user) {
+        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+          console.error('Erreur récupération session:', error);
+        }
+
+        if (!user) {
           setPermissions(prev => ({
             ...prev,
             isLoading: false,
-            error: 'Utilisateur non authentifié',
+            error: null, // Pas d'erreur, juste pas connecté
           }));
           return;
         }
