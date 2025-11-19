@@ -8,8 +8,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient();
-    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
+    const supabase = await createClient();
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user || null;
     
     if (authError || !user) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });

@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: Request) {
   try {
     const supabase = await createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const { workspaceId, email, role } = await req.json()
@@ -201,7 +202,8 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   try {
     const supabase = await createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const { searchParams } = new URL(req.url)
@@ -223,7 +225,8 @@ export async function GET(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const supabase = await createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const { inviteId, workspaceId } = await req.json()

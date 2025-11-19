@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     const supabase = await createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

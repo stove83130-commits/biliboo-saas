@@ -9,7 +9,8 @@ export async function GET(
   { params }: { params: { messageId: string; attachmentId: string } }
 ) {
   const supabase = createClient()
-  const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null
+  const { data: { session }, error: authError } = await supabase.auth.getSession()
+        const user = session?.user || null
   
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const searchParams = request.nextUrl.searchParams
@@ -84,7 +85,8 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: Request) {
   try {
     const supabase = await createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const { workspaceId, userId } = await request.json()

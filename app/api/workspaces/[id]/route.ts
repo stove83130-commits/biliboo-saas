@@ -11,7 +11,8 @@ export async function PUT(
 ) {
   try {
     const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const workspaceId = params.id
@@ -50,7 +51,8 @@ export async function DELETE(
 ) {
   try {
     const supabase = createClient()
-    const { data: { session } } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || null
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 
     const workspaceId = params.id

@@ -8,10 +8,11 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // 1. Vérifier l'authentification
-    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+        const user = session?.user || null;
 
     if (authError || !user) {
       return NextResponse.json(
@@ -111,10 +112,11 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // 1. Vérifier l'authentification
-    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+        const user = session?.user || null;
 
     if (authError || !user) {
       return NextResponse.json(
@@ -210,10 +212,11 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // 1. Vérifier l'authentification
-    const { data: { session }, error: authError } = await supabase.auth.getSession()$n    const user = session?.user || null;
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+        const user = session?.user || null;
 
     if (authError || !user) {
       return NextResponse.json(

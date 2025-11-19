@@ -20,11 +20,9 @@ export async function GET(
 ) {
   try {
     // 1. Authentification utilisateur
-    const supabase = createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+    const supabase = await createClient();
+    const { data: { session }, error: authError } = await supabase.auth.getSession()
+    const user = session?.user || null
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });

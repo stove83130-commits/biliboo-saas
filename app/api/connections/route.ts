@@ -8,7 +8,8 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
     
     // Récupérer l'utilisateur connecté
-    const { data: { session }, error: userError } = await supabase.auth.getSession()$n    const user = session?.user || null
+    const { data: { session }, error: userError } = await supabase.auth.getSession()
+        const user = session?.user || null
     
     if (userError || !user) {
       return NextResponse.json({ 
