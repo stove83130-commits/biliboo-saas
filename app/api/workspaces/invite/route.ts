@@ -6,7 +6,7 @@ import { canInviteMembers } from "@/lib/workspaces/permissions"
 export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 })
 

@@ -22,42 +22,31 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
   const checkPlanStatus = async () => {
     try {
-      // Ajouter un timeout pour éviter les blocages
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 secondes max
+      // Utiliser directement les métadonnées utilisateur au lieu de l'API
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const user = session?.user || null
       
-      const response = await fetch('/api/billing/plan', { 
-        credentials: 'include', 
-        cache: 'no-store',
-        signal: controller.signal
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (response.ok) {
-        const data = await response.json()
-        // Log uniquement si le statut a changé (pour éviter les logs répétitifs)
-        setHasActivePlan((prev) => {
-          const newValue = data.hasActivePlan || false
-          if (prev !== newValue) {
-            console.log('📋 Plan status changé:', {
-              planKey: data.planKey,
-              hasActivePlan: newValue,
-              subscription_status: data.subscription_status
-            })
-          }
-          return newValue
-        })
-        setCurrentPlan(data.planKey || null)
+      if (user) {
+        const selectedPlan = user.user_metadata?.selected_plan as string | null
+        const subscriptionStatus = user.user_metadata?.subscription_status as string | null
+        const isTrial = Boolean(user.user_metadata?.is_trial)
+        const trialEndsAt = user.user_metadata?.trial_ends_at as string | null
+        
+        setCurrentPlan(selectedPlan || null)
+        
+        // Déterminer si l'utilisateur a un plan actif
+        const hasActiveSubscription = subscriptionStatus === 'active' || 
+                                     subscriptionStatus === 'trialing' ||
+                                     (isTrial && trialEndsAt && new Date(trialEndsAt) > new Date())
+        
+        setHasActivePlan(hasActiveSubscription)
       } else {
         setHasActivePlan(false)
         setCurrentPlan(null)
       }
     } catch (error: any) {
-      // Ignorer les erreurs d'abort (timeout) - c'est normal
-      if (error.name !== 'AbortError') {
-        console.error('Erreur vérification plan:', error)
-      }
+      console.error('Erreur vérification plan:', error)
       setHasActivePlan(false)
       setCurrentPlan(null)
     } finally {
