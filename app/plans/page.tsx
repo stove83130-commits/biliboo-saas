@@ -20,7 +20,18 @@ export default function PlansPage() {
   useEffect(() => {
     const checkUser = async () => {
       try {
-        // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+        // Vérifier d'abord s'il y a un cookie d'auth avant d'appeler getSession()
+        const authCookieName = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || 'qkpfxpuhrjgctpadxslh'}-auth-token`
+        const hasAuthCookie = typeof document !== 'undefined' && document.cookie.includes(authCookieName)
+        
+        // Si pas de cookie d'auth, ne pas appeler getSession() (évite les erreurs)
+        if (!hasAuthCookie) {
+          setUser(null)
+          setIsLoading(false)
+          return
+        }
+        
+        // Utiliser getSession() seulement s'il y a un cookie d'auth
         const { data: { session }, error } = await supabase.auth.getSession()
         
         // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)

@@ -18,15 +18,31 @@ export function Header() {
   useEffect(() => {
     let mounted = true
     const init = async () => {
-      // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token en production
-      const { data: { session }, error } = await supabase.auth.getSession()
+      // Vérifier d'abord s'il y a un cookie d'auth avant d'appeler getSession()
+      // Cela évite les erreurs refresh_token_not_found sur les pages publiques
+      const authCookieName = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || 'qkpfxpuhrjgctpadxslh'}-auth-token`
+      const hasAuthCookie = typeof document !== 'undefined' && document.cookie.includes(authCookieName)
       
-      // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
-      if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
-        console.error('Erreur session header:', error)
+      // Si pas de cookie d'auth, ne pas appeler getSession() (évite les erreurs)
+      if (!hasAuthCookie) {
+        if (mounted) setUser(null)
+        return
       }
       
-      if (mounted) setUser(session?.user ?? null)
+      // Utiliser getSession() seulement s'il y a un cookie d'auth
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        // Ignorer les erreurs de refresh token (normales pour les utilisateurs non connectés)
+        if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+          console.error('Erreur session header:', error)
+        }
+        
+        if (mounted) setUser(session?.user ?? null)
+      } catch (err: any) {
+        // Ignorer les erreurs
+        if (mounted) setUser(null)
+      }
     }
     init()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {

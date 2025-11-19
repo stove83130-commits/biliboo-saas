@@ -22,10 +22,15 @@ export function createClient() {
     process.env.SUPABASE_ANON_KEY ||
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrcGZ4cHVocmpnY3RwYWR4c2xoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1NTYzMTgsImV4cCI6MjA3NDEzMjMxOH0.Blc5wlKE6g00AqYFdGmsRDeD3ZTKDQfOx4jVpmqA5n4'
 
-  // Créer le client - createBrowserClient de @supabase/ssr gère automatiquement les cookies
-  // autoRefreshToken est désactivé par défaut dans certaines configurations
-  // Pour éviter les erreurs 429, on utilise simplement createBrowserClient sans options
-  supabaseClient = createBrowserClient(supabaseUrl, supabaseAnonKey)
+  // Créer le client avec autoRefreshToken désactivé pour éviter les erreurs refresh_token_not_found
+  // sur les pages publiques où il n'y a pas de session
+  supabaseClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: false, // Désactiver pour éviter les tentatives de refresh automatiques
+      persistSession: true, // Garder la persistance de session
+      detectSessionInUrl: true, // Détecter les sessions dans l'URL (pour OAuth)
+    },
+  })
 
   return supabaseClient
 }

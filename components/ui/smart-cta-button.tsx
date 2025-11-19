@@ -43,7 +43,21 @@ export function SmartCTAButton({
     
     const checkUserStatus = async () => {
       try {
-        // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+        // Vérifier d'abord s'il y a un cookie d'auth avant d'appeler getSession()
+        const authCookieName = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https?:\/\/([^.]+)\.supabase\.co/)?.[1] || 'qkpfxpuhrjgctpadxslh'}-auth-token`
+        const hasAuthCookie = typeof document !== 'undefined' && document.cookie.includes(authCookieName)
+        
+        // Si pas de cookie d'auth, ne pas appeler getSession() (évite les erreurs)
+        if (!hasAuthCookie) {
+          if (isMounted) {
+            setUser(null)
+            setCurrentPlan(null)
+            setHasActivePlan(false)
+          }
+          return
+        }
+        
+        // Utiliser getSession() seulement s'il y a un cookie d'auth
         // Ajouter un timeout pour éviter les blocages
         const sessionPromise = supabase.auth.getSession()
         const timeoutPromise = new Promise((_, reject) => 
