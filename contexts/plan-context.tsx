@@ -22,7 +22,18 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
   const checkPlanStatus = async () => {
     try {
-      const response = await fetch('/api/billing/plan', { credentials: 'include', cache: 'no-store' })
+      // Ajouter un timeout pour éviter les blocages
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 secondes max
+      
+      const response = await fetch('/api/billing/plan', { 
+        credentials: 'include', 
+        cache: 'no-store',
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+      
       if (response.ok) {
         const data = await response.json()
         // Log uniquement si le statut a changé (pour éviter les logs répétitifs)
@@ -42,8 +53,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         setHasActivePlan(false)
         setCurrentPlan(null)
       }
-    } catch (error) {
-      console.error('Erreur vérification plan:', error)
+    } catch (error: any) {
+      // Ignorer les erreurs d'abort (timeout) - c'est normal
+      if (error.name !== 'AbortError') {
+        console.error('Erreur vérification plan:', error)
+      }
       setHasActivePlan(false)
       setCurrentPlan(null)
     } finally {
