@@ -21,8 +21,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="fr" className={inter.variable}>
-      <body className="min-h-screen bg-background text-foreground">
+    <html lang="fr" className={inter.variable} suppressHydrationWarning>
+      <body className="min-h-screen bg-background text-foreground" suppressHydrationWarning>
         <PlanProvider>
           {children}
         </PlanProvider>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "./button"
 
@@ -19,7 +19,15 @@ export function ModernCalendar({
   selectedRange,
   onRangeSelect 
 }: ModernCalendarProps) {
-  const [currentMonth, setCurrentMonth] = useState(new Date())
+  // Utiliser une fonction d'initialisation pour éviter les différences serveur/client
+  const [currentMonth, setCurrentMonth] = useState<Date | null>(null)
+  
+  // Initialiser la date dans un useEffect pour éviter les problèmes d'hydratation
+  useEffect(() => {
+    if (currentMonth === null) {
+      setCurrentMonth(new Date())
+    }
+  }, [currentMonth])
 
   const monthNames = [
     "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -81,6 +89,17 @@ export function ModernCalendar({
         }
       }
     }
+  }
+
+  // Ne pas rendre si currentMonth n'est pas encore initialisé (évite les erreurs d'hydratation)
+  if (!currentMonth) {
+    return (
+      <div className="w-full max-w-sm bg-white rounded-lg shadow-sm border p-4">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-sm text-gray-500">Chargement...</div>
+        </div>
+      </div>
+    )
   }
 
   const days = getDaysInMonth(currentMonth)
