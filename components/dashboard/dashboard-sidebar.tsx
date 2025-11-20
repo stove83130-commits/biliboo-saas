@@ -78,10 +78,11 @@ export function DashboardSidebar() {
   }
 
   const getUserEmail = () => {
-    if (!user?.email) {
+    // Ne pas logger d'erreur si l'utilisateur est simplement en cours de chargement
+    if (user && !user.email) {
       console.error('❌ Aucun email disponible pour cet utilisateur')
     }
-    return user?.email || 'Pas d\'email'
+    return user?.email || 'Chargement...'
   }
 
   return (
