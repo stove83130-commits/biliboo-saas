@@ -29,7 +29,15 @@ export function DashboardSidebar() {
 
   useEffect(() => {
     const getUser = async () => {
-      // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
+      if (typeof document === 'undefined') return
+      
+      const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+      if (!hasCookie) {
+        setUser(null)
+        return
+      }
+
+      const supabase = createClient()
       const { data: { session }, error } = await supabase.auth.getSession()
       const user = session?.user || null
       
@@ -44,23 +52,7 @@ export function DashboardSidebar() {
       setUser(user)
     }
     getUser()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const currentUser = session?.user
-      
-      // Vérifier si l'utilisateur a un email valide
-      if (currentUser && !currentUser.email) {
-        console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
-        await supabase.auth.signOut()
-        router.push('/auth/signup?error=no_email')
-        return
-      }
-      
-      setUser(currentUser ?? null)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [supabase.auth, router])
+  }, [router])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

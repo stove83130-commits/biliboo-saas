@@ -20,7 +20,16 @@ export default function PlansPage() {
   useEffect(() => {
     const checkUser = async () => {
       try {
-        // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+        if (typeof document === 'undefined') return
+        
+        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+        if (!hasCookie) {
+          setUser(null)
+          setIsLoading(false)
+          return
+        }
+
+        const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
         setUser(session?.user ?? null)
       } catch (error: any) {
@@ -32,15 +41,7 @@ export default function PlansPage() {
     }
 
     checkUser()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [supabase.auth])
+  }, [])
 
   const handleGoBack = () => {
     if (typeof window !== 'undefined') {

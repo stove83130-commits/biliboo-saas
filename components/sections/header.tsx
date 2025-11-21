@@ -11,36 +11,34 @@ import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
 
 export function Header() {
-  const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
   const pathname = usePathname()
 
   useEffect(() => {
-    let mounted = true
-    const init = async () => {
-      // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+    const checkAuth = async () => {
+      if (typeof document === 'undefined') return
+      
+      const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+      if (!hasCookie) {
+        setUser(null)
+        return
+      }
+
+      const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
-      if (mounted) setUser(session?.user ?? null)
+      setUser(session?.user ?? null)
     }
-    init()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) setUser(session?.user ?? null)
-    })
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-    }
-  }, [supabase.auth])
+
+    checkAuth()
+  }, [])
   
   const scrollToSection = (sectionId: string) => {
-    // Si on est sur la page d'accueil, on scroll directement
     if (pathname === '/') {
       const element = document.getElementById(sectionId)
       if (element) {
         element.scrollIntoView({ behavior: 'smooth' })
       }
     } else {
-      // Sinon, on redirige vers la page d'accueil avec le hash
       window.location.href = `/#${sectionId}`
     }
   }
@@ -48,7 +46,6 @@ export function Header() {
   return (
     <header className="w-full pt-4">
       <div className="flex items-center justify-between">
-        {/* Logo */}
         <Link href="/" className="flex items-center space-x-2">
           <Image 
             src="/logos/logo%20off.png" 
@@ -60,7 +57,6 @@ export function Header() {
           <span className="text-xl font-semibold text-foreground">Bilibou</span>
         </Link>
 
-        {/* Navigation Desktop - Centrée et alignée avec le bouton principal */}
         <nav className="hidden md:flex items-center space-x-6 absolute left-1/2 transform -translate-x-1/2">
           <button 
             onClick={() => scrollToSection('features-section')}
@@ -82,7 +78,6 @@ export function Header() {
           </button>
         </nav>
 
-        {/* Actions - Droite */}
         <div className="flex items-center">
           {user ? (
             <Link href="/dashboard">
@@ -105,7 +100,6 @@ export function Header() {
             </div>
           )}
 
-          {/* Menu Mobile */}
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="sm" className="md:hidden">
@@ -141,13 +135,13 @@ export function Header() {
                     </Link>
                   ) : (
                     <div className="flex flex-col gap-2">
-                    <Link href="/auth/login" className="block">
-                      <Button className="w-full justify-start bg-white text-foreground hover:bg-white/90 px-7 py-1 rounded-full font-medium text-sm shadow-lg">
+                      <Link href="/auth/login" className="block">
+                        <Button className="w-full justify-start bg-white text-foreground hover:bg-white/90 px-7 py-1 rounded-full font-medium text-sm shadow-lg">
                           Connexion
                         </Button>
                       </Link>
                       <Link href="/auth/signup" className="block">
-                      <Button className="w-full justify-start bg-white text-foreground hover:bg-white/90 px-7 py-1 rounded-full font-medium text-sm shadow-lg">
+                        <Button className="w-full justify-start bg-white text-foreground hover:bg-white/90 px-7 py-1 rounded-full font-medium text-sm shadow-lg">
                           Inscription
                         </Button>
                       </Link>

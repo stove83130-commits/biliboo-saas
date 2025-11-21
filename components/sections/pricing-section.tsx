@@ -14,21 +14,21 @@ export function PricingSection() {
 
   useEffect(() => {
     const checkUser = async () => {
-      // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+      if (typeof document === 'undefined') return
+      
+      const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+      if (!hasCookie) {
+        setUser(null)
+        return
+      }
+
+      const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
       setUser(session?.user ?? null)
     }
 
     checkUser()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [supabase.auth])
+  }, [])
 
   // Vérifier si l'utilisateur a déjà consommé son essai gratuit
   // Un essai est considéré comme consommé si :
