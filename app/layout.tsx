@@ -3,6 +3,7 @@ import './globals.css'
 import { PlanProvider } from '@/contexts/plan-context'
 import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { CookieCleaner } from '@/components/auth/cookie-cleaner'
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -23,6 +24,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className={inter.variable}>
       <body className="min-h-screen bg-background text-foreground">
+        <CookieCleaner />
         <PlanProvider>
           {children}
         </PlanProvider>
