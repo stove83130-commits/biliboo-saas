@@ -43,10 +43,15 @@ export async function createClient() {
       set(name: string, value: string, options: CookieOptions) {
         try {
           if (cookieStore && typeof cookieStore.set === 'function') {
+            // Détecter si on est en production (Vercel ou autre)
+            const isProduction = 
+              process.env.NODE_ENV === 'production' || 
+              process.env.VERCEL === '1'
+            
             // Options de cookies pour production (HTTPS + domaine personnalisé)
             const cookieOptions = {
               ...options,
-              secure: process.env.NODE_ENV === 'production', // HTTPS en production
+              secure: isProduction, // HTTPS en production
               sameSite: 'lax' as const,
               httpOnly: options.httpOnly ?? false,
               path: options.path ?? '/',
@@ -62,9 +67,14 @@ export async function createClient() {
       remove(name: string, options: CookieOptions) {
         try {
           if (cookieStore && typeof cookieStore.set === 'function') {
+            // Détecter si on est en production
+            const isProduction = 
+              process.env.NODE_ENV === 'production' || 
+              process.env.VERCEL === '1'
+            
             const cookieOptions = {
               ...options,
-              secure: process.env.NODE_ENV === 'production',
+              secure: isProduction,
               sameSite: 'lax' as const,
               httpOnly: options.httpOnly ?? false,
               path: options.path ?? '/',

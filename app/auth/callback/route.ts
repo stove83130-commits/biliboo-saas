@@ -37,23 +37,43 @@ export async function GET(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: any) {
+          // Détecter si on est en production (Vercel ou autre)
+          const isProduction = 
+            process.env.NODE_ENV === 'production' || 
+            process.env.VERCEL === '1' ||
+            requestUrl.hostname !== 'localhost'
+          
           // Options de cookies pour production (HTTPS + domaine personnalisé)
           const cookieOptions = {
             ...options,
-            secure: process.env.NODE_ENV === 'production', // HTTPS en production
+            secure: isProduction, // HTTPS en production
             sameSite: 'lax' as const,
             httpOnly: options.httpOnly ?? false,
             path: options.path ?? '/',
             // Ne PAS définir 'domain' explicitement - laisser le navigateur gérer
           }
+          
+          console.log('🍪 Cookie set:', {
+            name,
+            domain: requestUrl.hostname,
+            secure: isProduction,
+            sameSite: 'lax',
+            path: cookieOptions.path,
+          })
           // Définir le cookie dans la requête ET la réponse
           request.cookies.set({ name, value, ...cookieOptions })
           response.cookies.set({ name, value, ...cookieOptions })
         },
         remove(name: string, options: any) {
+          // Détecter si on est en production
+          const isProduction = 
+            process.env.NODE_ENV === 'production' || 
+            process.env.VERCEL === '1' ||
+            requestUrl.hostname !== 'localhost'
+          
           const cookieOptions = {
             ...options,
-            secure: process.env.NODE_ENV === 'production',
+            secure: isProduction,
             sameSite: 'lax' as const,
             httpOnly: options.httpOnly ?? false,
             path: options.path ?? '/',
