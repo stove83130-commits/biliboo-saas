@@ -43,7 +43,16 @@ export async function createClient() {
       set(name: string, value: string, options: CookieOptions) {
         try {
           if (cookieStore && typeof cookieStore.set === 'function') {
-            cookieStore.set({ name, value, ...options })
+            // Options de cookies pour production (HTTPS + domaine personnalisé)
+            const cookieOptions = {
+              ...options,
+              secure: process.env.NODE_ENV === 'production', // HTTPS en production
+              sameSite: 'lax' as const,
+              httpOnly: options.httpOnly ?? false,
+              path: options.path ?? '/',
+              // Ne PAS définir 'domain' explicitement - laisser le navigateur gérer
+            }
+            cookieStore.set({ name, value, ...cookieOptions })
           }
         } catch (error) {
           // Peut être ignoré si appelé depuis un Server Component
@@ -53,7 +62,14 @@ export async function createClient() {
       remove(name: string, options: CookieOptions) {
         try {
           if (cookieStore && typeof cookieStore.set === 'function') {
-            cookieStore.set({ name, value: '', ...options })
+            const cookieOptions = {
+              ...options,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax' as const,
+              httpOnly: options.httpOnly ?? false,
+              path: options.path ?? '/',
+            }
+            cookieStore.set({ name, value: '', ...cookieOptions })
           }
         } catch (error) {
           // Peut être ignoré si appelé depuis un Server Component

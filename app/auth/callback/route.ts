@@ -20,14 +20,30 @@ export async function GET(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: any) {
+          // Options de cookies pour production (HTTPS + domaine personnalisé)
+          const cookieOptions = {
+            ...options,
+            secure: process.env.NODE_ENV === 'production', // HTTPS en production
+            sameSite: 'lax' as const,
+            httpOnly: options.httpOnly ?? false,
+            path: options.path ?? '/',
+            // Ne PAS définir 'domain' explicitement - laisser le navigateur gérer
+          }
           // Définir le cookie dans la requête ET la réponse
-          request.cookies.set({ name, value, ...options })
-          response.cookies.set({ name, value, ...options })
+          request.cookies.set({ name, value, ...cookieOptions })
+          response.cookies.set({ name, value, ...cookieOptions })
         },
         remove(name: string, options: any) {
+          const cookieOptions = {
+            ...options,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax' as const,
+            httpOnly: options.httpOnly ?? false,
+            path: options.path ?? '/',
+          }
           // Supprimer le cookie dans la requête ET la réponse
-          request.cookies.set({ name, value: '', ...options })
-          response.cookies.set({ name, value: '', ...options })
+          request.cookies.set({ name, value: '', ...cookieOptions })
+          response.cookies.set({ name, value: '', ...cookieOptions })
         },
       },
     })

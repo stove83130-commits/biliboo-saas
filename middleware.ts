@@ -40,14 +40,30 @@ export async function middleware(request: NextRequest) {
         return request.cookies.get(name)?.value
       },
       set(name: string, value: string, options: any) {
-        request.cookies.set({ name, value, ...options })
+        // Options de cookies pour production (HTTPS + domaine personnalisé)
+        const cookieOptions = {
+          ...options,
+          secure: process.env.NODE_ENV === 'production', // HTTPS en production
+          sameSite: 'lax' as const,
+          httpOnly: options.httpOnly ?? false,
+          path: options.path ?? '/',
+          // Ne PAS définir 'domain' explicitement - laisser le navigateur gérer
+        }
+        request.cookies.set({ name, value, ...cookieOptions })
         supabaseResponse = NextResponse.next({ request })
-        supabaseResponse.cookies.set({ name, value, ...options })
+        supabaseResponse.cookies.set({ name, value, ...cookieOptions })
       },
       remove(name: string, options: any) {
-        request.cookies.set({ name, value: '', ...options })
+        const cookieOptions = {
+          ...options,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax' as const,
+          httpOnly: options.httpOnly ?? false,
+          path: options.path ?? '/',
+        }
+        request.cookies.set({ name, value: '', ...cookieOptions })
         supabaseResponse = NextResponse.next({ request })
-        supabaseResponse.cookies.set({ name, value: '', ...options })
+        supabaseResponse.cookies.set({ name, value: '', ...cookieOptions })
       },
     },
   })
