@@ -11,13 +11,26 @@ import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
 
 export function Header() {
+  const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
   const pathname = usePathname()
 
-  // ❌ DÉSACTIVÉ TEMPORAIREMENT - DEBUG
   useEffect(() => {
-    // Ne rien faire pour le moment
-  }, [])
+    let mounted = true
+    const init = async () => {
+      // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+      const { data: { session } } = await supabase.auth.getSession()
+      if (mounted) setUser(session?.user ?? null)
+    }
+    init()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mounted) setUser(session?.user ?? null)
+    })
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [supabase.auth])
   
   const scrollToSection = (sectionId: string) => {
     // Si on est sur la page d'accueil, on scroll directement

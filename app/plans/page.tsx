@@ -18,43 +18,29 @@ export default function PlansPage() {
   const router = useRouter()
 
   useEffect(() => {
-    let mounted = true
     const checkUser = async () => {
       try {
-        // Vérifier cookie d'abord
-        if (typeof document !== 'undefined') {
-          const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
-          if (!hasCookie) {
-            if (mounted) {
-              setUser(null)
-              setIsLoading(false)
-            }
-            return
-          }
-        }
-        
+        // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
         const { data: { session } } = await supabase.auth.getSession()
-        if (mounted) {
-          setUser(session?.user ?? null)
-          setIsLoading(false)
-        }
+        setUser(session?.user ?? null)
       } catch (error: any) {
         // Ignorer les erreurs
-        if (mounted) {
-          setUser(null)
-          setIsLoading(false)
-        }
+        setUser(null)
+      } finally {
+        setIsLoading(false)
       }
     }
 
     checkUser()
-    
-    // ❌ SUPPRIMÉ: onAuthStateChange - cause la boucle infinie
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
 
     return () => {
-      mounted = false
+      subscription.unsubscribe()
     }
-  }, []) // ✅ Tableau vide - s'exécute 1 seule fois
+  }, [supabase.auth])
 
   const handleGoBack = () => {
     if (typeof window !== 'undefined') {

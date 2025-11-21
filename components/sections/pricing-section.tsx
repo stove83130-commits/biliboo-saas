@@ -10,11 +10,25 @@ import type { User } from "@supabase/supabase-js"
 export function PricingSection() {
   const [isAnnual, setIsAnnual] = useState(true)
   const [user, setUser] = useState<User | null>(null)
+  const supabase = createClient()
 
-  // ❌ DÉSACTIVÉ TEMPORAIREMENT - DEBUG  
   useEffect(() => {
-    // Ne rien faire pour le moment
-  }, [])
+    const checkUser = async () => {
+      // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+      const { data: { session } } = await supabase.auth.getSession()
+      setUser(session?.user ?? null)
+    }
+
+    checkUser()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase.auth])
 
   // Vérifier si l'utilisateur a déjà consommé son essai gratuit
   // Un essai est considéré comme consommé si :

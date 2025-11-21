@@ -28,17 +28,7 @@ export function DashboardSidebar() {
   const [openMenu, setOpenMenu] = useState(false)
 
   useEffect(() => {
-    let mounted = true
     const getUser = async () => {
-      // Vérifier cookie d'abord
-      if (typeof document !== 'undefined') {
-        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
-        if (!hasCookie) {
-          if (mounted) setUser(null)
-          return
-        }
-      }
-      
       // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
       const { data: { session }, error } = await supabase.auth.getSession()
       const user = session?.user || null
@@ -51,17 +41,26 @@ export function DashboardSidebar() {
         return
       }
       
-      if (mounted) setUser(user)
+      setUser(user)
     }
     getUser()
 
-    // ❌ SUPPRIMÉ: onAuthStateChange - cause la boucle infinie
-    // Pour le dashboard, on peut se contenter d'un check initial
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const currentUser = session?.user
+      
+      // Vérifier si l'utilisateur a un email valide
+      if (currentUser && !currentUser.email) {
+        console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
+        await supabase.auth.signOut()
+        router.push('/auth/signup?error=no_email')
+        return
+      }
+      
+      setUser(currentUser ?? null)
+    })
 
-    return () => {
-      mounted = false
-    }
-  }, [router]) // ✅ Seulement router en dépendance
+    return () => subscription.unsubscribe()
+  }, [supabase.auth, router])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -79,11 +78,10 @@ export function DashboardSidebar() {
   }
 
   const getUserEmail = () => {
-    // Ne pas logger d'erreur si l'utilisateur est simplement en cours de chargement
-    if (user && !user.email) {
+    if (!user?.email) {
       console.error('❌ Aucun email disponible pour cet utilisateur')
     }
-    return user?.email || 'Chargement...'
+    return user?.email || 'Pas d\'email'
   }
 
   return (

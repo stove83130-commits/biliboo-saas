@@ -48,26 +48,10 @@ export async function GET(request: NextRequest) {
         return request.cookies.get(name)?.value
       },
       set(name: string, value: string, options: any) {
-        // Options de cookies pour la production (HTTPS)
-        const cookieOptions = {
-          ...options,
-          secure: process.env.NODE_ENV === 'production' || requestUrl.protocol === 'https:',
-          sameSite: 'lax' as const,
-          httpOnly: options.httpOnly ?? false,
-          path: options.path ?? '/',
-        }
-        response.cookies.set({ name, value, ...cookieOptions })
+        response.cookies.set({ name, value, ...options })
       },
       remove(name: string, options: any) {
-        // Options de cookies pour la production (HTTPS)
-        const cookieOptions = {
-          ...options,
-          secure: process.env.NODE_ENV === 'production' || requestUrl.protocol === 'https:',
-          sameSite: 'lax' as const,
-          httpOnly: options.httpOnly ?? false,
-          path: options.path ?? '/',
-        }
-        response.cookies.set({ name, value: '', ...cookieOptions })
+        response.cookies.set({ name, value: '', ...options })
       },
     },
   })
