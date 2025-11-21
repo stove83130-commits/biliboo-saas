@@ -8,6 +8,7 @@ export async function middleware(request: NextRequest) {
   const publicPaths = [
     '/auth/login',
     '/auth/signup',
+    '/auth/callback', // IMPORTANT: Route callback OAuth doit être publique
     '/',
     '/cgu',
     '/cgv',
