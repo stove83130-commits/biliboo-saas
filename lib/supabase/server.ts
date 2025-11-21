@@ -25,7 +25,15 @@ export const createClient = async () => {
         },
         set(name: string, value: string, options: any) {
           try {
-            cookieStore.set({ name, value, ...options })
+            // Options de cookies pour la production (HTTPS)
+            const cookieOptions = {
+              ...options,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax' as const,
+              httpOnly: options.httpOnly ?? false,
+              path: options.path ?? '/',
+            }
+            cookieStore.set({ name, value, ...cookieOptions })
           } catch (error) {
             // The `set` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
@@ -34,7 +42,15 @@ export const createClient = async () => {
         },
         remove(name: string, options: any) {
           try {
-            cookieStore.set({ name, value: '', ...options })
+            // Options de cookies pour la production (HTTPS)
+            const cookieOptions = {
+              ...options,
+              secure: process.env.NODE_ENV === 'production',
+              sameSite: 'lax' as const,
+              httpOnly: options.httpOnly ?? false,
+              path: options.path ?? '/',
+            }
+            cookieStore.set({ name, value: '', ...cookieOptions })
           } catch (error) {
             // The `delete` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing

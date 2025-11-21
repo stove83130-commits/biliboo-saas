@@ -25,10 +25,19 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: any) {
+          // Options de cookies pour la production (HTTPS)
+          const cookieOptions = {
+            ...options,
+            secure: process.env.NODE_ENV === 'production' || request.nextUrl.protocol === 'https:',
+            sameSite: 'lax' as const,
+            httpOnly: options.httpOnly ?? false,
+            path: options.path ?? '/',
+          }
+          
           request.cookies.set({
             name,
             value,
-            ...options,
+            ...cookieOptions,
           })
           supabaseResponse = NextResponse.next({
             request,
@@ -36,14 +45,23 @@ export async function updateSession(request: NextRequest) {
           supabaseResponse.cookies.set({
             name,
             value,
-            ...options,
+            ...cookieOptions,
           })
         },
         remove(name: string, options: any) {
+          // Options de cookies pour la production (HTTPS)
+          const cookieOptions = {
+            ...options,
+            secure: process.env.NODE_ENV === 'production' || request.nextUrl.protocol === 'https:',
+            sameSite: 'lax' as const,
+            httpOnly: options.httpOnly ?? false,
+            path: options.path ?? '/',
+          }
+          
           request.cookies.set({
             name,
             value: '',
-            ...options,
+            ...cookieOptions,
           })
           supabaseResponse = NextResponse.next({
             request,
@@ -51,7 +69,7 @@ export async function updateSession(request: NextRequest) {
           supabaseResponse.cookies.set({
             name,
             value: '',
-            ...options,
+            ...cookieOptions,
           })
         },
       },
