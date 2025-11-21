@@ -28,7 +28,17 @@ export function DashboardSidebar() {
   const [openMenu, setOpenMenu] = useState(false)
 
   useEffect(() => {
+    let mounted = true
     const getUser = async () => {
+      // Vérifier cookie d'abord
+      if (typeof document !== 'undefined') {
+        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+        if (!hasCookie) {
+          if (mounted) setUser(null)
+          return
+        }
+      }
+      
       // Utiliser getSession() au lieu de getUser() pour éviter les problèmes de refresh token
       const { data: { session }, error } = await supabase.auth.getSession()
       const user = session?.user || null
@@ -41,26 +51,17 @@ export function DashboardSidebar() {
         return
       }
       
-      setUser(user)
+      if (mounted) setUser(user)
     }
     getUser()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const currentUser = session?.user
-      
-      // Vérifier si l'utilisateur a un email valide
-      if (currentUser && !currentUser.email) {
-        console.error('❌ Utilisateur sans email détecté, déconnexion forcée')
-        await supabase.auth.signOut()
-        router.push('/auth/signup?error=no_email')
-        return
-      }
-      
-      setUser(currentUser ?? null)
-    })
+    // ❌ SUPPRIMÉ: onAuthStateChange - cause la boucle infinie
+    // Pour le dashboard, on peut se contenter d'un check initial
 
-    return () => subscription.unsubscribe()
-  }, [supabase.auth, router])
+    return () => {
+      mounted = false
+    }
+  }, [router]) // ✅ Seulement router en dépendance
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

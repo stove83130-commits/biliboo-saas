@@ -18,19 +18,28 @@ export function Header() {
   useEffect(() => {
     let mounted = true
     const init = async () => {
-      // getSession() est maintenant wrappé dans createClient() pour vérifier le cookie automatiquement
+      // Vérifier cookie d'abord
+      if (typeof document !== 'undefined') {
+        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+        if (!hasCookie) {
+          if (mounted) setUser(null)
+          return
+        }
+      }
+      
       const { data: { session } } = await supabase.auth.getSession()
       if (mounted) setUser(session?.user ?? null)
     }
+    
     init()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) setUser(session?.user ?? null)
-    })
+    
+    // ❌ SUPPRIMÉ: onAuthStateChange - cause la boucle infinie
+    // const { data: { subscription } } = supabase.auth.onAuthStateChange(...)
+    
     return () => {
       mounted = false
-      subscription.unsubscribe()
     }
-  }, [supabase.auth])
+  }, []) // ✅ Tableau vide - s'exécute 1 seule fois
   
   const scrollToSection = (sectionId: string) => {
     // Si on est sur la page d'accueil, on scroll directement
