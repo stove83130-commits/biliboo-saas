@@ -22,21 +22,42 @@ export default function LoginPage() {
 
     try {
       const supabase = createClient()
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
+      
+      // Vérifier que le client est bien créé
+      if (!supabase) {
+        setError('Erreur de configuration Supabase')
+        setLoading(false)
+        return
+      }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
         password,
       })
 
       if (error) {
-        setError(error.message)
+        console.error('❌ Erreur login Supabase:', error)
+        // Messages d'erreur plus explicites
+        if (error.message.includes('Invalid login credentials')) {
+          setError('Email ou mot de passe incorrect')
+        } else if (error.message.includes('Email not confirmed')) {
+          setError('Veuillez confirmer votre email avant de vous connecter')
+        } else {
+          setError(error.message || 'Erreur lors de la connexion')
+        }
         setLoading(false)
         return
       }
 
-      router.push('/dashboard')
-      router.refresh()
-    } catch (err) {
-      setError('Une erreur est survenue')
+      if (data?.user) {
+        router.push('/dashboard')
+        router.refresh()
+      } else {
+        setError('Aucun utilisateur retourné')
+        setLoading(false)
+      }
+    } catch (err: any) {
+      console.error('❌ Erreur inattendue login:', err)
+      setError(err?.message || 'Une erreur est survenue lors de la connexion')
       setLoading(false)
     }
   }
