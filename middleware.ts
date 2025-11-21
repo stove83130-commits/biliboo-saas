@@ -6,85 +6,9 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const pathname = request.nextUrl.pathname
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('❌ Variables d\'environnement Supabase manquantes dans middleware!')
-    console.error('💡 Solution: Ajoutez NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY dans Vercel')
-    // Ne pas bloquer, mais logger l'erreur
-    return supabaseResponse
-  }
-
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
-        },
-        set(name: string, value: string, options: any) {
-          // Options de cookies pour la production (HTTPS)
-          const cookieOptions = {
-            ...options,
-            secure: process.env.NODE_ENV === 'production' || request.nextUrl.protocol === 'https:',
-            sameSite: 'lax' as const,
-            httpOnly: options.httpOnly ?? false,
-            path: options.path ?? '/',
-          }
-          
-          request.cookies.set({
-            name,
-            value,
-            ...cookieOptions,
-          })
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          supabaseResponse.cookies.set({
-            name,
-            value,
-            ...cookieOptions,
-          })
-        },
-        remove(name: string, options: any) {
-          // Options de cookies pour la production (HTTPS)
-          const cookieOptions = {
-            ...options,
-            secure: process.env.NODE_ENV === 'production' || request.nextUrl.protocol === 'https:',
-            sameSite: 'lax' as const,
-            httpOnly: options.httpOnly ?? false,
-            path: options.path ?? '/',
-          }
-          
-          request.cookies.set({
-            name,
-            value: '',
-            ...cookieOptions,
-          })
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          supabaseResponse.cookies.set({
-            name,
-            value: '',
-            ...cookieOptions,
-          })
-        },
-      },
-    }
-  )
-
-  // IMPORTANT: Avoid writing any logic between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  // Routes publiques pour Biliboo
+  // PROTECTION 1: Ne JAMAIS appeler getUser() sur les routes publiques
   const publicPaths = [
     '/auth/login',
     '/auth/signup', 
@@ -97,35 +21,111 @@ export async function updateSession(request: NextRequest) {
   ]
 
   const isPublicPath = publicPaths.some(path => 
-    request.nextUrl.pathname === path || 
-    request.nextUrl.pathname.startsWith(path + '/')
+    pathname === path || pathname.startsWith(path + '/')
   )
 
-  // Ne pas rediriger les routes API
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
+  const isApiRoute = pathname.startsWith('/api/')
 
-  // Rediriger vers login si pas authentifié et route protégée
-  if (!user && !isPublicPath && !isApiRoute) {
+  // PROTECTION 2: Skip complètement si route publique ou API
+  if (isPublicPath || isApiRoute) {
+    return supabaseResponse
+  }
+
+  // À partir d'ici, on est sur une route PROTÉGÉE
+  // On peut maintenant vérifier l'auth
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('⚠️ Variables d\'environnement Supabase manquantes!')
+    return supabaseResponse
+  }
+
+  const supabase = createServerClient(
+    supabaseUrl,
+    supabaseAnonKey,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: any) {
+          const cookieOptions = {
+            ...options,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax' as const,
+            httpOnly: options.httpOnly ?? false,
+            path: options.path ?? '/',
+          }
+          
+          request.cookies.set({ name, value, ...cookieOptions })
+          supabaseResponse = NextResponse.next({ request })
+          supabaseResponse.cookies.set({ name, value, ...cookieOptions })
+        },
+        remove(name: string, options: any) {
+          const cookieOptions = {
+            ...options,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax' as const,
+            httpOnly: options.httpOnly ?? false,
+            path: options.path ?? '/',
+          }
+          
+          request.cookies.set({ name, value: '', ...cookieOptions })
+          supabaseResponse = NextResponse.next({ request })
+          supabaseResponse.cookies.set({ name, value: '', ...cookieOptions })
+        },
+      },
+    }
+  )
+
+  // PROTECTION 3: Vérifier cookie AVANT getUser()
+  const authCookieName = `sb-${supabaseUrl.match(/https?:\/\/([^.]+)/)?.[1]}-auth-token`
+  const hasAuthCookie = request.cookies.has(authCookieName)
+
+  if (!hasAuthCookie) {
+    // Pas de cookie = pas connecté → redirect login
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
 
-  // Vérifier email confirmé (optionnel selon tes besoins)
-  if (user && !user.email_confirmed_at && !isPublicPath && !isApiRoute) {
-    const allowedWithoutEmail = ['/verify-email', '/onboarding']
-    const isAllowedWithoutEmail = allowedWithoutEmail.some(path =>
-      request.nextUrl.pathname.startsWith(path)
-    )
-    
-    if (!isAllowedWithoutEmail) {
+  // SEULEMENT maintenant, on peut appeler getUser()
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser()
+
+    // Si erreur rate limit, skip et laisser passer
+    if (error?.status === 429) {
+      console.warn('⚠️ Rate limit in middleware, skipping auth check')
+      return supabaseResponse
+    }
+
+    if (!user) {
       const url = request.nextUrl.clone()
-      url.pathname = '/verify-email'
+      url.pathname = '/auth/login'
       return NextResponse.redirect(url)
     }
+
+    // Vérifier email confirmé
+    if (user && !user.email_confirmed_at) {
+      const allowedWithoutEmail = ['/verify-email', '/onboarding']
+      const isAllowedWithoutEmail = allowedWithoutEmail.some(path =>
+        pathname.startsWith(path)
+      )
+      
+      if (!isAllowedWithoutEmail) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/verify-email'
+        return NextResponse.redirect(url)
+      }
+    }
+  } catch (error) {
+    console.error('❌ Middleware auth error:', error)
+    // En cas d'erreur, laisser passer pour éviter de casser le site
+    return supabaseResponse
   }
 
-  // IMPORTANT: You *must* return the supabaseResponse object as it is.
   return supabaseResponse
 }
 
@@ -136,12 +136,12 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Match toutes les routes SAUF:
      * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
+     * - _next/image (image optimization)
+     * - favicon.ico
+     * - fichiers publics (images, fonts, etc.)
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2|ttf|otf)$).*)',
   ],
 }
