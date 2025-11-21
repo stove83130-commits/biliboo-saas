@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { GoogleLogo } from '@/components/ui/brand-logos'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -14,6 +15,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,6 +40,32 @@ export default function SignupPage() {
     } catch (err) {
       setError('Une erreur est survenue')
       setLoading(false)
+    }
+  }
+
+  const handleGoogleSignup = async () => {
+    try {
+      setGoogleLoading(true)
+      setError(null)
+      
+      const supabase = createClient()
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        },
+      })
+
+      if (error) {
+        console.error('❌ Erreur Google OAuth:', error)
+        setError('Erreur lors de l\'inscription avec Google')
+        setGoogleLoading(false)
+      }
+      // Note: signInWithOAuth redirige automatiquement, donc on ne fait rien d'autre
+    } catch (err: any) {
+      console.error('❌ Erreur inattendue Google signup:', err)
+      setError(err?.message || 'Une erreur est survenue lors de l\'inscription avec Google')
+      setGoogleLoading(false)
     }
   }
 
@@ -76,6 +104,27 @@ export default function SignupPage() {
             {loading ? 'Inscription...' : 'S\'inscrire'}
           </Button>
         </form>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-gray-50 px-2 text-gray-500">Ou</span>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleGoogleSignup}
+          disabled={googleLoading || loading}
+        >
+          <GoogleLogo className="h-4 w-4 mr-2" />
+          {googleLoading ? 'Inscription...' : 'S\'inscrire avec Google'}
+        </Button>
+
         <p className="mt-4 text-center text-sm text-gray-600">
           Déjà un compte ?{' '}
           <a href="/auth/login" className="text-primary hover:underline">
