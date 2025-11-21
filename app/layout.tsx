@@ -23,9 +23,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className={inter.variable} suppressHydrationWarning>
       <body className="min-h-screen bg-background text-foreground" suppressHydrationWarning>
-        <PlanProvider>
-          {children}
-        </PlanProvider>
+        {children}
         <Analytics />
       </body>
     </html>
