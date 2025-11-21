@@ -31,15 +31,11 @@ export const createClient = () => {
 
   client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false, // ❌ DÉSACTIVER auto-refresh
-        persistSession: true,
-        detectSessionInUrl: true,
-      }
-    }
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
+  
+  // Note: autoRefreshToken ne peut pas être désactivé dans @supabase/ssr 0.1.0
+  // Mais on nettoie les cookies corrompus avant tout appel pour éviter les boucles
 
   // Wrapper getSession avec protection rate limit
   const originalGetSession = client.auth.getSession.bind(client.auth)
