@@ -79,45 +79,17 @@ export async function GET(req: NextRequest) {
     // Si invoicesFound est 0 ou null, compter directement les factures dans la table invoices
     // C'est un fallback pour s'assurer qu'on affiche toujours le bon nombre
     if ((!invoicesFound || invoicesFound === 0) && job.status === 'completed') {
-      // Récupérer le workspaceId depuis le progress du job
-      const jobWorkspaceId = (progress as any)?.workspaceId || null;
-      
-      // Compter les factures créées pour ce job (via connection_id) avec filtrage par workspace
-      let countQuery = supabaseService
+      // Compter les factures créées pour ce job (via connection_id)
+      const { count: invoicesCount, error: countError } = await supabaseService
         .from('invoices')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('connection_id', job.connection_id)
         .gte('created_at', job.created_at); // Factures créées après le début du job
       
-      // Filtrer par workspace si nécessaire
-      if (jobWorkspaceId) {
-        // Vérifier le type du workspace pour savoir comment filtrer
-        const { data: workspace } = await supabaseService
-          .from('workspaces')
-          .select('type')
-          .eq('id', jobWorkspaceId)
-          .eq('owner_id', user.id)
-          .single();
-        
-        if (workspace && workspace.type === 'personal') {
-          // Workspace personnel avec UUID : accepter null, 'personal', OU l'UUID du workspace
-          // Utiliser .in() pour filtrer par plusieurs valeurs possibles
-          countQuery = countQuery.or(`workspace_id.is.null,workspace_id.eq.personal,workspace_id.eq.${jobWorkspaceId}`);
-        } else {
-          // Workspace d'organisation : filtrer uniquement par workspace_id
-          countQuery = countQuery.eq('workspace_id', jobWorkspaceId);
-        }
-      } else {
-        // Workspace personnel (null) : workspace_id est null ou 'personal'
-        countQuery = countQuery.or('workspace_id.is.null,workspace_id.eq.personal');
-      }
-      
-      const { count: invoicesCount, error: countError } = await countQuery;
-      
       if (!countError && invoicesCount !== null && invoicesCount > 0) {
         finalInvoicesFound = invoicesCount;
-        console.log(`📊 [STATUS API] Fallback: ${invoicesCount} factures comptées directement dans la table invoices (workspace: ${jobWorkspaceId || 'personnel'})`);
+        console.log(`📊 [STATUS API] Fallback: ${invoicesCount} factures comptées directement dans la table invoices`);
       } else {
         // Si le comptage direct ne fonctionne pas, essayer de récupérer le progress depuis la DB
         const { data: freshJob } = await supabaseService

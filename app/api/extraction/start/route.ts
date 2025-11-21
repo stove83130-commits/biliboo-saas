@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     // 2. Parse du body
     const body = await req.json();
-    const { emailConfigId, searchSince, searchUntil, searchKeywords, workspaceId } = body;
+    const { emailConfigId, searchSince, searchUntil, searchKeywords } = body;
 
     if (!emailConfigId) {
       return NextResponse.json(
@@ -142,29 +142,7 @@ export async function POST(req: NextRequest) {
       console.log(`✅ Limite mensuelle OK: ${currentMonthlyCount || 0}/${getMonthlyInvoiceLimit(planId) || 'illimité'} factures`);
     }
 
-    // 5. Vérifier que le workspace_id existe avant de créer le job
-    let workspaceIdToUse = null;
-    if (workspaceId) {
-      // Vérifier que le workspace existe ET appartient à l'utilisateur
-      const { data: workspaceExists, error: workspaceError } = await supabaseService
-        .from('workspaces')
-        .select('id, owner_id')
-        .eq('id', workspaceId)
-        .eq('owner_id', user.id)
-        .single();
-      
-      if (workspaceError || !workspaceExists) {
-        console.warn(`⚠️ Workspace ${workspaceId} n'existe pas ou n'appartient pas à l'utilisateur, utilisation de null (personnel)`);
-        workspaceIdToUse = null;
-      } else {
-        workspaceIdToUse = workspaceId;
-        console.log(`✅ Workspace ${workspaceId} vérifié et valide pour le job`);
-      }
-    }
-
-    // 5. Créer un job d'extraction (utiliser l'ancienne table extraction_jobs)
-    // NOTE: La table extraction_jobs n'a pas de colonne workspace_id
-    // Le workspace_id sera utilisé directement lors de l'insertion des factures
+    // 5. Créer un job d'extraction
     const { data: job, error: jobError } = await supabaseService
       .from('extraction_jobs')
       .insert({
@@ -176,7 +154,6 @@ export async function POST(req: NextRequest) {
         progress: {
           emailsAnalyzed: 0,
           invoicesFound: 0,
-          workspaceId: workspaceIdToUse, // 🏢 Stocker le workspace_id dans le progress JSONB
         },
       })
       .select()
@@ -194,7 +171,6 @@ export async function POST(req: NextRequest) {
     console.log(`📋 Paramètres extraction:`);
     console.log(`   - Email Config ID: ${emailConfigId}`);
     console.log(`   - Période: ${searchSince || '90 jours'} → ${searchUntil}`);
-    console.log(`   - Workspace ID: ${workspaceIdToUse || 'null (personnel)'}`);
 
     // 5. NE PLUS UTILISER LA PROMESSE DIRECTE - DÉLÉGUER À /api/extraction/process
     // L'extraction sera gérée par /api/extraction/process (nouveau code optimisé)

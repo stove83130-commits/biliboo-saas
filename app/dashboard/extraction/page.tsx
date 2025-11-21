@@ -43,8 +43,7 @@ export default function ExtractionPage() {
     try {
       // OPTIMISATION: Charger depuis le cache immédiatement pour un affichage instantané
       if (useCache && typeof window !== 'undefined') {
-        const activeWorkspaceId = localStorage.getItem('active_workspace_id') || 'personal'
-        const cacheKey = `extraction_connections_cache_${activeWorkspaceId}`
+        const cacheKey = 'extraction_connections_cache'
         const cachedData = localStorage.getItem(cacheKey)
         const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`)
         
@@ -66,79 +65,14 @@ export default function ExtractionPage() {
           }
         }
       }
-      
-      // Récupérer le workspace actif
-      const activeWorkspaceId = typeof window !== 'undefined' 
-        ? localStorage.getItem('active_workspace_id') 
-        : null
 
-      // Déterminer le type de workspace
-      let workspaceType: 'personal' | 'organization' | null = null
-      let isPersonalWorkspace = false
-
-      if (activeWorkspaceId && activeWorkspaceId.trim() !== '') {
-        try {
-          const workspaceResponse = await fetch('/api/workspaces')
-          if (workspaceResponse.ok) {
-            const workspaceData = await workspaceResponse.json()
-            const workspace = workspaceData.workspaces?.find((w: any) => w.id === activeWorkspaceId)
-            if (workspace) {
-              workspaceType = workspace.type || 'organization'
-              isPersonalWorkspace = workspaceType === 'personal'
-            } else {
-              // Workspace non trouvé, considérer comme personnel par défaut
-              isPersonalWorkspace = true
-            }
-          } else {
-            // Erreur API, considérer comme personnel par défaut
-            isPersonalWorkspace = true
-          }
-        } catch (error) {
-          console.warn('⚠️ Erreur lors de la vérification du type de workspace:', error)
-          // En cas d'erreur, considérer comme personnel par défaut
-          isPersonalWorkspace = true
-        }
-      } else {
-        // Pas de workspace actif = workspace personnel
-        isPersonalWorkspace = true
-      }
-
-      console.log('🔍 Extraction - Workspace debug:', {
-        activeWorkspaceId,
-        workspaceType,
-        isPersonalWorkspace
-      })
-
-      // Utiliser l'endpoint /api/connections avec le workspace_id en paramètre
-      // Le filtrage se fait maintenant côté serveur pour garantir l'isolation des données
-      const workspaceIdParam = isPersonalWorkspace ? 'personal' : (activeWorkspaceId || 'personal')
-      const response = await fetch(`/api/connections?workspaceId=${workspaceIdParam}`)
+      // Charger toutes les connexions email de l'utilisateur
+      const response = await fetch('/api/connections')
       const result = await response.json()
 
       if (result.success && result.data) {
-        // Les connexions sont déjà filtrées côté serveur, pas besoin de filtrer à nouveau
-        // Mais on fait une double vérification pour sécurité
-        let filteredConnections = result.data
-
-        if (isPersonalWorkspace) {
-          // Double vérification : s'assurer que ce sont bien des comptes personnels
-          filteredConnections = result.data.filter((conn: any) => 
-            conn.workspace_id === null || conn.workspace_id === 'personal' || !conn.workspace_id
-          )
-          console.log('✅ Extraction - Filtre workspace personnel (vérification):', filteredConnections.length, 'comptes')
-        } else if (activeWorkspaceId) {
-          // Double vérification : s'assurer que ce sont bien les comptes de ce workspace
-          filteredConnections = result.data.filter((conn: any) => 
-            conn.workspace_id === activeWorkspaceId
-          )
-          console.log('✅ Extraction - Filtre workspace organisation (vérification):', filteredConnections.length, 'comptes')
-        }
-
-        // SUPPRIMÉ: Plus de fallback qui charge tous les comptes
-        // Si aucun compte n'est trouvé, c'est normal (l'utilisateur n'a peut-être pas de comptes pour ce workspace)
-
         // Adapter le format des connexions au format attendu
-        const adaptedConfigs = filteredConnections.map((conn: any) => ({
+        const adaptedConfigs = result.data.map((conn: any) => ({
           id: conn.id,
           imap_email: conn.email,
           email_provider: conn.provider,
@@ -157,7 +91,7 @@ export default function ExtractionPage() {
 
         // Sauvegarder dans le cache
         if (typeof window !== 'undefined') {
-          const cacheKey = `extraction_connections_cache_${workspaceIdParam}`
+          const cacheKey = 'extraction_connections_cache'
           localStorage.setItem(cacheKey, JSON.stringify(adaptedConfigs))
           localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString())
           console.log('✅ [CACHE] Comptes extraction sauvegardés dans le cache')
@@ -196,12 +130,6 @@ export default function ExtractionPage() {
     setSearchSince(first.toISOString().split('T')[0])
     setSearchUntil(last.toISOString().split('T')[0])
 
-    // Écouter les changements de workspace
-    const handleWorkspaceChange = () => {
-      console.log('🔄 Workspace changé, rechargement des comptes email...')
-      loadEmailConfigs()
-    }
-
     // Écouter le focus de la fenêtre pour recharger les comptes (après connexion d'un nouveau compte)
     const handleFocus = () => {
       console.log('🔄 Fenêtre refocusée, rechargement des comptes email...')
@@ -209,7 +137,6 @@ export default function ExtractionPage() {
     }
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('workspace:changed', handleWorkspaceChange)
       window.addEventListener('focus', handleFocus)
       
       // Recharger aussi quand la page devient visible (retour d'un autre onglet)
@@ -221,7 +148,6 @@ export default function ExtractionPage() {
       })
       
       return () => {
-        window.removeEventListener('workspace:changed', handleWorkspaceChange)
         window.removeEventListener('focus', handleFocus)
       }
     }
@@ -428,16 +354,10 @@ export default function ExtractionPage() {
       setError(null)
       setLastResult(null)
 
-      // Récupérer le workspace actif
-      const activeWorkspaceId = typeof window !== 'undefined' 
-        ? localStorage.getItem('active_workspace_id') 
-        : null
-
       console.log('📡 Appel API /api/extraction/start avec:', {
         emailConfigId: selectedConfig,
         searchSince,
         searchUntil,
-        workspaceId: activeWorkspaceId
       })
 
       const response = await fetch('/api/extraction/start', {
@@ -450,7 +370,6 @@ export default function ExtractionPage() {
           searchSince: searchSince,
           searchUntil: searchUntil,
           searchKeywords: ['facture', 'invoice', 'reçu', 'receipt', 'bill'],
-          workspaceId: activeWorkspaceId, // 🏢 Passer le workspace actif
         }),
       })
 

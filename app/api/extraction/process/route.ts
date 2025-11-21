@@ -234,7 +234,7 @@ async function processExtractionInBackground(
         progress: {
           ...(job.progress || {}),
           processing_started_at: processingStartedAt, // Verrou pour éviter les instances parallèles
-          workspaceId: (job.progress as any)?.workspaceId || null,
+          // workspaceId supprimé - simplification
           emailsAnalyzed: (job.progress as any)?.emailsAnalyzed || 0,
           invoicesFound: (job.progress as any)?.invoicesFound || 0,
           invoicesDetected: (job.progress as any)?.invoicesDetected || 0,
@@ -1521,33 +1521,8 @@ ${cleanHtml}
         const cleanedVendor = sanitizeForPostgres(extractedData.vendor || from);
         const cleanedSubject = sanitizeForPostgres(subject);
 
-        // Récupérer le workspace_id depuis le progress JSONB (car la table n'a pas de colonne workspace_id)
-        let workspaceIdToUse = null;
-        const workspaceIdFromProgress = job.progress?.workspaceId || null;
-        
-        if (workspaceIdFromProgress) {
-          // Vérifier que le workspace existe ET appartient à l'utilisateur
-          const { data: workspaceExists, error: workspaceError } = await supabaseService
-            .from('workspaces')
-            .select('id, owner_id')
-            .eq('id', workspaceIdFromProgress)
-            .eq('owner_id', userId) // Vérifier que le workspace appartient à l'utilisateur
-            .single();
-          
-          if (workspaceError || !workspaceExists) {
-            // Le workspace n'existe pas ou n'appartient pas à l'utilisateur
-            console.warn(`⚠️ Workspace ${workspaceIdFromProgress} n'existe pas ou n'appartient pas à l'utilisateur ${userId}, utilisation de null (personnel)`);
-            console.warn(`   Erreur workspace:`, workspaceError?.message || 'Workspace introuvable');
-            workspaceIdToUse = null; // Utiliser null pour workspace personnel
-          } else {
-            // Le workspace existe et appartient à l'utilisateur
-            workspaceIdToUse = workspaceIdFromProgress;
-            console.log(`✅ Workspace ${workspaceIdFromProgress} vérifié et valide`);
-          }
-        } else {
-          // Pas de workspace_id dans le progress = workspace personnel
-          workspaceIdToUse = null;
-        }
+        // Plus de workspace - toujours null (simplifié)
+        const workspaceIdToUse = null;
 
         // ========== RÉ-EXTRACTION FORCÉE : On insère/met à jour toutes les factures ==========
         // Normaliser les valeurs pour la clé de session
@@ -1586,11 +1561,10 @@ ${cleanHtml}
         
         console.log(`${isUpdate ? '🔄 Mise à jour' : '✅ Insertion'} de la facture: ${cleanedVendor} - ${cleanedData.invoice_number || 'N/A'} - ${cleanedData.amount} ${cleanedData.currency || 'EUR'}`);
 
-        // Construire extracted_data avec TOUTES les données (y compris celles qui n'ont pas de colonnes dédiées)
+        // Construire extracted_data avec TOUTES les données
         const fullExtractedData = {
           ...cleanedData,
           // Ajouter les métadonnées supplémentaires
-          workspace_id: workspaceIdToUse,
           account_email: emailAccount.email,
         };
         
@@ -1608,7 +1582,7 @@ ${cleanHtml}
           user_id: userId,
           connection_id: job.connection_id,
           email_id: message.id,
-          workspace_id: workspaceIdToUse, // IMPORTANT: Ajouter workspace_id pour le filtrage dans le tableau
+          // workspace_id supprimé - simplification
           // NOTE: subtotal, tax_amount, tax_rate, customer_*, account_email
           // n'existent pas dans la table invoices - toutes ces données sont dans extracted_data (JSONB)
           vendor: cleanedVendor,
@@ -1681,7 +1655,7 @@ ${cleanHtml}
           }
           // Ajouter au cache en mémoire pour éviter les doublons dans la même session
           sessionInsertedInvoices.set(sessionCacheKey, true);
-          console.log(`${isUpdate ? '🔄 Facture #' + invoicesFound + ' mise à jour' : '✅ Facture #' + invoicesFound + ' sauvegardée'}: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} - Workspace: ${workspaceIdToUse || 'null (personnel)'} (${currentMonthlyCount}/${isUnlimited ? '∞' : monthlyLimit})`);
+          console.log(`${isUpdate ? '🔄 Facture #' + invoicesFound + ' mise à jour' : '✅ Facture #' + invoicesFound + ' sauvegardée'}: ${extractedData.vendor || from} - ${cleanedData.amount || 'N/A'} ${cleanedData.currency || 'EUR'} (${currentMonthlyCount}/${isUnlimited ? '∞' : monthlyLimit})`);
           // ⚠️ LOG SPÉCIAL pour Cursor/Replit (DIAGNOSTIC)
           if (from.toLowerCase().includes('cursor') || from.toLowerCase().includes('replit') || subject.toLowerCase().includes('cursor') || subject.toLowerCase().includes('replit')) {
             console.log(`🎉 [CURSOR/REPLIT ${isUpdate ? 'MIS À JOUR' : 'ACCEPTÉ'}] Sujet: "${subject}" | De: ${from} | Vendor: ${extractedData.vendor} | Montant: ${cleanedData.amount} ${cleanedData.currency}`);
@@ -1693,7 +1667,7 @@ ${cleanHtml}
           console.error(`❌ Erreur ${isUpdate ? 'mise à jour' : 'insertion'} facture #${invoicesDetected}:`, dbError);
           console.error(`   Vendor: ${cleanedVendor}`);
           console.error(`   Amount: ${cleanedData.amount}`);
-          console.error(`   Workspace: ${workspaceIdToUse || 'null'}`);
+          // workspace supprimé
           console.error(`   Email ID: ${message.id}`);
         }
       } catch (error) {

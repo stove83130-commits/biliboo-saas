@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { useState, useEffect } from "react"
 import type { User } from "@supabase/supabase-js"
-import { WorkspaceSwitcher } from "./workspace-switcher"
+// WorkspaceSwitcher supprimé - simplification
 import Image from "next/image"
 
 const navigation = [
@@ -284,10 +284,7 @@ export function DashboardSidebar() {
           })}
         </nav>
 
-        {/* Workspace Switcher */}
-        <div className="p-4">
-          <WorkspaceSwitcher />
-        </div>
+        {/* Workspace Switcher supprimé - simplification */}
 
         {/* User section avec menu */}
         <div className="border-t border-border p-4">

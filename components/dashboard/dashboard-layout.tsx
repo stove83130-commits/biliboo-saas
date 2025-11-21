@@ -5,7 +5,7 @@ import { DashboardSidebar } from "./dashboard-sidebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Bell } from "lucide-react"
-import { WorkspaceSwitchingOverlay } from "./workspace-switching-overlay"
+// WorkspaceSwitchingOverlay supprimé - simplification
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -239,7 +239,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </main>
         </div>
       </div>
-      <WorkspaceSwitchingOverlay />
+      {/* WorkspaceSwitchingOverlay supprimé - simplification */}
     </SidebarProvider>
   )
 }
