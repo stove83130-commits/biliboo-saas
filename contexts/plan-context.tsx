@@ -19,12 +19,50 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [hasActivePlan, setHasActivePlan] = useState(false)
   const [currentPlan, setCurrentPlan] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(false)
 
   const checkPlanStatus = async () => {
+    // PROTECTION: Ne pas check si déjà en cours
+    if (isCheckingAuth) {
+      console.log('⏭️  Check plan déjà en cours, skip')
+      return
+    }
+
+    setIsCheckingAuth(true)
+
     try {
-      // Utiliser directement les métadonnées utilisateur au lieu de l'API
       const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
+      
+      // PROTECTION: Vérifier d'abord si on a des cookies d'auth
+      // Si pas de cookies, pas besoin d'appeler getSession()
+      if (typeof document !== 'undefined') {
+        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
+        if (!hasCookie) {
+          console.log('🔒 Pas de cookie d\'auth, skip check plan')
+          setHasActivePlan(false)
+          setCurrentPlan(null)
+          setIsLoading(false)
+          setIsCheckingAuth(false)
+          return
+        }
+      }
+
+      // Appeler getSession() seulement si on a des cookies
+      const { data: { session }, error } = await supabase.auth.getSession()
+      
+      // Si erreur rate limit, arrêter immédiatement
+      if (error?.status === 429) {
+        console.error('⚠️  Rate limit atteint dans PlanContext, arrêt des checks')
+        setIsLoading(false)
+        setIsCheckingAuth(false)
+        return
+      }
+
+      // Ignorer les erreurs normales (refresh_token_not_found, etc.)
+      if (error && error.code !== 'refresh_token_not_found' && error.status !== 400) {
+        console.warn('⚠️  Erreur auth PlanContext:', error.message)
+      }
+
       const user = session?.user || null
       
       if (user) {
@@ -46,22 +84,23 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         setCurrentPlan(null)
       }
     } catch (error: any) {
-      console.error('Erreur vérification plan:', error)
+      console.error('❌ Erreur vérification plan:', error)
       setHasActivePlan(false)
       setCurrentPlan(null)
     } finally {
       setIsLoading(false)
+      setIsCheckingAuth(false)
     }
   }
 
   useEffect(() => {
+    // Check initial seulement
     checkPlanStatus()
     
-    // Rafraîchir automatiquement toutes les 5 minutes pour détecter les changements
-    // (réduit de 30s à 5min pour éviter trop de requêtes inutiles)
-    const interval = setInterval(checkPlanStatus, 300000) // 5 minutes = 300000 ms
+    // ❌ SUPPRIMÉ: Plus d'interval automatique qui cause le rate limit
+    // ❌ const interval = setInterval(checkPlanStatus, 300000)
     
-    // Écouter les événements de changement de plan
+    // Écouter les événements de changement de plan SEULEMENT
     const handlePlanChange = () => {
       console.log('🔄 Événement de changement de plan détecté, rafraîchissement...')
       checkPlanStatus()
@@ -73,13 +112,13 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     }
     
     return () => {
-      clearInterval(interval)
+      // ❌ Plus d'interval à clear
       if (typeof window !== 'undefined') {
         window.removeEventListener('plan:changed', handlePlanChange)
         window.removeEventListener('plan:synced', handlePlanChange)
       }
     }
-  }, [])
+  }, []) // Pas de dépendances pour éviter les re-runs
 
   return (
     <PlanContext.Provider value={{ hasActivePlan, currentPlan, isLoading }}>
@@ -95,5 +134,3 @@ export function usePlan() {
   }
   return context
 }
-
-
