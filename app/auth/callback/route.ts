@@ -5,6 +5,23 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
   const next = requestUrl.searchParams.get('next') || '/dashboard'
+  const error = requestUrl.searchParams.get('error')
+  const errorDescription = requestUrl.searchParams.get('error_description')
+
+  // Logger pour diagnostic
+  console.log('🔍 OAuth Callback:', {
+    origin: requestUrl.origin,
+    hostname: requestUrl.hostname,
+    code: code ? 'present' : 'missing',
+    error,
+    errorDescription,
+  })
+
+  // Si erreur OAuth, rediriger vers login avec message
+  if (error) {
+    console.error('❌ OAuth Error:', error, errorDescription)
+    return NextResponse.redirect(new URL(`/auth/login?error=${encodeURIComponent(errorDescription || error)}`, request.url))
+  }
 
   if (code) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -49,13 +66,23 @@ export async function GET(request: NextRequest) {
     })
 
     // Échanger le code contre une session
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
     
-    if (!error) {
+    if (!error && data?.session) {
+      console.log('✅ OAuth session créée avec succès:', {
+        userId: data.session.user.id,
+        email: data.session.user.email,
+        origin: requestUrl.origin,
+      })
       return response
     } else {
-      console.error('❌ Erreur exchangeCodeForSession:', error)
-      return NextResponse.redirect(new URL(`/auth/login?error=${encodeURIComponent(error.message)}`, request.url))
+      console.error('❌ Erreur exchangeCodeForSession:', {
+        error: error?.message,
+        status: error?.status,
+        origin: requestUrl.origin,
+        hostname: requestUrl.hostname,
+      })
+      return NextResponse.redirect(new URL(`/auth/login?error=${encodeURIComponent(error?.message || 'oauth_error')}`, request.url))
     }
   }
 

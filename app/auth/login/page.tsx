@@ -70,17 +70,32 @@ export default function LoginPage() {
       setError(null)
       
       const supabase = createClient()
+      const redirectUrl = `${window.location.origin}/auth/callback?next=/dashboard`
+      
+      console.log('🔍 Google OAuth - Configuration:', {
+        origin: window.location.origin,
+        hostname: window.location.hostname,
+        redirectUrl,
+      })
+      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+          redirectTo: redirectUrl,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
       })
 
       if (error) {
         console.error('❌ Erreur Google OAuth:', error)
-        setError('Erreur lors de la connexion avec Google')
+        setError(`Erreur lors de la connexion avec Google: ${error.message}`)
         setGoogleLoading(false)
+      } else if (data?.url) {
+        console.log('✅ Redirection Google OAuth vers:', data.url)
+        // signInWithOAuth redirige automatiquement
       }
       // Note: signInWithOAuth redirige automatiquement, donc on ne fait rien d'autre
     } catch (err: any) {
