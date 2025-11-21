@@ -1,6 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr'
 
 let client: ReturnType<typeof createBrowserClient> | null = null
+let refreshBlocked = false
 
 function clearAuthCookies() {
   if (typeof document === 'undefined') return
@@ -12,6 +13,18 @@ function clearAuthCookies() {
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname}`
     }
+  }
+  
+  // Nettoyer aussi localStorage
+  try {
+    const keys = Object.keys(localStorage)
+    for (const key of keys) {
+      if (key.startsWith('sb-')) {
+        localStorage.removeItem(key)
+      }
+    }
+  } catch (e) {
+    console.warn('Erreur nettoyage localStorage:', e)
   }
 }
 
@@ -25,15 +38,43 @@ export const createClient = () => {
 
   client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false, // Désactivé pour éviter refresh automatique
-        persistSession: true,
-        detectSessionInUrl: true,
-      }
-    }
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
+
+  // Intercepter refreshSession pour bloquer les refresh en boucle
+  const originalRefresh = client.auth.refreshSession.bind(client.auth)
+  client.auth.refreshSession = async () => {
+    if (refreshBlocked) {
+      console.warn('⚠️ Refresh bloqué pour éviter boucle')
+      return { data: { session: null, user: null }, error: null }
+    }
+    
+    if (!hasAuthCookie()) {
+      return { data: { session: null, user: null }, error: null }
+    }
+    
+    refreshBlocked = true
+    
+    try {
+      const result = await originalRefresh()
+      
+      if (result.error) {
+        const isAuthError = result.error.status === 400 || 
+                           result.error.status === 429 || 
+                           result.error.message?.includes('refresh_token')
+        
+        if (isAuthError) {
+          console.warn('⚠️ Erreur refresh, nettoyage...')
+          clearAuthCookies()
+          return { data: { session: null, user: null }, error: null }
+        }
+      }
+      
+      return result
+    } finally {
+      setTimeout(() => { refreshBlocked = false }, 5000) // Débloquer après 5s
+    }
+  }
 
   // Wrapper getSession
   const originalGetSession = client.auth.getSession.bind(client.auth)
@@ -48,11 +89,10 @@ export const createClient = () => {
       if (result.error) {
         const isAuthError = result.error.status === 400 || 
                            result.error.status === 429 || 
-                           result.error.message?.includes('refresh_token') ||
-                           result.error.code === 'refresh_token_not_found'
+                           result.error.message?.includes('refresh_token')
         
         if (isAuthError) {
-          console.warn('⚠️ Erreur auth détectée, nettoyage cookies...')
+          console.warn('⚠️ Erreur auth, nettoyage...')
           clearAuthCookies()
           return { data: { session: null }, error: null }
         }
@@ -78,5 +118,6 @@ export const createClient = () => {
 
 export const resetClient = () => {
   clearAuthCookies()
+  refreshBlocked = false
   client = null
 }
