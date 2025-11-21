@@ -11,35 +11,13 @@ import { createClient } from "@/lib/supabase/client"
 import type { User } from "@supabase/supabase-js"
 
 export function Header() {
-  const supabase = createClient()
   const [user, setUser] = useState<User | null>(null)
   const pathname = usePathname()
 
+  // ❌ DÉSACTIVÉ TEMPORAIREMENT - DEBUG
   useEffect(() => {
-    let mounted = true
-    const init = async () => {
-      // Vérifier cookie d'abord
-      if (typeof document !== 'undefined') {
-        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
-        if (!hasCookie) {
-          if (mounted) setUser(null)
-          return
-        }
-      }
-      
-      const { data: { session } } = await supabase.auth.getSession()
-      if (mounted) setUser(session?.user ?? null)
-    }
-    
-    init()
-    
-    // ❌ SUPPRIMÉ: onAuthStateChange - cause la boucle infinie
-    // const { data: { subscription } } = supabase.auth.onAuthStateChange(...)
-    
-    return () => {
-      mounted = false
-    }
-  }, []) // ✅ Tableau vide - s'exécute 1 seule fois
+    // Ne rien faire pour le moment
+  }, [])
   
   const scrollToSection = (sectionId: string) => {
     // Si on est sur la page d'accueil, on scroll directement

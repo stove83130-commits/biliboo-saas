@@ -10,32 +10,11 @@ import type { User } from "@supabase/supabase-js"
 export function PricingSection() {
   const [isAnnual, setIsAnnual] = useState(true)
   const [user, setUser] = useState<User | null>(null)
-  const supabase = createClient()
 
+  // ❌ DÉSACTIVÉ TEMPORAIREMENT - DEBUG  
   useEffect(() => {
-    let mounted = true
-    const checkUser = async () => {
-      // Vérifier cookie d'abord
-      if (typeof document !== 'undefined') {
-        const hasCookie = document.cookie.includes('sb-qkpfxpuhrjgctpadxslh-auth-token')
-        if (!hasCookie) {
-          if (mounted) setUser(null)
-          return
-        }
-      }
-      
-      const { data: { session } } = await supabase.auth.getSession()
-      if (mounted) setUser(session?.user ?? null)
-    }
-
-    checkUser()
-    
-    // ❌ SUPPRIMÉ: onAuthStateChange - cause la boucle infinie
-    
-    return () => {
-      mounted = false
-    }
-  }, []) // ✅ Tableau vide
+    // Ne rien faire pour le moment
+  }, [])
 
   // Vérifier si l'utilisateur a déjà consommé son essai gratuit
   // Un essai est considéré comme consommé si :
