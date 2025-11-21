@@ -86,23 +86,57 @@ export async function GET(request: NextRequest) {
     })
 
     // Échanger le code contre une session
+    console.log('🔄 Tentative exchangeCodeForSession...', {
+      code: code.substring(0, 20) + '...',
+      hostname: requestUrl.hostname,
+      origin: requestUrl.origin,
+    })
+    
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+    
+    // Vérifier les cookies après l'échange
+    const cookiesAfterExchange = request.cookies.getAll()
+    const supabaseCookies = cookiesAfterExchange.filter(c => c.name.startsWith('sb-'))
+    
+    console.log('🍪 Cookies après exchangeCodeForSession:', {
+      count: supabaseCookies.length,
+      names: supabaseCookies.map(c => c.name),
+    })
     
     if (!error && data?.session) {
       console.log('✅ OAuth session créée avec succès:', {
         userId: data.session.user.id,
         email: data.session.user.email,
         origin: requestUrl.origin,
+        hostname: requestUrl.hostname,
+        cookiesSet: supabaseCookies.length,
       })
+      
+      // Vérifier que les cookies sont bien dans la réponse
+      const responseCookies = response.cookies.getAll()
+      const responseSupabaseCookies = responseCookies.filter(c => c.name.startsWith('sb-'))
+      console.log('🍪 Cookies dans la réponse:', {
+        count: responseSupabaseCookies.length,
+        names: responseSupabaseCookies.map(c => c.name),
+      })
+      
       return response
     } else {
       console.error('❌ Erreur exchangeCodeForSession:', {
         error: error?.message,
         status: error?.status,
+        code: error?.code,
         origin: requestUrl.origin,
         hostname: requestUrl.hostname,
+        cookiesSet: supabaseCookies.length,
       })
-      return NextResponse.redirect(new URL(`/auth/login?error=${encodeURIComponent(error?.message || 'oauth_error')}`, request.url))
+      
+      // Rediriger vers debug si on est en développement ou avec un paramètre spécial
+      const debugUrl = requestUrl.searchParams.get('debug') === 'true'
+        ? `/debug?error=${encodeURIComponent(error?.message || 'oauth_error')}`
+        : `/auth/login?error=${encodeURIComponent(error?.message || 'oauth_error')}`
+      
+      return NextResponse.redirect(new URL(debugUrl, request.url))
     }
   }
 

@@ -9,6 +9,7 @@ export async function middleware(request: NextRequest) {
     '/auth/login',
     '/auth/signup',
     '/auth/callback', // IMPORTANT: Route callback OAuth doit être publique
+    '/debug', // Page de diagnostic
     '/',
     '/cgu',
     '/cgv',
@@ -81,13 +82,35 @@ export async function middleware(request: NextRequest) {
   })
 
   try {
+    // Vérifier les cookies avant getUser
+    const cookiesBefore = request.cookies.getAll()
+    const supabaseCookiesBefore = cookiesBefore.filter(c => c.name.startsWith('sb-'))
+    
     const { data: { user }, error } = await supabase.auth.getUser()
+    
+    // Vérifier les cookies après getUser
+    const cookiesAfter = request.cookies.getAll()
+    const supabaseCookiesAfter = cookiesAfter.filter(c => c.name.startsWith('sb-'))
 
     if (error || !user) {
+      console.log('🚫 Middleware: Utilisateur non authentifié', {
+        pathname,
+        hostname: request.nextUrl.hostname,
+        error: error?.message,
+        cookiesBefore: supabaseCookiesBefore.length,
+        cookiesAfter: supabaseCookiesAfter.length,
+      })
       const url = request.nextUrl.clone()
       url.pathname = '/auth/login'
       return NextResponse.redirect(url)
     }
+
+    console.log('✅ Middleware: Utilisateur authentifié', {
+      pathname,
+      hostname: request.nextUrl.hostname,
+      userId: user.id,
+      cookiesCount: supabaseCookiesAfter.length,
+    })
 
     return supabaseResponse
   } catch (error) {
